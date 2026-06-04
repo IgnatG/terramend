@@ -1,0 +1,100 @@
+{
+  "name": "lintel",
+  "version": "0.1.21",
+  "type": "module",
+  "bin": {
+    "lintel": "dist/cli.mjs",
+    "lintel-dev": "dist/cli.mjs",
+    "pf": "dist/cli.mjs"
+  },
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "test": "vitest",
+    "test:catalog": "vitest run --config vitest.main.config.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "node esbuild.config.js && tsc -p tsconfig.exports.json",
+    "check:entrypoints": "node scripts/check-entrypoint-imports.ts",
+    "docker": "node docker.ts",
+    "play": "node play.ts",
+    "runtest": "node test/run.ts",
+    "scratch": "node scratch.ts",
+    "upDeps": "pnpm up --latest",
+    "lock": "pnpm install --no-frozen-lockfile",
+    "prepare": "cd .. && husky"
+  },
+  "devDependencies": {
+    "@actions/core": "^1.11.1",
+    "@anthropic-ai/claude-code": "2.1.150",
+    "@ark/fs": "0.56.0",
+    "@ark/util": "0.56.0",
+    "@clack/prompts": "^1.2.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@opencode-ai/sdk": "1.2.27",
+    "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/rest": "^22.0.0",
+    "@octokit/webhooks-types": "^7.6.1",
+    "@standard-schema/spec": "1.1.0",
+    "@toon-format/toon": "^1.0.0",
+    "@types/node": "^24.7.2",
+    "@types/semver": "^7.7.1",
+    "@types/turndown": "^5.0.5",
+    "agent-browser": "0.25.4",
+    "ajv": "^8.18.0",
+    "arg": "^5.0.2",
+    "arkregex": "0.0.5",
+    "arktype": "2.2.0",
+    "dotenv": "^17.2.3",
+    "esbuild": "^0.25.9",
+    "execa": "^9.6.0",
+    "fastmcp": "^3.34.0",
+    "file-type": "^21.3.0",
+    "husky": "^9.0.0",
+    "opencode-ai": "1.15.13",
+    "package-manager-detector": "^1.6.0",
+    "picocolors": "^1.1.1",
+    "semver": "^7.7.3",
+    "skills": "1.4.9",
+    "table": "^6.9.0",
+    "turndown": "^7.2.0",
+    "typescript": "^5.9.3",
+    "undici": "^7.22.0",
+    "vitest": "^4.0.17",
+    "yaml": "^2.8.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lintel/lintel.git"
+  },
+  "keywords": [
+    "github-actions",
+    "ai-coding-agent",
+    "code-review"
+  ],
+  "author": "Lintel contributors",
+  "license": "AGPL-3.0-or-later",
+  "bugs": {
+    "url": "https://github.com/lintel/lintel/issues"
+  },
+  "homepage": "https://github.com/lintel/lintel#readme",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "@lintel/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./internal": {
+      "@lintel/source": "./src/internal/index.ts",
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal.js",
+      "default": "./dist/internal.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "packageManager": "pnpm@10.27.0+sha512.72d699da16b1179c14ba9e64dc71c9a40988cbdc65c264cb0e489db7de917f20dcf4d64d8723625f2969ba52d4b7e2a1170682d9ac2a5dcaeaab732b7e16f04a"
+}

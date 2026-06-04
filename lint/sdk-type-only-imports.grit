@@ -1,0 +1,12 @@
+// Enforce type-only imports from SDK packages
+// These SDK packages should only be used for type imports (stream output parsing)
+// Runtime SDK usage should be replaced with CLI invocations
+// Note: This rule only catches single-specifier imports; for multi-specifier imports,
+// the noUnusedImports rule will flag unused runtime imports
+
+`import { $specifiers } from "@opencode-ai/sdk"` as $import where {
+  register_diagnostic(
+    span = $import,
+    message = "SDK packages must use `import type` only. Use CLI invocation instead of runtime SDK usage."
+  )
+}

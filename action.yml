@@ -1,0 +1,59 @@
+name: "Lintel Action"
+description: "Execute coding agents with a prompt"
+author: "Lintel"
+
+inputs:
+  prompt:
+    description: "Prompt to send to the agent (string or JSON payload)"
+    required: true
+  timeout:
+    description: "Maximum run duration (e.g., 10m, 1h30m). Default: 1h"
+    required: false
+  model:
+    description: "Model to use (e.g., anthropic/claude-opus). Overrides repo settings."
+    required: false
+  cwd:
+    description: "Working directory for the agent (defaults to GITHUB_WORKSPACE)"
+    required: false
+  push:
+    description: "Git push permission: disabled (read-only), restricted (push feature branches only — blocks pushes to the default branch, branch deletion, and tag pushes), or enabled (full push access). Default: enabled"
+    required: false
+  shell:
+    description: "Shell permission: disabled, restricted (filters secrets from env vars), or enabled. Public repos default to restricted for security; private repos default to enabled."
+    required: false
+  output_schema:
+    description: "JSON Schema (draft-07) for structured output validation. When provided, the action output becomes required and must conform to this schema."
+    required: false
+  scan_scope:
+    description: "Terraform remediation: 'full' scans the whole workspace; 'diff' limits concerns to Terraform files changed vs the base branch. Default: full."
+    required: false
+  severity_threshold:
+    description: "Terraform remediation: minimum concern severity to act on (critical|high|medium|low|info). Default: low."
+    required: false
+  max_prs:
+    description: "Terraform remediation: maximum remediation PRs to open per run. Default: 1."
+    required: false
+  allowed_paths:
+    description: "Terraform remediation: comma-separated globs the agent may modify. Default: **/*.tf,**/*.tfvars."
+    required: false
+  token:
+    description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  result:
+    description: "It's set when the prompt explicitly requests it and is required when output_schema is provided; use it to capture actionable output for the next workflow step."
+
+runs:
+  using: "node24"
+  main: "src/entry.ts"
+  # Always-run post step persists best-effort state that must survive
+  # cancellation, timeouts, and unhandled errors in the main step. Today's
+  # only consumer: Codex auth.json refresh write-back. See wiki/codex-auth.md.
+  post: "src/entryPost.ts"
+  post-if: "always()"
+
+branding:
+  icon: "code"
+  color: "green"
