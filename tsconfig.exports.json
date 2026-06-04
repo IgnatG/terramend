@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "./dist",
+    // emit dist/index.d.ts (not dist/src/...); also disambiguates the #app/* import map.
+    "rootDir": "./src"
+  },
+  "include": ["src/index.ts", "src/internal/index.ts"]
+}

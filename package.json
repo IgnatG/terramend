@@ -1,0 +1,108 @@
+{
+  "name": "terramend",
+  "version": "0.1.0",
+  "description": "GitHub Action that remediates Terraform to best practices and opens one scoped pull request per concern.",
+  "keywords": [
+    "github-actions",
+    "terraform",
+    "iac",
+    "remediation",
+    "best-practices",
+    "ai-coding-agent"
+  ],
+  "homepage": "https://github.com/terramend/terramend#readme",
+  "bugs": {
+    "url": "https://github.com/terramend/terramend/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/terramend/terramend.git"
+  },
+  "license": "AGPL-3.0-or-later",
+  "author": "Gabriel Ignat",
+  "type": "module",
+  "imports": {
+    "#app/*": "./src/*.ts",
+    "#package.json": "./package.json"
+  },
+  "exports": {
+    ".": {
+      "@terramend/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./internal": {
+      "@terramend/source": "./src/internal/index.ts",
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal.js",
+      "default": "./dist/internal.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "terramend": "dist/cli.mjs"
+  },
+  "files": [
+    "dist/",
+    "src/"
+  ],
+  "scripts": {
+    "build": "node esbuild.config.js && tsc -p tsconfig.exports.json",
+    "check:entrypoints": "node scripts/check-entrypoint-imports.ts",
+    "dev:run": "node dev-run.ts",
+    "docker": "node docker.ts",
+    "lock": "pnpm install --no-frozen-lockfile",
+    "runtest": "node test/run.ts",
+    "test": "vitest",
+    "test:catalog": "vitest run --config vitest.main.config.ts",
+    "typecheck": "tsc --noEmit",
+    "upDeps": "pnpm up --latest"
+  },
+  "devDependencies": {
+    "@actions/core": "^3.0.1",
+    "@anthropic-ai/claude-code": "2.1.168",
+    "@ark/fs": "0.56.0",
+    "@ark/util": "0.56.0",
+    "@clack/prompts": "^1.5.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/rest": "^22.0.1",
+    "@octokit/webhooks-types": "^7.6.1",
+    "@opencode-ai/sdk": "1.16.2",
+    "@standard-schema/spec": "1.1.0",
+    "@toon-format/toon": "^2.3.0",
+    "@types/node": "^25.9.2",
+    "@types/semver": "^7.7.1",
+    "@types/turndown": "^5.0.6",
+    "agent-browser": "0.27.1",
+    "ajv": "^8.20.0",
+    "arg": "^5.0.2",
+    "arkregex": "0.0.5",
+    "arktype": "2.2.0",
+    "dotenv": "^17.4.2",
+    "esbuild": "^0.28.0",
+    "execa": "^9.6.1",
+    "fastmcp": "^4.0.2",
+    "file-type": "^22.0.1",
+    "opencode-ai": "1.16.2",
+    "package-manager-detector": "^1.6.0",
+    "picocolors": "^1.1.1",
+    "semver": "^7.8.3",
+    "skills": "1.5.10",
+    "table": "^6.9.0",
+    "turndown": "^7.2.4",
+    "typescript": "^6.0.3",
+    "undici": "^8.4.1",
+    "vitest": "^4.1.8",
+    "yaml": "^2.9.0"
+  },
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11"
+  }
+}

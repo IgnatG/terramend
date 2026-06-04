@@ -1,0 +1,50 @@
+# Example: generate new Terraform from a plain-English requirement.
+#
+# Pin `mode: generateterraform` and describe the infrastructure in `prompt`.
+# Terramend writes secure-by-default HCL (pinned versions, parameterised, tagged,
+# least-privilege), validates it, self-scans it clean, and opens one reviewable
+# PR. Optionally scaffolds plan-only Terratest + native tests for a reusable module.
+
+name: terramend-generate
+
+on:
+  workflow_dispatch:
+    inputs:
+      requirement:
+        description: "What to generate, e.g. 'a private S3 bucket with versioning and a KMS key'."
+        type: string
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: terraform-linters/setup-tflint@v4
+      - uses: aquasecurity/setup-trivy@v0.3.1
+      - run: pipx install checkov
+
+      - name: Generate Terraform
+        uses: <your-org>/terramend@v0
+        with:
+          mode: generateterraform
+          prompt: ${{ inputs.requirement }}
+          push: enabled
+          # Prefer these vetted modules over hand-rolled resources:
+          # module_catalogue: |
+          #   terraform-aws-modules/vpc/aws ~> 5.0
+          #   terraform-aws-modules/s3-bucket/aws ~> 4.0
+          # terratest: "true"   # scaffold plan-only Terratest + native *.tftest.hcl tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}

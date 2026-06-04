@@ -1,0 +1,100 @@
+name: release-please
+
+run-name: "Release-please · ${{ github.ref_name }}"
+
+# Automated releases from Conventional Commits (https://www.conventionalcommits.org).
+# release-please keeps an open "release PR" that accumulates the changelog +
+# version bumps; merging it cuts the release:
+#   1. release-please — creates the GitHub release + the exact vX.Y.Z git tag and
+#      bumps package.json + CHANGELOG (release-type: node). It does NOT publish to
+#      npm — terramend's npm version is server-stamped from the SHA-pinned action
+#      ref at publish time (see src/runCli.ts), a separate mechanism. release-please
+#      owns the git tags / GitHub releases / changelog only.
+#   2. tag-floats — moves the major (vX) and minor (vX.Y) float tags to the new
+#      release, so consumers can pin `uses: terramend/terramend@v0` (auto-updates
+#      within the major), `@v0.1` (within the minor), or `@v0.1.3` (exact).
+#      Chained here (not a tag-push trigger) because a tag created with
+#      GITHUB_TOKEN doesn't trigger other workflows.
+#
+# Requires repo Settings → Actions → General → "Allow GitHub Actions to create
+# and approve pull requests" (so the release PR can be opened), OR a RELEASE_PAT
+# (see the token note below).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Serialise release runs on main — two quick pushes shouldn't race two release
+# PRs. Don't cancel in-progress: a half-finished release (tag pushed, floats not)
+# is worse than waiting.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+      major: ${{ steps.rp.outputs.major }}
+      minor: ${{ steps.rp.outputs.minor }}
+      version: ${{ steps.rp.outputs.version }}
+    steps:
+      # release-please needs a GitHub token (NOT an npm token — npm publishing is a
+      # separate, server-stamped path; see src/runCli.ts). Two ways to supply it:
+      #
+      #   * RELEASE_PAT — a PAT with contents + pull-requests scope. Preferred:
+      #     the release PR then runs CI, and release-please can open the PR without
+      #     the org/repo "Allow GitHub Actions to create and approve pull requests"
+      #     toggle.
+      #   * GITHUB_TOKEN — the built-in token, used automatically when RELEASE_PAT
+      #     is unset (the fallback below). This requires Settings → Actions →
+      #     General → "Allow GitHub Actions to create and approve pull requests" to
+      #     be ON, and the release PR will NOT trigger CI (token-created events
+      #     don't start new workflows).
+      #
+      # Either way the tag-floats job runs in THIS run (a token-created tag can't
+      # trigger a fresh workflow).
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        id: rp
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          target-branch: main
+        # config-file + manifest-file default to release-please-config.json and
+        # .release-please-manifest.json, which we ship at the repo root.
+
+  tag-floats:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - name: Move the major + minor float tags to the new release
+        # GitHub recommends keeping BOTH the major (vX) and minor (vX.Y) tags
+        # current to the latest appropriate commit, so action consumers can pin
+        # `@v0` (any 0.y.z), `@v0.1` (any 0.1.z), or `@v0.1.3` (exact). The exact
+        # tag is release-please's; these floats are moved here.
+        env:
+          MAJOR: ${{ needs.release-please.outputs.major }}
+          MINOR: ${{ needs.release-please.outputs.minor }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force
+          for float in "v${MAJOR}" "v${MAJOR}.${MINOR}"; do
+            git tag -f "$float" "${TAG}"
+            git push -f origin "$float"
+          done

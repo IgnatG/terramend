@@ -1,0 +1,50 @@
+# Example: trigger a fix from a PR/issue comment.
+#
+# Comment `@terramend fix …` on an issue or PR and Terramend scopes the run to
+# what you asked:
+#   @terramend fix #<concern-id>        — fix exactly one concern
+#   @terramend fix all high-severity    — fix every concern at/above a severity
+#   @terramend fix main.tf              — fix one file's group
+#   @terramend fix all                  — fix everything (still bounded by max_prs)
+#
+# The comment body is passed through as the prompt; Terramend parses the command.
+
+name: terramend-comment-fix
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  comment-fix:
+    # Only run on an actual @terramend fix command from a collaborator.
+    if: >-
+      contains(github.event.comment.body, '@terramend fix') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: terraform-linters/setup-tflint@v4
+      - uses: aquasecurity/setup-trivy@v0.3.1
+      - run: pipx install checkov
+
+      - name: Run Terramend
+        uses: <your-org>/terramend@v0
+        with:
+          mode: remediate
+          # Pass the comment through — Terramend reads the `@terramend fix …` scope.
+          prompt: ${{ github.event.comment.body }}
+          push: enabled
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}

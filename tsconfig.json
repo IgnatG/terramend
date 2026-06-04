@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist",
+    // required so TS can resolve the package.json `imports` map (#app/* -> ./src/*).
+    "rootDir": ".",
+    "module": "NodeNext",
+    "target": "ESNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ESNext"],
+    "types": ["vitest/globals"],
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedSideEffectImports": true,
+    "declaration": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+    "stripInternal": true,
+    "moduleDetection": "force",
+    "useUnknownInCatchVariables": true,
+    "noEmit": true
+  },
+  "exclude": ["dist"]
+}

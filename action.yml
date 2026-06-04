@@ -1,0 +1,86 @@
+name: "Terramend Action"
+description: "Execute coding agents with a prompt"
+author: "Terramend"
+
+inputs:
+  prompt:
+    description: "Prompt to send to the agent (string or JSON payload)"
+    required: true
+  timeout:
+    description: "Maximum run duration (e.g., 10m, 1h30m). Default: 1h"
+    required: false
+  model:
+    description: "Model to use (e.g., anthropic/claude-opus). Overrides repo settings."
+    required: false
+  mode:
+    description: "Pin the run to a specific mode (e.g. 'Remediate') instead of letting the agent choose from the prompt. Case-insensitive; unknown values fall back to agent selection. Recommended for deterministic CI."
+    required: false
+  cwd:
+    description: "Working directory for the agent (defaults to GITHUB_WORKSPACE)"
+    required: false
+  push:
+    description: "Git push permission: disabled (read-only), restricted (push feature branches only — blocks pushes to the default branch, branch deletion, and tag pushes), or enabled (full push access). Default: enabled"
+    required: false
+  shell:
+    description: "Shell permission: disabled, restricted (filters secrets from env vars), or enabled. Public repos default to restricted for security; private repos default to enabled."
+    required: false
+  output_schema:
+    description: "JSON Schema (draft-07) for structured output validation. When provided, the action output becomes required and must conform to this schema."
+    required: false
+  scan_scope:
+    description: "Terraform remediation: 'full' scans the whole workspace; 'diff' limits concerns to Terraform files changed vs the base branch. Default: full."
+    required: false
+  severity_threshold:
+    description: "Terraform remediation: minimum concern severity to act on (critical|high|medium|low|info). Default: low."
+    required: false
+  max_prs:
+    description: "Terraform remediation: maximum remediation PRs to open per run. Default: 1."
+    required: false
+  allowed_paths:
+    description: "Terraform remediation: comma-separated globs the agent may modify. Default: **/*.tf,**/*.tfvars."
+    required: false
+  base_branch:
+    description: "Branch the remediation/generation PR targets. Default: the repository's default branch (main, or master). Set this to pin a specific base (e.g. a release branch) regardless of where the run is dispatched."
+    required: false
+  allow_replace:
+    description: "Terraform remediation: comma-separated resource addresses (or globs, or '*'/'all') allowed to be destroyed/replaced. By default a fix that terraform_plan shows would delete/replace a stateful resource (RDS, S3, EBS, a SQL database, …) is blocked at push to prevent data loss. Requires cloud credentials for the plan to run."
+    required: false
+  protected_paths:
+    description: "Terraform remediation: comma-separated globs the fixer must NEVER auto-modify (e.g. prod state, data-store modules). A push that touched any matching file is blocked — the inverse of allowed_paths. Default: none."
+    required: false
+  autonomy_threshold:
+    description: "Terraform remediation: minimum severity at which a SECURITY finding is escalated to human review (needs-human label) rather than auto-fixed (critical|high|medium|low|info). A high blast radius always escalates. Default: high."
+    required: false
+  gitleaks:
+    description: "Terraform remediation: set 'true' to run the external gitleaks binary as an additional secret scanner on top of the built-in detectors before pushing. Opt-in and best-effort — if gitleaks isn't installed the built-in scanner is still enforced. Default: false."
+    required: false
+  cost_increase_block_usd:
+    description: "Terraform remediation: monthly USD increase at/above which a fix is escalated to human review (needs-human label) when infracost runs. Default: unset (no cost escalation)."
+    required: false
+  module_catalogue:
+    description: "Terraform remediation/generation: newline- or comma-separated list of approved modules the agent should PREFER over raw resources, each '[name=]<source>[ <version>]' — a public registry module (e.g. 'terraform-aws-modules/vpc/aws ~> 5.0'), a private git module library (e.g. 'git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2'), or a local/house module path (e.g. './modules/networking'). Surfaced via the list_modules tool (which also auto-discovers house modules already used in the repo). Default: none."
+    required: false
+  terratest:
+    description: "Terraform generation: set 'true' to scaffold a Go Terratest smoke test + a native *.tftest.hcl test when generating a reusable module (via the scaffold_terratest tool). Both plan the module directly (no examples/ fixture). Opt-in and plan-only (never applies). Enabling it widens allowed_paths to permit the test files. Default: false."
+    required: false
+  token:
+    description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  result:
+    description: "It's set when the prompt explicitly requests it and is required when output_schema is provided; use it to capture actionable output for the next workflow step."
+
+runs:
+  using: "node24"
+  main: "src/entry.ts"
+  # Always-run post step persists best-effort state that must survive
+  # cancellation, timeouts, and unhandled errors in the main step. Today's
+  # only consumer: Codex auth.json refresh write-back. See wiki/codex-auth.md.
+  post: "src/entryPost.ts"
+  post-if: "always()"
+
+branding:
+  icon: "code"
+  color: "green"

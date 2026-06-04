@@ -1,0 +1,54 @@
+version: 2
+
+updates:
+  # GitHub Actions are pinned to full commit SHAs (e.g.
+  # actions/checkout@<sha> # v6) for supply-chain integrity — a tag can be
+  # force-moved, a SHA can't. Because the pin is an exact commit, the major
+  # tag's "floats across its own patches" property no longer applies: every
+  # upstream release (patch included) is a NEW sha we want, so — unlike a
+  # tag-pinned setup — we do NOT ignore minor/patch here. Dependabot rewrites
+  # both the sha and the trailing `# vX.Y.Z` comment on each bump.
+  - package-ecosystem: github-actions
+    # Covers every workflow under .github/workflows/ (test, release-please,
+    # terramend consumer template).
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      # `deps:` is a releasable unit (release-please cuts a patch from it).
+      prefix: deps
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Node dependencies (package.json + pnpm-lock.yaml). The "npm" ecosystem
+  # handles pnpm lockfiles. Everything lives in devDependencies (the npm
+  # artifact is a self-contained esbuild bundle), so this single group covers
+  # the whole tree. Grouped into one weekly PR; `deps:` so a bump cuts a patch.
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    groups:
+      npm:
+        patterns: ["*"]
+
+  # Local test-container base image (Dockerfile: ubuntu:24.04). This image is
+  # only built by `pnpm docker` for local dogfooding — it is NOT the action
+  # runtime (the action is node24/JS) and is never shipped. Watch it for base
+  # OS security patches, but block the major/minor LTS jump (24.04 -> 26.04):
+  # the toolchain pins baked in (terraform/node/checkov) are validated against
+  # 24.04, so an LTS bump is a deliberate, coordinated change.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    ignore:
+      - dependency-name: ubuntu
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
