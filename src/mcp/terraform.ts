@@ -51,6 +51,29 @@ function concernId(source: string, ruleId: string, file: string, line: number | 
     .slice(0, 12);
 }
 
+/**
+ * Normalize a scanner-reported path to a repo-relative POSIX path. Each scanner
+ * reports the file differently — tflint gives `main.tf` (relative), tfsec an
+ * absolute path (`/repo/main.tf` or `D:\repo\main.tf`), checkov a leading-slash
+ * path (`/main.tf`). Left unnormalized, these leak into `location.file` AND the
+ * content-derived `concernId`, making the id (and the `remediate/<id>` branch)
+ * machine-dependent and breaking the ✗→✓ re-scan id match across environments.
+ * So normalize BEFORE building any Concern.
+ */
+function toRepoRelative(raw: string | undefined, cwd: string): string {
+  if (!raw) return "(unknown)";
+  const posix = raw.replace(/\\/g, "/");
+  const cwdPosix = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+  let rel = posix;
+  if (cwdPosix && posix.toLowerCase().startsWith(`${cwdPosix.toLowerCase()}/`)) {
+    rel = posix.slice(cwdPosix.length + 1);
+  }
+  // strip any leading "./" or "/" (checkov reports paths relative to its -d root
+  // with a leading separator).
+  rel = rel.replace(/^(?:\.\/|\/)+/, "");
+  return rel || "(unknown)";
+}
+
 type RunResult = { status: number; stdout: string; stderr: string; missing: boolean };
 
 /**
@@ -92,6 +115,28 @@ function skipped(source: Concern["source"], reason: string): ScannerOutcome {
   return { source, ran: false, skipped_reason: reason, concerns: [] };
 }
 
+// dirs already `terraform init`-ed this process, so repeated scans don't re-init.
+const initedDirs = new Set<string>();
+
+/**
+ * Run `terraform init -backend=false` once per dir so `terraform validate` has
+ * provider schemas to check against (Bug 3 / gap B). Without init, validate only
+ * emits "missing required provider" — which VALIDATE_NOISE drops — so it was
+ * effectively inert. `-backend=false` avoids needing real backend credentials;
+ * `-input=false` keeps it non-interactive. Network-dependent and best-effort: if
+ * it fails (offline, private module, etc.) validate still runs, just shallow.
+ */
+function ensureTerraformInit(cwd: string): void {
+  if (initedDirs.has(cwd)) return;
+  const r = run("terraform", ["init", "-backend=false", "-input=false", "-no-color"], cwd);
+  // mark done even on non-zero: a failed init won't succeed on retry within the
+  // same run, and we don't want to re-run it for every scanner call.
+  initedDirs.add(cwd);
+  if (r.status !== 0 && !r.missing) {
+    log.info(`» terraform init (for validate) did not complete cleanly — validate may be shallow`);
+  }
+}
+
 // --- terraform fmt -------------------------------------------------------
 
 function scanFmt(cwd: string): ScannerOutcome {
@@ -100,32 +145,37 @@ function scanFmt(cwd: string): ScannerOutcome {
   // exit 0 = all formatted; exit 3 = files need formatting (lists them on stdout);
   // other non-zero = real error (e.g. parse failure) — surface nothing, validate covers it.
   if (r.status === 0) return { source: "terraform-fmt", ran: true, concerns: [] };
-  return { source: "terraform-fmt", ran: true, concerns: parseFmtOutput(r.stdout) };
+  return { source: "terraform-fmt", ran: true, concerns: parseFmtOutput(r.stdout, cwd) };
 }
 
 /** `terraform fmt -check -list=true` prints one unformatted file path per line. */
-export function parseFmtOutput(stdout: string): Concern[] {
+export function parseFmtOutput(stdout: string, cwd = ""): Concern[] {
   const files = stdout
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  return files.map<Concern>((file) => ({
-    id: concernId("terraform-fmt", "unformatted", file, null),
-    source: "terraform-fmt",
-    rule_id: "terraform-fmt:unformatted",
-    severity: "low",
-    category: "style",
-    evidence: "File does not match `terraform fmt` canonical style.",
-    location: { file, line: null },
-    remediation_hint: "Run `terraform fmt` to apply canonical formatting.",
-  }));
+  return files.map<Concern>((raw) => {
+    const file = toRepoRelative(raw, cwd);
+    return {
+      id: concernId("terraform-fmt", "unformatted", file, null),
+      source: "terraform-fmt",
+      rule_id: "terraform-fmt:unformatted",
+      severity: "low",
+      category: "style",
+      evidence: "File does not match `terraform fmt` canonical style.",
+      location: { file, line: null },
+      remediation_hint: "Run `terraform fmt` to apply canonical formatting.",
+    };
+  });
 }
 
 // --- terraform validate ---------------------------------------------------
 
-// diagnostics that mean the working dir just isn't initialized — environmental,
-// not a real best-practice issue. dropped so a standalone run without provider
-// plugins doesn't emit false positives.
+// diagnostics that are environmental (the dir isn't initialized, or a provider
+// plugin failed to install/launch) rather than a real best-practice issue.
+// dropped so a scan can't emit false positives from toolchain hiccups — e.g.
+// after `terraform init` (Bug 3), a crashed provider plugin surfaces as
+// "Failed to load plugin schemas", which is noise, not a defect in the HCL.
 const VALIDATE_NOISE = [
   "terraform init",
   "missing required provider",
@@ -133,27 +183,31 @@ const VALIDATE_NOISE = [
   "module is not yet installed",
   "required plugins are not installed",
   "uninitialized",
+  "failed to load plugin",
+  "plugin did not respond",
+  "could not load plugin",
 ];
 
 function scanValidate(cwd: string): ScannerOutcome {
+  ensureTerraformInit(cwd);
   const r = run("terraform", ["validate", "-json"], cwd);
   if (r.missing) return skipped("terraform-validate", "terraform not installed");
   try {
-    return { source: "terraform-validate", ran: true, concerns: parseValidateOutput(r.stdout) };
+    return { source: "terraform-validate", ran: true, concerns: parseValidateOutput(r.stdout, cwd) };
   } catch {
     return skipped("terraform-validate", "could not parse `terraform validate -json` output");
   }
 }
 
 /** parse `terraform validate -json`; keeps real errors, drops uninitialized-dir noise. */
-export function parseValidateOutput(stdout: string): Concern[] {
+export function parseValidateOutput(stdout: string, cwd = ""): Concern[] {
   const parsed = JSON.parse(stdout || "{}") as { diagnostics?: ValidateDiagnostic[] };
   const diags = (parsed.diagnostics ?? []).filter((d) => d.severity === "error");
   const concerns: Concern[] = [];
   for (const d of diags) {
     const text = `${d.summary ?? ""} ${d.detail ?? ""}`.toLowerCase();
     if (VALIDATE_NOISE.some((n) => text.includes(n))) continue;
-    const file = d.range?.filename ?? "(unknown)";
+    const file = toRepoRelative(d.range?.filename, cwd);
     const line = d.range?.start?.line ?? null;
     concerns.push({
       id: concernId("terraform-validate", d.summary ?? "error", file, line),
@@ -193,18 +247,18 @@ function scanTflint(cwd: string): ScannerOutcome {
   const r = run("tflint", ["--format", "json", "--recursive"], cwd);
   if (r.missing) return skipped("tflint", "tflint not installed");
   try {
-    return { source: "tflint", ran: true, concerns: parseTflintOutput(r.stdout) };
+    return { source: "tflint", ran: true, concerns: parseTflintOutput(r.stdout, cwd) };
   } catch {
     return skipped("tflint", "could not parse tflint json output");
   }
 }
 
 /** parse `tflint --format json` output into concerns. */
-export function parseTflintOutput(stdout: string): Concern[] {
+export function parseTflintOutput(stdout: string, cwd = ""): Concern[] {
   const parsed = JSON.parse(stdout || "{}") as { issues?: TflintIssue[] };
   return (parsed.issues ?? []).map<Concern>((issue) => {
     const rule = issue.rule?.name ?? "issue";
-    const file = issue.range?.filename ?? "(unknown)";
+    const file = toRepoRelative(issue.range?.filename, cwd);
     const line = issue.range?.start?.line ?? null;
     return {
       id: concernId("tflint", rule, file, line),
@@ -236,17 +290,17 @@ function scanTfsec(cwd: string): ScannerOutcome {
   const r = run("tfsec", ["--format", "json", "--no-color", "."], cwd);
   if (r.missing) return skipped("tfsec", "tfsec not installed");
   try {
-    return { source: "tfsec", ran: true, concerns: parseTfsecOutput(r.stdout) };
+    return { source: "tfsec", ran: true, concerns: parseTfsecOutput(r.stdout, cwd) };
   } catch {
     return skipped("tfsec", "could not parse tfsec json output");
   }
 }
 
 /** parse `tfsec --format json` output into concerns. */
-export function parseTfsecOutput(stdout: string): Concern[] {
+export function parseTfsecOutput(stdout: string, cwd = ""): Concern[] {
   const parsed = JSON.parse(stdout || "{}") as { results?: TfsecResult[] | null };
   return (parsed.results ?? []).map<Concern>((res) => {
-    const file = res.location?.filename ?? "(unknown)";
+    const file = toRepoRelative(res.location?.filename, cwd);
     const line = res.location?.start_line ?? null;
     const rule = res.long_id ?? res.rule_id ?? "issue";
     return {
@@ -278,20 +332,20 @@ function scanCheckov(cwd: string): ScannerOutcome {
   const r = run("checkov", ["-d", ".", "-o", "json", "--compact", "--quiet"], cwd);
   if (r.missing) return skipped("checkov", "checkov not installed");
   try {
-    return { source: "checkov", ran: true, concerns: parseCheckovOutput(r.stdout) };
+    return { source: "checkov", ran: true, concerns: parseCheckovOutput(r.stdout, cwd) };
   } catch {
     return skipped("checkov", "could not parse checkov json output");
   }
 }
 
 /** parse `checkov -o json` output (object for one framework, array for several). */
-export function parseCheckovOutput(stdout: string): Concern[] {
+export function parseCheckovOutput(stdout: string, cwd = ""): Concern[] {
   const parsed = JSON.parse(stdout || "{}") as CheckovOutput | CheckovOutput[];
   const blocks = Array.isArray(parsed) ? parsed : [parsed];
   const concerns: Concern[] = [];
   for (const block of blocks) {
     for (const check of block.results?.failed_checks ?? []) {
-      const file = check.file_path ?? "(unknown)";
+      const file = toRepoRelative(check.file_path, cwd);
       const line = check.file_line_range?.[0] ?? null;
       const rule = check.check_id ?? "issue";
       concerns.push({
@@ -343,6 +397,60 @@ function sortConcerns(concerns: Concern[]): Concern[] {
   });
 }
 
+/**
+ * A scoped unit of work = all concerns in one file. Different scanners flag the
+ * same underlying defect under different rule ids (tfsec ∩ checkov overlap
+ * heavily on e.g. S3 buckets), so per-concern PRs would spam many PRs for one
+ * bad file. Remediate acts on ONE group per PR (branch `remediate/<group.id>`),
+ * fixing every concern in the file together and proving them all cleared (✗→✓).
+ */
+export interface ConcernGroup {
+  /** stable id derived from the file — the remediation branch/PR key. */
+  id: string;
+  file: string;
+  /** highest severity among the group's concerns. */
+  severity: Severity;
+  concern_count: number;
+  /** distinct rule ids in the group, for the PR body. */
+  rule_ids: string[];
+  /** the concern ids the re-scan must confirm are gone to call this ✓. */
+  concern_ids: string[];
+}
+
+function groupId(file: string): string {
+  return createHash("sha1").update(`group|${file}`).digest("hex").slice(0, 12);
+}
+
+/** group concerns by file into scoped units, sorted by max severity. */
+export function groupConcerns(concerns: Concern[]): ConcernGroup[] {
+  const byFile = new Map<string, Concern[]>();
+  for (const c of concerns) {
+    const arr = byFile.get(c.location.file) ?? [];
+    arr.push(c);
+    byFile.set(c.location.file, arr);
+  }
+  const groups: ConcernGroup[] = [];
+  for (const [file, cs] of byFile) {
+    const severity = cs.reduce<Severity>(
+      (max, c) => (SEVERITY_RANK[c.severity] > SEVERITY_RANK[max] ? c.severity : max),
+      "info"
+    );
+    groups.push({
+      id: groupId(file),
+      file,
+      severity,
+      concern_count: cs.length,
+      rule_ids: [...new Set(cs.map((c) => c.rule_id))].sort(),
+      concern_ids: cs.map((c) => c.id),
+    });
+  }
+  return groups.sort((a, b) => {
+    const sev = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+    if (sev !== 0) return sev;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 /** the repo's base ref for diff-scope, or null when one can't be determined. */
 function resolveBaseRef(cwd: string): string | null {
   const head = run("git", ["rev-parse", "--abbrev-ref", "origin/HEAD"], cwd);
@@ -388,9 +496,11 @@ export function TerraformScanTool(ctx: ToolContext) {
       "Scan the Terraform in the workspace against best practices using the deterministic check tools " +
       "(terraform fmt, terraform validate, tflint, tfsec, checkov). Returns a stable, severity-ranked " +
       "list of `concerns` — each is one best-practice issue with a content-derived `id`, the producing " +
-      "`source`, `rule_id`, `severity`, the `location` (file + line), and a `remediation_hint`. The `id` " +
-      "is the idempotency key for the remediation branch/PR. Scanners that aren't installed are reported " +
-      "as skipped (they never fail the scan).",
+      "`source`, `rule_id`, `severity`, the `location` (file + line), and a `remediation_hint`. Concerns " +
+      "are also rolled up into `groups` (one per file): different scanners flag the same defect under " +
+      "different rule ids, so remediate ONE group per PR (its `id` is the branch/PR key; its `concern_ids` " +
+      "are what the ✗→✓ re-scan must confirm cleared) rather than one PR per concern. Scanners that aren't " +
+      "installed are reported as skipped (they never fail the scan).",
     parameters: TerraformScanParams,
     execute: execute(async ({ scan_scope, severity_threshold }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
@@ -426,6 +536,8 @@ export function TerraformScanTool(ctx: ToolContext) {
         .filter(inScope)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
 
+      const groups = groupConcerns(all);
+
       const by_severity: Record<string, number> = {};
       for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
 
@@ -445,7 +557,8 @@ export function TerraformScanTool(ctx: ToolContext) {
         ...(scopeNote ? { scope_note: scopeNote } : {}),
         scanners_ran: ran,
         scanners_skipped: skippedScanners,
-        summary: { total: all.length, by_severity },
+        summary: { total: all.length, groups: groups.length, by_severity },
+        groups,
         concerns: all,
       };
     }),

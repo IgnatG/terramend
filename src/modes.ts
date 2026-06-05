@@ -590,22 +590,22 @@ ${PR_SUMMARY_FORMAT}`,
 
 1. **task list**: create your task list for this run as your first action.
 
-2. **scan**: call \`${t("terraform_scan")}\` to get the best-practice \`concerns\` (severity-ranked; each has a stable \`id\`). If it reports zero concerns, call \`${t("report_progress")}\` with "Terraform already follows best practice — nothing to remediate." and **stop**.
+2. **scan**: call \`${t("terraform_scan")}\` to get the best-practice \`concerns\` plus \`groups\` — one group per file, each with a stable \`id\`, its \`file\`, the group \`severity\` (highest in the file), the distinct \`rule_ids\`, and the \`concern_ids\` it covers. If it reports zero concerns, call \`${t("report_progress")}\` with "Terraform already follows best practice — nothing to remediate." and **stop**.
 
-3. **pick scope**: act on **one concern per PR**, highest severity first. Unless the task explicitly asks for more, open **at most one PR this run** (the single highest-severity concern). Skip \`info\`-level concerns unless asked. Use the \`terraform-best-practices\` skill for how to read a concern and apply the *minimal* fix.
+3. **pick scope**: act on **one group per PR** (a group is all of one file's concerns — different scanners flag the same defect under different rules, so fixing per-file avoids a flood of near-duplicate PRs). Take the **highest-severity group first**. Unless the task explicitly asks for more, open **at most one PR this run**. Skip groups whose severity is only \`info\` unless asked. Use the \`terraform-best-practices\` skill for how to read each concern and apply the *minimal* fix.
 
-4. **for the chosen concern**:
-   - **idempotency**: the remediation branch is \`remediate/<concern-id>\`. Before doing anything, check whether that branch or an open PR for it already exists (\`${t("git")}\` / \`${t("get_pull_request")}\`). If one exists, update it rather than opening a duplicate.
-   - **branch**: create \`remediate/<concern-id>\` from the default branch via \`${t("git")}\`.
-   - **fix**: edit only the file(s) named in the concern's \`location\`, using your native file tools. **Only touch \`*.tf\` / \`*.tfvars\` files.** Make the smallest change that resolves the concern — do NOT reformat or refactor unrelated code (see *SYSTEM* surgical-change rules). Prefer the house module catalogue when one is configured.
-   - **validate**: call \`${t("terraform_validate")}\`. If it does not pass, fix what it reports or abandon this concern — **never open a PR whose validate did not pass**.
-   - **commit + push**: \`git add\` only the files you changed, commit with a message naming the rule (e.g. \`fix(tf): enable S3 bucket encryption (tfsec:aws-s3-enable-bucket-encryption)\`), then \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
-   - **open PR**: \`${t("create_pull_request")}\` with a body that cites the concern's \`rule_id\`, the \`evidence\`, and what the fix does in plain English.
-   - **prove it (✗→✓)**: re-run \`${t("terraform_scan")}\` on the branch and confirm the concern's \`id\` is gone. Then \`${t("update_pull_request_body")}\` to add a short "Validation" line: \`✗ → ✓ <rule_id> resolved (re-scan clean)\`. If the concern did NOT clear, say so honestly in the body instead of claiming success.
+4. **for the chosen group**:
+   - **idempotency**: the remediation branch is \`remediate/<group-id>\`. Before doing anything, check whether that branch or an open PR for it already exists (\`${t("git")}\` / \`${t("get_pull_request")}\`). If one exists, update it rather than opening a duplicate.
+   - **branch**: create \`remediate/<group-id>\` from the default branch via \`${t("git")}\`.
+   - **fix**: edit only the group's \`file\`, using your native file tools. Resolve **every** concern in the group (they are all in that one file). **Only touch \`*.tf\` / \`*.tfvars\` files.** Make the smallest changes that clear the concerns — do NOT reformat or refactor unrelated code (see *SYSTEM* surgical-change rules). Prefer the house module catalogue when one is configured.
+   - **validate**: call \`${t("terraform_validate")}\`. If it does not pass, fix what it reports or abandon this group — **never open a PR whose validate did not pass**.
+   - **commit + push**: \`git add\` only the file you changed, commit with a message naming the file and the key rules (e.g. \`fix(tf): harden main.tf — S3 encryption + block public access\`), then \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
+   - **open PR**: \`${t("create_pull_request")}\` with a body that cites the group's \`file\`, its \`rule_ids\`, the \`evidence\`, and what the fixes do in plain English.
+   - **prove it (✗→✓)**: re-run \`${t("terraform_scan")}\` on the branch and confirm **every** \`concern_id\` in the group is gone. Then \`${t("update_pull_request_body")}\` to add a "Validation" section with one \`✗ → ✓ <rule_id> resolved\` line per concern (re-scan clean). If any concern did NOT clear, list it honestly as still-open instead of claiming success.
 
-5. **guardrails** (always): one scoped PR per concern, never a mega-PR; **never auto-merge** and always leave the PR for human review; never modify files outside \`*.tf\` / \`*.tfvars\`.
+5. **guardrails** (always): one scoped PR per group, never a mega-PR spanning multiple files; **never auto-merge** and always leave the PR for human review; never modify files outside \`*.tf\` / \`*.tfvars\`.
 
-6. **finalize**: call \`${t("report_progress")}\` once with a summary — which concern was fixed, the PR link, and the ✗→✓ result (or the exact tool error if push/PR creation failed).`,
+6. **finalize**: call \`${t("report_progress")}\` once with a summary — which file/group was fixed, the PR link, and the ✗→✓ result (or the exact tool error if push/PR creation failed).`,
     },
     {
       name: "Task",
