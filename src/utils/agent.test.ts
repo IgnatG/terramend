@@ -2,8 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveAgent, resolveModel } from "./agent.ts";
-import { cleanupVertexCredentials, materializeVertexCredentials } from "./vertex.ts";
+import { resolveAgent, resolveModel } from "#app/utils/agent";
+import { cleanupVertexCredentials, materializeVertexCredentials } from "#app/utils/vertex";
 
 const savedEnv = { ...process.env };
 
@@ -21,9 +21,9 @@ const STRIPPED = [
   /^VERTEX_SERVICE_ACCOUNT_JSON$/,
   /^VERTEX_LOCATION$/,
   /^VERTEX_MODEL_ID$/,
-  /^LINTEL_SECRET_HOME$/,
-  /^LINTEL_MODEL$/,
-  /^LINTEL_AGENT$/,
+  /^TERRAMEND_SECRET_HOME$/,
+  /^TERRAMEND_MODEL$/,
+  /^TERRAMEND_AGENT$/,
 ];
 
 beforeEach(() => {
@@ -86,8 +86,8 @@ describe("resolveAgent", () => {
       expect(resolveAgent({ model: "us.anthropic.claude-opus-4-7" }).name).toBe("claude");
     });
 
-    it("LINTEL_AGENT override wins over Anthropic auto-routing", () => {
-      process.env.LINTEL_AGENT = "opencode";
+    it("TERRAMEND_AGENT override wins over Anthropic auto-routing", () => {
+      process.env.TERRAMEND_AGENT = "opencode";
       process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
       process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
       expect(resolveAgent({ model: "us.anthropic.claude-opus-4-7" }).name).toBe("opencode");
@@ -110,13 +110,13 @@ describe("resolveAgent", () => {
 });
 
 describe("resolveModel", () => {
-  it("LINTEL_MODEL override wins", () => {
-    process.env.LINTEL_MODEL = "anthropic/claude-opus";
+  it("TERRAMEND_MODEL override wins", () => {
+    process.env.TERRAMEND_MODEL = "anthropic/claude-opus";
     expect(resolveModel({ slug: "openai/gpt" })).toBe("anthropic/claude-opus-4-8");
   });
 
-  it("LINTEL_MODEL bypasses bedrock routing entirely", () => {
-    process.env.LINTEL_MODEL = "openai/gpt";
+  it("TERRAMEND_MODEL bypasses bedrock routing entirely", () => {
+    process.env.TERRAMEND_MODEL = "openai/gpt";
     process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
     expect(resolveModel({ slug: "bedrock/byok" })).toBe("openai/gpt-5.5");
   });
@@ -134,22 +134,22 @@ describe("resolveModel", () => {
     expect(resolveModel({ slug: "openai/gpt" })).toBe("openai/gpt-5.5");
   });
 
-  it("returns undefined for no slug + no LINTEL_MODEL", () => {
+  it("returns undefined for no slug + no TERRAMEND_MODEL", () => {
     expect(resolveModel({})).toBeUndefined();
   });
 
   // regression: PR #720 review caught that `resolveCliModel("bedrock/byok")`
   // returns the literal sentinel `"bedrock"` from the alias's `resolve`
-  // field. Without routing-aware handling, LINTEL_MODEL=bedrock/byok would
+  // field. Without routing-aware handling, TERRAMEND_MODEL=bedrock/byok would
   // leak that sentinel downstream and break agent dispatch.
-  it("LINTEL_MODEL=bedrock/byok defers to BEDROCK_MODEL_ID, not the sentinel", () => {
-    process.env.LINTEL_MODEL = "bedrock/byok";
+  it("TERRAMEND_MODEL=bedrock/byok defers to BEDROCK_MODEL_ID, not the sentinel", () => {
+    process.env.TERRAMEND_MODEL = "bedrock/byok";
     process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
     expect(resolveModel({ slug: "openai/gpt" })).toBe("us.anthropic.claude-opus-4-7");
   });
 
-  it("LINTEL_MODEL=bedrock/byok throws if BEDROCK_MODEL_ID is missing", () => {
-    process.env.LINTEL_MODEL = "bedrock/byok";
+  it("TERRAMEND_MODEL=bedrock/byok throws if BEDROCK_MODEL_ID is missing", () => {
+    process.env.TERRAMEND_MODEL = "bedrock/byok";
     expect(() => resolveModel({ slug: "openai/gpt" })).toThrow("BEDROCK_MODEL_ID");
   });
 
@@ -162,8 +162,8 @@ describe("resolveModel", () => {
     expect(() => resolveModel({ slug: "vertex/byok" })).toThrow("VERTEX_MODEL_ID");
   });
 
-  it("LINTEL_MODEL=vertex/byok defers to VERTEX_MODEL_ID, not the sentinel", () => {
-    process.env.LINTEL_MODEL = "vertex/byok";
+  it("TERRAMEND_MODEL=vertex/byok defers to VERTEX_MODEL_ID, not the sentinel", () => {
+    process.env.TERRAMEND_MODEL = "vertex/byok";
     process.env.VERTEX_MODEL_ID = "gemini-2.5-pro";
     expect(resolveModel({ slug: "openai/gpt" })).toBe("gemini-2.5-pro");
   });
@@ -173,17 +173,17 @@ describe("materializeVertexCredentials", () => {
   it("writes service-account JSON outside tmpdir and defaults project from project_id", () => {
     const dir = mkdtempSync(join(tmpdir(), "vertex-creds-test-"));
     process.env.VERTEX_MODEL_ID = "claude-opus-4-1@20250805";
-    process.env.LINTEL_SECRET_HOME = dir;
+    process.env.TERRAMEND_SECRET_HOME = dir;
     process.env.VERTEX_SERVICE_ACCOUNT_JSON = JSON.stringify({
       project_id: "test-project",
-      client_email: "lintel@test-project.iam.gserviceaccount.com",
+      client_email: "terramend@test-project.iam.gserviceaccount.com",
     });
 
     try {
       const credentials = materializeVertexCredentials({ model: "claude-opus-4-1@20250805" });
 
       if (!credentials) throw new Error("expected vertex credentials");
-      expect(credentials.credentialsPath).toContain(join(dir, ".lintel", "secrets"));
+      expect(credentials.credentialsPath).toContain(join(dir, ".terramend", "secrets"));
       expect(process.env.GOOGLE_APPLICATION_CREDENTIALS).toBe(credentials.credentialsPath);
       expect(process.env.GOOGLE_CLOUD_PROJECT).toBe("test-project");
       expect(readFileSync(credentials.credentialsPath, "utf8")).toBe(

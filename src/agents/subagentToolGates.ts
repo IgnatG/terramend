@@ -17,8 +17,8 @@
  *
  * Names are stored in their canonical bare form (the FastMCP tool `name`
  * field). Each runtime presents them with a different prefix:
- *   - claude:   `mcp__lintel__<name>`
- *   - opencode: `lintel_<name>`
+ *   - claude:   `mcp__terramend__<name>`
+ *   - opencode: `terramend_<name>`
  * The hooks strip those prefixes before comparing.
  *
  * Read-only MCP tools (`get_*`, `list_*`, `git_fetch`, `get_check_suite_logs`,
@@ -77,10 +77,10 @@ export type SubagentDeniedTool = (typeof SUBAGENT_DENIED_TOOLS)[number];
  * for native (non-MCP) tools, which never appear on the deny list anyway.
  */
 export function stripMcpPrefix(toolName: string): string {
-  // claude: `mcp__lintel__checkout_pr` → `checkout_pr`
-  if (toolName.startsWith("mcp__lintel__")) return toolName.slice("mcp__lintel__".length);
-  // opencode: `lintel_checkout_pr` → `checkout_pr`
-  if (toolName.startsWith("lintel_")) return toolName.slice("lintel_".length);
+  // claude: `mcp__terramend__checkout_pr` → `checkout_pr`
+  if (toolName.startsWith("mcp__terramend__")) return toolName.slice("mcp__terramend__".length);
+  // opencode: `terramend_checkout_pr` → `checkout_pr`
+  if (toolName.startsWith("terramend_")) return toolName.slice("terramend_".length);
   return toolName;
 }
 

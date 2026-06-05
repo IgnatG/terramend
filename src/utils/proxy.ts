@@ -1,6 +1,6 @@
 /**
  * Mint an OpenRouter proxy key via `/api/proxy-token` and inject it as
- * `OPENROUTER_API_KEY` for runs that route through Lintel Router (managed
+ * `OPENROUTER_API_KEY` for runs that route through Terramend Router (managed
  * billing accounts) or OSS-grant paths.
  *
  * Authenticates one of two ways:
@@ -18,18 +18,18 @@
  */
 
 import * as core from "@actions/core";
-import type { ToolState } from "../toolState.ts";
-import { apiFetch } from "./apiFetch.ts";
-import { isLocalApiUrl } from "./apiUrl.ts";
+import type { ToolState } from "#app/toolState";
+import { apiFetch } from "#app/utils/apiFetch";
+import { isLocalApiUrl } from "#app/utils/apiUrl";
 import {
   BillingError,
   formatBillingErrorSummary,
   formatTransientErrorSummary,
   TransientError,
-} from "./billingErrors.ts";
-import { log, writeSummary } from "./cli.ts";
-import { reportErrorToComment } from "./errorReport.ts";
-import type { ResolvedPayload } from "./payload.ts";
+} from "#app/utils/billingErrors";
+import { log, writeSummary } from "#app/utils/cli";
+import { reportErrorToComment } from "#app/utils/errorReport";
+import type { ResolvedPayload } from "#app/utils/payload";
 
 export interface OidcCredentials {
   requestUrl: string;
@@ -112,7 +112,7 @@ async function buildProxyTokenHeaders(ctx: {
   if (ctx.oidcCredentials) {
     process.env.ACTIONS_ID_TOKEN_REQUEST_URL = ctx.oidcCredentials.requestUrl;
     process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = ctx.oidcCredentials.requestToken;
-    const oidcToken = await core.getIDToken("lintel-api");
+    const oidcToken = await core.getIDToken("terramend-api");
     delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
     return { Authorization: `Bearer ${oidcToken}` };
@@ -137,7 +137,7 @@ async function buildProxyTokenHeaders(ctx: {
  * no-card private repos silently fall through to BYOK.
  *
  * Skipped when:
- *   - `LINTEL_MODEL` env override is set (BYOK escape hatch)
+ *   - `TERRAMEND_MODEL` env override is set (BYOK escape hatch)
  *   - `proxyModel` is not set on the run context
  *   - no OIDC credentials available and not talking to a localhost API
  *
@@ -151,7 +151,7 @@ async function resolveProxyModel(ctx: {
   repo: { owner: string; name: string };
 }): Promise<void> {
   // env override = BYOK escape hatch, don't proxy
-  if (process.env.LINTEL_MODEL?.trim()) return;
+  if (process.env.TERRAMEND_MODEL?.trim()) return;
 
   if (!ctx.proxyModel) return;
 

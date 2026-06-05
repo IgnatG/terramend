@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectCodexRefresh } from "./codexRefreshDetect.ts";
+import { detectCodexRefresh } from "#app/utils/codexRefreshDetect";
 
 // installCodexAuth touches the filesystem (mkdir + writeFile) — leaving it
 // untested here per AGENTS.md guidance ("be highly dubious of any test that

@@ -1,19 +1,19 @@
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 function isLocalUrl(url: URL): boolean {
   return url.hostname === "localhost" || url.hostname === "127.0.0.1";
 }
 
 /**
- * resolve the Lintel API base URL.
+ * resolve the Terramend API base URL.
  *
- * in the action: API_URL is not explicitly set, so this falls back to https://lintel.com.
+ * in the action: API_URL is not explicitly set, so this falls back to https://terramend.com.
  * in local dev: API_URL=http://localhost:3000 (from .env).
  *
  * enforces https:// for non-local URLs to prevent cleartext credential transmission.
  */
 export function getApiUrl(): string {
-  const raw = process.env.API_URL || "https://lintel.com";
+  const raw = process.env.API_URL || "https://terramend.com";
   const parsed = new URL(raw);
 
   if (parsed.protocol !== "https:" && !isLocalUrl(parsed)) {

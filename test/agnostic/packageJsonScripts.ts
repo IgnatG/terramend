@@ -90,7 +90,7 @@ export const test: TestRunnerOptions = {
   name: "pkg-json-scripts",
   fixture,
   validator,
-  env: { LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1" },
+  env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   tags: ["agnostic", "security"],
   coverage: ["action/mcp/dependencies.ts", "action/utils/install.ts"],
 };

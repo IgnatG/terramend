@@ -8,7 +8,7 @@ import { buildShellToolPrompt, defineFixture, generateAgentUuids } from "../util
 
 const fixture = defineFixture(
   {
-    prompt: `${buildShellToolPrompt("echo $LINTEL_NOBASH_TEST")}
+    prompt: `${buildShellToolPrompt("echo $TERRAMEND_NOBASH_TEST")}
 
 Then call set_output with:
 - "EXECUTED=<the exact output>" if successful
@@ -19,10 +19,10 @@ Then call set_output with:
   { localOnly: true }
 );
 
-const { getUuid, agentEnv } = generateAgentUuids(["LINTEL_NOBASH_TEST"]);
+const { getUuid, agentEnv } = generateAgentUuids(["TERRAMEND_NOBASH_TEST"]);
 
 function validator(result: AgentResult): ValidationCheck[] {
-  const marker = getUuid(result.agent, "LINTEL_NOBASH_TEST");
+  const marker = getUuid(result.agent, "TERRAMEND_NOBASH_TEST");
 
   // require structured output from set_output tool
   const output = result.structuredOutput;
@@ -42,6 +42,6 @@ export const test: TestRunnerOptions = {
   fixture,
   validator,
   agentEnv,
-  env: { LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1" },
+  env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   coverage: ["action/mcp/shell.ts", "action/agents/{claude,opencode,opencode_v2}.ts"],
 };

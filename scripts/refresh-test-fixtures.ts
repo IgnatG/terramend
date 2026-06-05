@@ -27,8 +27,8 @@ import {
   REVIEW_THREADS_QUERY,
   type ReviewThread,
   type ReviewThreadsQueryResponse,
-} from "../src/mcp/reviewComments.ts";
-import { acquireNewToken } from "../src/utils/github.ts";
+} from "#app/mcp/reviewComments";
+import { acquireNewToken } from "#app/utils/github";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "../..");
@@ -54,12 +54,12 @@ type ReviewFixture = {
 };
 
 const DIFF_TARGETS: Array<Pick<DiffFixture, "owner" | "name" | "pullNumber">> = [
-  { owner: "lintel", name: "test-repo", pullNumber: 1 },
+  { owner: "terramend", name: "test-repo", pullNumber: 1 },
 ];
 
 const REVIEW_TARGETS: Array<Pick<ReviewFixture, "owner" | "name" | "pullNumber" | "reviewId">> = [
-  { owner: "lintel", name: "scratch", pullNumber: 49, reviewId: 3485940013 },
-  { owner: "lintel", name: "scratch", pullNumber: 64, reviewId: 3531000326 },
+  { owner: "terramend", name: "scratch", pullNumber: 49, reviewId: 3485940013 },
+  { owner: "terramend", name: "scratch", pullNumber: 64, reviewId: 3531000326 },
 ];
 
 async function getToken(): Promise<string> {

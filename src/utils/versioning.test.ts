@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateCompatibility } from "./versioning.ts";
+import { validateCompatibility } from "#app/utils/versioning";
 
 describe("validateCompatibility", () => {
   it("should throw if payload version is invalid", () => {

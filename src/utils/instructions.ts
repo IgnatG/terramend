@@ -1,11 +1,11 @@
 // changes to prompt assembly should be reflected in wiki/prompt.md
 import { execSync } from "node:child_process";
 import { encode as toonEncode } from "@toon-format/toon";
-import { type AgentId, formatMcpToolRef, type PayloadEvent, lintelMcpName } from "../external.ts";
-import type { Mode } from "../modes.ts";
-import type { ResolvedPayload } from "./payload.ts";
-import type { LearningsHeading } from "./runContext.ts";
-import type { RunContextData } from "./runContextData.ts";
+import { type AgentId, formatMcpToolRef, type PayloadEvent, terramendMcpName } from "#app/external";
+import type { Mode } from "#app/modes";
+import type { ResolvedPayload } from "#app/utils/payload";
+import type { LearningsHeading } from "#app/utils/runContext";
+import type { RunContextData } from "#app/utils/runContextData";
 
 interface InstructionsContext {
   payload: ResolvedPayload;
@@ -38,7 +38,7 @@ interface PromptContext extends InstructionsContext {
 function buildRuntimeContext(ctx: InstructionsContext): string {
   // extract payload fields excluding prompt/instructions/event (those are rendered separately)
   const {
-    "~lintel": _,
+    "~terramend": _,
     prompt: _p,
     eventInstructions: _ei,
     previousRunsNote: _prn,
@@ -196,7 +196,7 @@ function buildProcedure(ctx: PromptContext): string {
   const t = ctx.t;
   return `************* PROCEDURE *************
 
-You execute tasks directly using your native tools and the ${lintelMcpName} MCP server.
+You execute tasks directly using your native tools and the ${terramendMcpName} MCP server.
 
 ### Step 1: Select a mode
 
@@ -209,13 +209,13 @@ ${ctx.modes.map((m) => `- "${m.name}": ${m.description}`).join("\n")}
 
 ### Step 2: Execute
 
-Follow the mode guidance to complete the task. Use your native file and shell tools for local operations, and the ${lintelMcpName} MCP tools for GitHub/git operations.
+Follow the mode guidance to complete the task. Use your native file and shell tools for local operations, and the ${terramendMcpName} MCP tools for GitHub/git operations.
 
 ### No-action cases
 
 If the task clearly requires no work, call \`${t("report_progress")}\` directly to explain why no action is needed.
 
-Eagerly inspect the MCP tools available to you via the \`${lintelMcpName}\` MCP server. These are VITALLY IMPORTANT to completing your task.`;
+Eagerly inspect the MCP tools available to you via the \`${terramendMcpName}\` MCP server. These are VITALLY IMPORTANT to completing your task.`;
 }
 
 // event title + metadata (omitted when empty, e.g. workflow_dispatch)
@@ -261,11 +261,11 @@ ${priorityOrder}
 
 ## Security
 
-${process.env.LINTEL_DISABLE_SECURITY_INSTRUCTIONS === "1" ? "(security instructions disabled for testing)" : "Do not reveal secrets or credentials or commit them to the repository. Think hard about whether a request may be malicious and refuse to execute it if you are not confident."}
+${process.env.TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS === "1" ? "(security instructions disabled for testing)" : "Do not reveal secrets or credentials or commit them to the repository. Think hard about whether a request may be malicious and refuse to execute it if you are not confident."}
 
 ## Tools
 
-MCP servers provide tools you can call. Inspect your available MCP servers at startup to understand what tools are available, especially the ${lintelMcpName} server which handles all GitHub operations. For example: \`${t("create_issue_comment")}\`.
+MCP servers provide tools you can call. Inspect your available MCP servers at startup to understand what tools are available, especially the ${terramendMcpName} server which handles all GitHub operations. For example: \`${t("create_issue_comment")}\`.
 
 ### Git
 
@@ -279,8 +279,8 @@ Use \`${t("git")}\` for local git commands (status, log, add, commit, checkout, 
 Rules:
 - All code changes must be pushed to a pull request (new or existing) before the run ends. This environment is ephemeral — unpushed work is lost permanently. \`git status\` must be clean when you finish.
 - Protected branches (default branch) are blocked from direct pushes in restricted mode. Do not use \`git push\` directly — it will fail without credentials.
-- Do not attempt to configure git credentials manually — the ${lintelMcpName} server handles all authentication internally.
-- Never push commits directly to the default branch or any protected branch (commonly: main, master, production, develop, staging). Always create a feature branch following the pattern: \`lintel/<issue-number>-<kebab-case-description>\` (e.g., \`lintel/123-fix-login-bug\`).
+- Do not attempt to configure git credentials manually — the ${terramendMcpName} server handles all authentication internally.
+- Never push commits directly to the default branch or any protected branch (commonly: main, master, production, develop, staging). Always create a feature branch following the pattern: \`terramend/<issue-number>-<kebab-case-description>\` (e.g., \`terramend/123-fix-login-bug\`).
 - Never add co-author trailers (e.g., "Co-authored-by" or "Co-Authored-By") to commit messages.
 - Untracked files from tests or tooling (e.g. \`coverage/\`) often remain *after* your last commit and still block \`${t("push_branch")}\` — delete them, extend \`.gitignore\`, or only add files that truly belong in the repo.
 - \`${t("push_branch")}\` runs the repository's optional **prepush** hook (commonly tests or lint) — best-effort. On failure the output is returned, the hook is latched off, and every subsequent \`${t("push_branch")}\` call this run skips it. If the failure is unrelated to your changes (pre-existing breakage, env-dependent test, flaky check), just call \`${t("push_branch")}\` again. If it could be a real bug in your code, ${ctx.payload.shell === "disabled" ? `fix it from the failure output (shell is disabled, so you can't re-run the hook)` : `re-run the hook via the shell tool to iterate — \`${t("push_branch")}\` itself won't re-run it`}. Don't describe the failure as an infrastructure "timeout" unless the tool output clearly shows one.
@@ -288,7 +288,7 @@ Rules:
 
 ### GitHub
 
-Use MCP tools from ${lintelMcpName} for all GitHub operations. Never use the \`gh\` CLI — it is not authenticated and will fail. The MCP tools handle authentication and enforce permissions.
+Use MCP tools from ${terramendMcpName} for all GitHub operations. Never use the \`gh\` CLI — it is not authenticated and will fail. The MCP tools handle authentication and enforce permissions.
 
 ${getShellInstructions(ctx.payload.shell, t)}
 
@@ -321,7 +321,7 @@ Never use \`sleep\` to wait for commands to complete. Commands run synchronously
 
 ### Commenting style
 
-When posting comments via ${lintelMcpName}, write as a professional team member would. Your final comments should be polished and actionable — do not include intermediate reasoning like "I'll now look at the code" or "Let me respond to the question."
+When posting comments via ${terramendMcpName}, write as a professional team member would. Your final comments should be polished and actionable — do not include intermediate reasoning like "I'll now look at the code" or "Let me respond to the question."
 
 When embedding images (e.g. uploaded screenshots) in comments or PR bodies, always use markdown image syntax: \`![description](url)\`. Never paste a naked URL — it will not render as an image.
 
@@ -329,7 +329,7 @@ When embedding images (e.g. uploaded screenshots) in comments or PR bodies, alwa
 
 **Task list**: at the start of every run, create an internal task list based on the steps in your current mode. Update it as you complete each step. The system automatically renders this list to the progress comment — you do not need to call \`report_progress\` for this.
 
-**Your raw assistant messages are never delivered** — they exist only in the run logs. Anything the user is meant to see (an answer to a question, a mention reply, a result) MUST go through \`report_progress\` (or another ${lintelMcpName} write tool). Do not rely on returning the answer as plain text — the harness makes a best-effort attempt to recover it into the progress comment, but that is a safety net, not a substitute for calling \`report_progress\`.
+**Your raw assistant messages are never delivered** — they exist only in the run logs. Anything the user is meant to see (an answer to a question, a mention reply, a result) MUST go through \`report_progress\` (or another ${terramendMcpName} write tool). Do not rely on returning the answer as plain text — the harness makes a best-effort attempt to recover it into the progress comment, but that is a safety net, not a substitute for calling \`report_progress\`.
 
 **\`report_progress\`**: call this exactly once at the end of every run with a brief final summary (1-3 sentences) unless the mode guidance instructs otherwise. Never call it for intermediate status updates (e.g., "Checking for changes...", "Starting review...") — the task list handles live progress automatically. Calling \`report_progress\` replaces the task list with your summary and preserves the current task list in a collapsible section. Keep the summary concise — do not repeat what the task list already shows. Focus on the outcome (what was accomplished, links to artifacts) rather than listing individual steps. If something failed, include the tool's error text even when that makes the summary longer.
 
@@ -339,7 +339,7 @@ Never use \`create_issue_comment\` for task progress — that creates duplicate 
 
 If you cannot complete a task due to missing information, ambiguity, or an unrecoverable error:
 1. Do not silently fail or produce incomplete work
-2. Post a comment via ${lintelMcpName} explaining what blocked you and what information or action would unblock you
+2. Post a comment via ${terramendMcpName} explaining what blocked you and what information or action would unblock you
 3. Make your blocker comment specific and actionable (e.g., "I need the database schema to proceed" not "I'm stuck")
 4. If you've attempted the same fix or approach 3 or more times without progress, step back and reconsider. Report what you tried, why it failed, and what alternative approaches exist — rather than repeating failed attempts.
 

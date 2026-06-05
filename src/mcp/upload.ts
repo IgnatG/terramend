@@ -2,10 +2,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { type } from "arktype";
 import { fileTypeFromBuffer } from "file-type";
-import { apiFetch } from "../utils/apiFetch.ts";
-import { log } from "../utils/cli.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { apiFetch } from "#app/utils/apiFetch";
+import { log } from "#app/utils/cli";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 const UploadFileParams = type({
   path: type.string.describe("absolute path to file to upload"),

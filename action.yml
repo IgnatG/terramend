@@ -1,6 +1,6 @@
-name: "Lintel Action"
+name: "Terramend Action"
 description: "Execute coding agents with a prompt"
-author: "Lintel"
+author: "Terramend"
 
 inputs:
   prompt:

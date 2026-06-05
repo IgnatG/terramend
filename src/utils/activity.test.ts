@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createProcessOutputActivityTimeout, isActivityNoise } from "./activity.ts";
+import { createProcessOutputActivityTimeout, isActivityNoise } from "#app/utils/activity";
 
 describe("isActivityNoise", () => {
   it("flags empty and whitespace-only chunks as noise", () => {

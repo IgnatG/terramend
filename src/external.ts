@@ -5,29 +5,29 @@
  */
 
 // mcp name constant
-export const lintelMcpName = "lintel";
+export const terramendMcpName = "terramend";
 
 /** @see {@link file://./agents/shared.ts} Agent interface that uses this type */
 export type AgentId = "claude" | "opencode";
 
 /**
  * format a tool name the way each agent's MCP client presents it to the model.
- * claude code: mcp__lintel__select_mode
- * opencode:    lintel_select_mode
+ * claude code: mcp__terramend__select_mode
+ * opencode:    terramend_select_mode
  */
 export function formatMcpToolRef(agentId: AgentId, toolName: string): string {
   switch (agentId) {
     case "claude":
-      return `mcp__${lintelMcpName}__${toolName}`;
+      return `mcp__${terramendMcpName}__${toolName}`;
     case "opencode":
-      return `${lintelMcpName}_${toolName}`;
+      return `${terramendMcpName}_${toolName}`;
     default:
       return agentId satisfies never;
   }
 }
 
 // model alias registry lives in models.ts — re-exported here for shared access
-export type { ModelAlias, ModelProvider, ProviderConfig } from "./models.ts";
+export type { ModelAlias, ModelProvider, ProviderConfig } from "#app/models";
 export {
   DEFAULT_PROXY_MODEL,
   getAutoSelectHintModel,
@@ -42,7 +42,7 @@ export {
   resolveDisplayAlias,
   resolveModelSlug,
   resolveOpenRouterModel,
-} from "./models.ts";
+} from "#app/models";
 
 // tool permission types shared with server dispatch
 export type ToolPermission = "disabled" | "enabled";
@@ -265,12 +265,12 @@ export type PayloadEvent =
 
 // writeable payload type for building payloads
 export interface WriteablePayload {
-  "~lintel": true;
+  "~terramend": true;
   /** semantic version of the payload to ensure compatibility */
   version: string;
   /** provider/model slug (e.g. "anthropic/claude-opus") */
   model?: string | undefined;
-  /** the user's actual request (body if @lintel tagged) */
+  /** the user's actual request (body if @terramend tagged) */
   prompt: string;
   /** github username of the human who triggered this workflow run */
   triggerer?: string | undefined;
@@ -278,7 +278,7 @@ export interface WriteablePayload {
   eventInstructions?: string | undefined;
   /**
    * system-injected note about prior superseded runs (e.g. when the
-   * triggering @lintel comment is edited). rendered alongside the user's
+   * triggering @terramend comment is edited). rendered alongside the user's
    * prompt rather than via eventInstructions so it survives user-prompt
    * precedence.
    */

@@ -9,7 +9,7 @@
 // new auth shapes; OpenCode itself can't.
 //
 // Two captures per run:
-//   1. `captureBaselineModels` — called BEFORE Lintel-stored credentials
+//   1. `captureBaselineModels` — called BEFORE Terramend-stored credentials
 //      (dbSecrets + Codex auth.json) land in the env. The set OpenCode can
 //      serve from the runner's pre-existing environment alone.
 //   2. `captureAuthorizedModels` — called AFTER dbSecrets merge + Codex
@@ -17,14 +17,14 @@
 //      decisions (fallback + validateAgentApiKey).
 //
 // The set difference (`authorized - baseline`) is the contribution of
-// Lintel-stored auth to this run — logged once for operator visibility
+// Terramend-stored auth to this run — logged once for operator visibility
 // and reserved for a future server-side "OSS proxy opt-out" detection.
 //
 // Memoized at module scope so the two consumers
 // (`selectFallbackModelIfNeeded` + `autoSelectModel`) share one shell-out.
 
 import { execFileSync } from "node:child_process";
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 let baseline: Set<string> | undefined;
 let authorized: Set<string> | undefined;
@@ -51,7 +51,7 @@ function readModels(cliPath: string): Set<string> {
 }
 
 /** Snapshot the set of models OpenCode can serve from the current env, BEFORE
- * Lintel-stored credentials are merged in. Call once early in `main.ts`. */
+ * Terramend-stored credentials are merged in. Call once early in `main.ts`. */
 export function captureBaselineModels(cliPath: string): void {
   baseline = readModels(cliPath);
   log.debug(`» opencode baseline: ${baseline.size} models`);
@@ -72,7 +72,7 @@ export function captureAuthorizedModels(cliPath: string): void {
   log.debug(`» opencode authorized: ${authorized.size} models`);
 }
 
-/** Authorized set captured after Lintel-stored auth is applied. Throws if
+/** Authorized set captured after Terramend-stored auth is applied. Throws if
  * called before `captureAuthorizedModels` — the call sites (fallback gate,
  * api-key validation, auto-select) all run strictly after capture. */
 export function getAuthorizedModels(): Set<string> {

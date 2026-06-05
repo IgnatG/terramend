@@ -1,4 +1,4 @@
-/** stdlib-only Lintel API fetch for entryPost.ts (no node_modules). */
+/** stdlib-only Terramend API fetch for entryPost.ts (no node_modules). */
 
 type PostApiFetchOptions = {
   path: string;
@@ -8,7 +8,7 @@ type PostApiFetchOptions = {
 };
 
 function getApiUrl(): string {
-  return process.env.API_URL || "https://lintel.com";
+  return process.env.API_URL || "https://terramend.com";
 }
 
 export async function postApiFetch(options: PostApiFetchOptions): Promise<Response> {

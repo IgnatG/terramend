@@ -1,9 +1,9 @@
 import { type } from "arktype";
-import { formatMcpToolRef } from "../external.ts";
-import type { Mode } from "../modes.ts";
-import { apiFetch } from "../utils/apiFetch.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { formatMcpToolRef } from "#app/external";
+import type { Mode } from "#app/modes";
+import { apiFetch } from "#app/utils/apiFetch";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const SelectModeParams = type({
   mode: type.string.describe(
@@ -67,7 +67,7 @@ function buildOrchestratorGuidance(
 export type PlanCommentResponsePayload = { error: string } | { commentId: number; body: string };
 
 // IMPORTANT: this route authenticates via GitHub installation token (getEnrichedRepo),
-// NOT the Lintel API JWT (ctx.apiToken). use ctx.githubInstallationToken here.
+// NOT the Terramend API JWT (ctx.apiToken). use ctx.githubInstallationToken here.
 // see wiki/api-auth.md for the two auth patterns.
 async function fetchExistingPlanComment(
   ctx: ToolContext,

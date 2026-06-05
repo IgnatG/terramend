@@ -1,6 +1,6 @@
-import type { PushPermission, ShellPermission } from "../external.ts";
-import { apiFetch } from "./apiFetch.ts";
-import type { RepoContext } from "./github.ts";
+import type { PushPermission, ShellPermission } from "#app/external";
+import { apiFetch } from "#app/utils/apiFetch";
+import type { RepoContext } from "#app/utils/github";
 
 export interface Mode {
   id: string;
@@ -81,7 +81,7 @@ const defaultRunContext: RunContext = {
 };
 
 /**
- * fetch run context from Lintel API
+ * fetch run context from Terramend API
  * returns settings + API token for subsequent calls
  * returns defaults if fetch fails
  */

@@ -1,12 +1,12 @@
-// `lintel auth <provider>` — manage credentials for a configured repo
+// `terramend auth <provider>` — manage credentials for a configured repo
 // without going through the full `init` flow. currently supports:
 //
-//   lintel auth codex   mint a Codex subscription credential and save it
-//                         as the `CODEX_AUTH_JSON` Lintel secret
+//   terramend auth codex   mint a Codex subscription credential and save it
+//                         as the `CODEX_AUTH_JSON` Terramend secret
 //
 // the `codex` subcommand runs `codex login --device-auth` against an
 // isolated `CODEX_HOME` (so the user's existing ~/.codex/auth.json is never
-// touched), validates the resulting auth.json, and posts it to the Lintel
+// touched), validates the resulting auth.json, and posts it to the Terramend
 // secrets API. used both for first-time setup of a Codex subscription on a
 // repo and for rotating a stale credential.
 
@@ -14,18 +14,18 @@ import { spawn } from "node:child_process";
 import * as p from "@clack/prompts";
 import arg from "arg";
 import pc from "picocolors";
-import { mintCodexAuth, refreshCodexAuth } from "../utils/codexAuth.ts";
+import { mintCodexAuth, refreshCodexAuth } from "#app/utils/codexAuth";
 import {
   bail,
   fetchStatus,
   getGhToken,
   handleCancel,
-  LINTEL_API_URL,
+  TERRAMEND_API_URL,
   parseGitRemote,
   promptScope,
   setActiveSpin,
-  setLintelSecret,
-} from "./_shared.ts";
+  setTerramendSecret,
+} from "#app/commands/_shared";
 
 const CODEX_AUTH_SECRET = "CODEX_AUTH_JSON";
 
@@ -162,7 +162,7 @@ async function runCodex(params: CodexCliParams): Promise<void> {
 }
 
 async function runCodexAuth(): Promise<void> {
-  p.intro(pc.bgGreen(pc.black(" lintel auth codex ")));
+  p.intro(pc.bgGreen(pc.black(" terramend auth codex ")));
 
   const spin = p.spinner();
   setActiveSpin(spin);
@@ -176,18 +176,18 @@ async function runCodexAuth(): Promise<void> {
     const remote = parseGitRemote();
     spin.stop(`detected repo ${pc.cyan(`${remote.owner}/${remote.repo}`)}`);
 
-    spin.start("checking lintel app installation");
+    spin.start("checking terramend app installation");
     const status = await fetchStatus({ token, owner: remote.owner, repo: remote.repo });
     if (!status.installed) {
-      spin.stop(pc.red("lintel app not installed on this repo"));
+      spin.stop(pc.red("terramend app not installed on this repo"));
       bail(
-        `install lintel on ${pc.bold(`${remote.owner}/${remote.repo}`)} before configuring auth.\n` +
-          `  ${pc.dim("run:")} ${pc.cyan(`npx lintel init`)}`
+        `install terramend on ${pc.bold(`${remote.owner}/${remote.repo}`)} before configuring auth.\n` +
+          `  ${pc.dim("run:")} ${pc.cyan(`npx terramend init`)}`
       );
     }
-    spin.stop(`lintel app is installed on ${pc.cyan(`@${remote.owner}`)}`);
+    spin.stop(`terramend app is installed on ${pc.cyan(`@${remote.owner}`)}`);
 
-    if (status.lintelSecrets.includes(CODEX_AUTH_SECRET)) {
+    if (status.terramendSecrets.includes(CODEX_AUTH_SECRET)) {
       const overwrite = await p.select({
         message: `${pc.cyan(CODEX_AUTH_SECRET)} is already configured — overwrite?`,
         options: [
@@ -202,7 +202,7 @@ async function runCodexAuth(): Promise<void> {
       }
     }
 
-    // user-owned repos can only ever be "account" (Lintel has no per-repo
+    // user-owned repos can only ever be "account" (Terramend has no per-repo
     // store for user accounts), so we never bother prompting. on org-owned
     // repos, prompt interactively — matches `init`'s behavior.
     const scope = status.isOrg
@@ -216,7 +216,7 @@ async function runCodexAuth(): Promise<void> {
         ``,
         `${pc.dim("note:")} if your ChatGPT account doesn't have device-code auth enabled,`,
         `Codex will exit early. enable it at ${pc.cyan(`https://chatgpt.com/#settings/Security`)}`,
-        `then re-run ${pc.cyan(`${process.env.LINTEL_BIN_NAME || "lintel"} auth codex`)}.`,
+        `then re-run ${pc.cyan(`${process.env.TERRAMEND_BIN_NAME || "terramend"} auth codex`)}.`,
       ].join("\n")
     );
 
@@ -230,7 +230,7 @@ async function runCodexAuth(): Promise<void> {
       childStdio: "pipe",
       onChildLine: (line) => {
         // dim Codex's own colored output (URL/code in cyan, boilerplate in
-        // gray) so the user reads it as sub-process noise, not Lintel's
+        // gray) so the user reads it as sub-process noise, not Terramend's
         // own prompts. the rail char matches @clack/prompts so the column
         // reads as one continuous flow.
         const stripped = stripAnsi(line);
@@ -249,7 +249,7 @@ async function runCodexAuth(): Promise<void> {
         if (event.kind === "start") {
           lastTimedOut = false;
           if (event.attempt > 1) p.log.info(`retry attempt ${event.attempt}`);
-          // shell-prompt style header so the user sees what Lintel is
+          // shell-prompt style header so the user sees what Terramend is
           // about to spawn, with the rail to keep the visual column.
           process.stdout.write(`${pc.gray(p.S_BAR)}\n`);
           process.stdout.write(`${pc.gray(p.S_BAR)}  $ codex login --device-auth\n`);
@@ -278,7 +278,7 @@ async function runCodexAuth(): Promise<void> {
     });
 
     // eager refresh: bump the OAuth chain once before persisting so the
-    // saved token is one Lintel has used. otherwise the user's laptop's
+    // saved token is one Terramend has used. otherwise the user's laptop's
     // codex CLI could refresh first and strand our copy.
     spin.start("refreshing token");
     let savable: typeof auth;
@@ -291,8 +291,8 @@ async function runCodexAuth(): Promise<void> {
       savable = auth;
     }
 
-    spin.start(`saving ${pc.cyan(CODEX_AUTH_SECRET)} to Lintel`);
-    const result = await setLintelSecret({
+    spin.start(`saving ${pc.cyan(CODEX_AUTH_SECRET)} to Terramend`);
+    const result = await setTerramendSecret({
       token,
       owner: remote.owner,
       repo: remote.repo,
@@ -303,11 +303,11 @@ async function runCodexAuth(): Promise<void> {
     if (!result.saved) {
       spin.stop(pc.red("could not save secret"));
       p.log.warn(
-        `${result.error}\n  ${pc.dim("set it manually at:")} ${LINTEL_API_URL}/console/${remote.owner}`
+        `${result.error}\n  ${pc.dim("set it manually at:")} ${TERRAMEND_API_URL}/console/${remote.owner}`
       );
       process.exit(1);
     }
-    spin.stop(`saved ${pc.cyan(CODEX_AUTH_SECRET)} to Lintel (${scope})`);
+    spin.stop(`saved ${pc.cyan(CODEX_AUTH_SECRET)} to Terramend (${scope})`);
 
     setActiveSpin(null);
     p.outro("done.");

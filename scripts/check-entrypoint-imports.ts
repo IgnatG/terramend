@@ -5,11 +5,7 @@ import { build } from "esbuild";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
-const entryPoints = [
-  resolve(scriptDir, "../src/entry.ts"),
-  resolve(scriptDir, "../get-installation-token/entry.ts"),
-  resolve(scriptDir, "../get-installation-token/post.ts"),
-];
+const entryPoints = [resolve(scriptDir, "../src/entry.ts")];
 
 function isPathImport(specifier: string): boolean {
   return (

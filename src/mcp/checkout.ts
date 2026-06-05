@@ -3,17 +3,17 @@ import { statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Octokit, RestEndpointMethodTypes } from "@octokit/rest";
 import { type } from "arktype";
-import { log } from "../utils/cli.ts";
-import { countLines, createDiffCoverageState } from "../utils/diffCoverage.ts";
-import { $git, $gitFetchWithDeepen } from "../utils/gitAuth.ts";
-import { executeLifecycleHook } from "../utils/lifecycle.ts";
-import { computeIncrementalDiff } from "../utils/rangeDiff.ts";
-import { retry } from "../utils/retry.ts";
-import { $ } from "../utils/shell.ts";
-import { rejectIfLeadingDash } from "./git.ts";
-import { commentableLinesForFile } from "./review.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { log } from "#app/utils/cli";
+import { countLines, createDiffCoverageState } from "#app/utils/diffCoverage";
+import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
+import { executeLifecycleHook } from "#app/utils/lifecycle";
+import { computeIncrementalDiff } from "#app/utils/rangeDiff";
+import { retry } from "#app/utils/retry";
+import { $ } from "#app/utils/shell";
+import { rejectIfLeadingDash } from "#app/mcp/git";
+import { commentableLinesForFile } from "#app/mcp/review";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 type PullFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
 
@@ -185,7 +185,7 @@ export async function fetchAndFormatPrDiff(
   return { ...formatFilesWithLineNumbers(files), files };
 }
 
-import { captureInitialHead, type GitContext } from "../utils/setup.ts";
+import { captureInitialHead, type GitContext } from "#app/utils/setup";
 
 export type PrData = {
   number: number;
@@ -249,7 +249,7 @@ async function ensureBeforeShaReachable(params: EnsureBeforeShaParams): Promise<
     // not available locally — create a temporary branch to fetch it
   }
 
-  const tempBranch = `lintel/tmp/${params.sha.slice(0, 12)}`;
+  const tempBranch = `terramend/tmp/${params.sha.slice(0, 12)}`;
   try {
     log.debug(`» before_sha ${params.sha.slice(0, 7)} not reachable, creating temp branch...`);
     await using _ref = await createTempBranch({
@@ -665,10 +665,10 @@ export function CheckoutPrTool(ctx: ToolContext) {
       beforeSha: ctx.toolState.beforeSha,
     });
 
-    const tempDir = process.env.LINTEL_TEMP_DIR;
+    const tempDir = process.env.TERRAMEND_TEMP_DIR;
     if (!tempDir) {
       throw new Error(
-        "LINTEL_TEMP_DIR not set - checkout_pr must run in lintel action context"
+        "TERRAMEND_TEMP_DIR not set - checkout_pr must run in terramend action context"
       );
     }
 

@@ -1,4 +1,4 @@
-import { log } from "./log.ts";
+import { log } from "#app/utils/log";
 
 type TodoItem = {
   id: string;
@@ -39,7 +39,7 @@ function renderTodoMarkdown(todos: TodoItem[]): string {
         case "cancelled":
           return `- ~~${todo.content}~~`;
         case "in_progress":
-          return `- [ ] <img src="https://uploads.lintel.com/Progress%20Indicator.gif"  width="11" style="visibility: visible; max-width: 100%;" />  ${todo.content}`;
+          return `- [ ] <img src="https://uploads.terramend.com/Progress%20Indicator.gif"  width="11" style="visibility: visible; max-width: 100%;" />  ${todo.content}`;
         case "pending":
           return `- [ ] ${todo.content}`;
         default:

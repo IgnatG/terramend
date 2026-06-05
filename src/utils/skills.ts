@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { log } from "./cli.ts";
-import { getDevDependencyVersion } from "./version.ts";
+import { log } from "#app/utils/cli";
+import { getDevDependencyVersion } from "#app/utils/version";
 
 const skillsVersion = getDevDependencyVersion("skills");
 
@@ -14,7 +14,7 @@ const skillsVersion = getDevDependencyVersion("skills");
  * no codegen. this matters because the preview / oss path runs `cli.ts` from
  * source (see `runCli.ts#runLocalCli`) where esbuild loaders don't apply.
  */
-const BUNDLED_SKILL_NAMES = ["git-archaeology", "terraform-best-practices"] as const;
+const BUNDLED_SKILL_NAMES = ["terraform-best-practices"] as const;
 
 /**
  * resolve the on-disk path of a bundled SKILL.md by checking the two locations

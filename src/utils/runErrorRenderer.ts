@@ -39,26 +39,26 @@
  *      top-up CTA that the comment keeps verbatim.
  *
  *   6. Default — the job summary gets a plain-English lead sentence plus the
- *      raw error in a fenced code block under the `### ❌ Lintel failed`
+ *      raw error in a fenced code block under the `### ❌ Terramend failed`
  *      banner; the PR comment collapses to the same one-line logs link as
  *      the hang case, since the raw internal string helps nobody on the PR.
  *
  * Net: the actionable classifications (billing, API-key, model-not-found)
  * render identical bodies on both surfaces; the non-actionable ones (hang,
  * generic) keep the forensics in the Actions job summary and show a calm
- * one-liner in the PR comment, whose footer already carries Lintel
+ * one-liner in the PR comment, whose footer already carries Terramend
  * branding + rerun links.
  */
 
-import type { AgentDiagnostic } from "./agentHangReport.ts";
-import { formatAgentHangBody } from "./agentHangReport.ts";
-import { formatApiKeyErrorSummary, isApiKeyAuthError } from "./apiKeys.ts";
-import { BillingError, formatBillingErrorSummary } from "./billingErrors.ts";
+import type { AgentDiagnostic } from "#app/utils/agentHangReport";
+import { formatAgentHangBody } from "#app/utils/agentHangReport";
+import { formatApiKeyErrorSummary, isApiKeyAuthError } from "#app/utils/apiKeys";
+import { BillingError, formatBillingErrorSummary } from "#app/utils/billingErrors";
 import {
   extractProviderId,
   isProviderBillingExhausted,
   isRouterKeylimitExhaustedError,
-} from "./providerErrors.ts";
+} from "#app/utils/providerErrors";
 
 export type RenderedRunError = {
   summary: string;
@@ -75,11 +75,11 @@ function isProviderModelNotFoundError(message: string): boolean {
  * so the user isn't staring at a raw internal string like
  * `opencode prompt failed: fetch failed`, followed by the actual error in a
  * fenced code block for anyone who needs the detail. Shared by both surfaces;
- * the job summary adds the `### ❌ Lintel failed` banner on top.
+ * the job summary adds the `### ❌ Terramend failed` banner on top.
  */
 function formatGenericFailure(errorMessage: string): string {
   return [
-    "Lintel ran into an unexpected error and couldn't finish this run. The underlying error is below — re-trigger Lintel to try again, and reach out to support if it keeps happening.",
+    "Terramend ran into an unexpected error and couldn't finish this run. The underlying error is below — re-trigger Terramend to try again, and reach out to support if it keeps happening.",
     "",
     "```",
     errorMessage,
@@ -143,12 +143,12 @@ function formatProviderBillingExhausted(input: { errorMessage: string }): string
     : "**Your provider account is out of credit.**";
   const cta = dashboardUrl
     ? `[Top up \`${providerId}\` →](${dashboardUrl})`
-    : "Top up your provider account, then re-trigger Lintel.";
+    : "Top up your provider account, then re-trigger Terramend.";
 
   return [
     headline,
     "",
-    "Lintel detected a billing-exhausted response from your provider — the agent stopped before completing this run.",
+    "Terramend detected a billing-exhausted response from your provider — the agent stopped before completing this run.",
     "",
     cta,
     "",
@@ -162,8 +162,8 @@ function formatProviderModelNotFoundSummary(input: {
   raw: string;
 }): string {
   return (
-    `Lintel's free fallback model is no longer available in OpenCode's catalog. ` +
-    `Add an API key for your configured model in the Lintel console for \`${input.owner}/${input.name}\`, ` +
+    `Terramend's free fallback model is no longer available in OpenCode's catalog. ` +
+    `Add an API key for your configured model in the Terramend console for \`${input.owner}/${input.name}\`, ` +
     `or contact support if this persists.\n\n` +
     `\`\`\`\n${input.raw}\n\`\`\``
   );
@@ -188,7 +188,7 @@ export function renderRunError(input: {
   // gated on isHang because the harness sets `agentDiagnostic` on entry, so
   // any non-hang throw that hits the outer catch (e.g. post-success
   // output_schema validator, or a late cleanup throw after the run already
-  // succeeded) would otherwise render "Lintel failed" with stale event
+  // succeeded) would otherwise render "Terramend failed" with stale event
   // counts and silently drop the real errorMessage.
   const isHang =
     input.errorMessage.startsWith("activity timeout") ||
@@ -213,7 +213,7 @@ export function renderRunError(input: {
   // a "rotate your key" CTA when the actual fix is "top up credits".
   if (isProviderBillingExhausted(input.errorMessage)) {
     const body = formatProviderBillingExhausted({ errorMessage: input.errorMessage });
-    return { summary: `### ❌ Lintel failed\n\n${body}`, comment: body };
+    return { summary: `### ❌ Terramend failed\n\n${body}`, comment: body };
   }
 
   const apiKeySource = hangBody ?? input.errorMessage;
@@ -246,14 +246,14 @@ export function renderRunError(input: {
     const isBillingExhausted =
       input.agentDiagnostic?.lastProviderError === "provider billing exhausted";
     return {
-      summary: `### ❌ Lintel failed\n\n${hangBody}`,
+      summary: `### ❌ Terramend failed\n\n${hangBody}`,
       comment: isBillingExhausted ? hangBody : formatMinimalFailureComment(input.repo),
     };
   }
 
   const genericBody = formatGenericFailure(input.errorMessage);
   return {
-    summary: `### ❌ Lintel failed\n\n${genericBody}`,
+    summary: `### ❌ Terramend failed\n\n${genericBody}`,
     comment: formatMinimalFailureComment(input.repo),
   };
 }

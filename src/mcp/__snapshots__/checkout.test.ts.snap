@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`formatFilesWithLineNumbers > generates accurate TOC line numbers for lintel/test-repo#1 > content 1`] = `
+exports[`formatFilesWithLineNumbers > generates accurate TOC line numbers for terramend/test-repo#1 > content 1`] = `
 "## Files (5)
 - src/format.ts → lines 9-32 · diff-41c7b3ac268a3a1ae5c7be92f1230f600013b7170e44a693570ccbdb183ea36b
 - src/math.ts → lines 33-55 · diff-9c6e445a719b33e276684bdf95c69e617f0303638d44cf90d61295f2720ecc63
@@ -96,7 +96,7 @@ diff --git a/test/math.test.ts b/test/math.test.ts
 "
 `;
 
-exports[`formatFilesWithLineNumbers > generates accurate TOC line numbers for lintel/test-repo#1 > toc 1`] = `
+exports[`formatFilesWithLineNumbers > generates accurate TOC line numbers for terramend/test-repo#1 > toc 1`] = `
 "## Files (5)
 - src/format.ts → lines 9-32 · diff-41c7b3ac268a3a1ae5c7be92f1230f600013b7170e44a693570ccbdb183ea36b
 - src/math.ts → lines 33-55 · diff-9c6e445a719b33e276684bdf95c69e617f0303638d44cf90d61295f2720ecc63

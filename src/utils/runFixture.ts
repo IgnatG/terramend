@@ -1,30 +1,30 @@
-// in-process fixture runner used by `play.ts` (and any future host-side
+// in-process fixture runner used by `dev-run.ts` (and any future host-side
 // runner). does NOT know about Docker — that's `docker.ts`'s job. when run
 // inside the local docker container, this is what executes after the entrypoint.
 import { execSync } from "node:child_process";
 import { mkdtemp } from "node:fs/promises";
 import { devNull, tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentResult } from "../agents/shared.ts";
-import { type Inputs, main } from "../main.ts";
-import { log } from "./cli.ts";
-import { ensureGitHubToken } from "./github.ts";
-import { setupTestRepo } from "./setup.ts";
+import type { AgentResult } from "#app/agents/shared";
+import { type Inputs, main } from "#app/main";
+import { log } from "#app/utils/cli";
+import { ensureGitHubToken } from "#app/utils/github";
+import { setupTestRepo } from "#app/utils/setup";
 
 export async function run(inputsOrPrompt: Inputs | string): Promise<AgentResult> {
   await ensureGitHubToken();
 
-  // play.ts is a CI-emulator — isolate it from the developer's user- and
+  // dev-run.ts is a CI-emulator — isolate it from the developer's user- and
   // system-scope gitconfig so checks like `validatePushDestination` see the
   // raw stored remote URL instead of values mutated by `url.*.insteadOf`
   // rewrites (a common SSH-auth convenience on dev boxes). CI runners have
-  // empty gitconfigs so this is a no-op there; locally it makes `pnpm play`
+  // empty gitconfigs so this is a no-op there; locally it makes `pnpm dev:run`
   // and real runs produce identical git state. `os.devNull` canonicalizes
   // the null device across Unix (`/dev/null`) and Windows (`\\.\nul`).
   process.env.GIT_CONFIG_GLOBAL = devNull;
   process.env.GIT_CONFIG_SYSTEM = devNull;
 
-  const tempParent = await mkdtemp(join(tmpdir(), "lintel-play-"));
+  const tempParent = await mkdtemp(join(tmpdir(), "terramend-dev-run-"));
   const tempDir = join(tempParent, "repo");
   const originalCwd = process.cwd();
 
@@ -33,9 +33,9 @@ export async function run(inputsOrPrompt: Inputs | string): Promise<AgentResult>
     process.chdir(tempDir);
 
     // optional pre-agent setup (e.g. seed symlinks for adversarial fixtures).
-    if (process.env.LINTEL_TEST_REPO_SETUP) {
+    if (process.env.TERRAMEND_TEST_REPO_SETUP) {
       log.info("» running repo setup commands...");
-      execSync(process.env.LINTEL_TEST_REPO_SETUP, { cwd: tempDir, stdio: "pipe" });
+      execSync(process.env.TERRAMEND_TEST_REPO_SETUP, { cwd: tempDir, stdio: "pipe" });
     }
 
     // tell main() to use the cloned tempDir instead of the GHA workspace path.

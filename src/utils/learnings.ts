@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ToolContext } from "../mcp/server.ts";
-import { apiFetch } from "./apiFetch.ts";
-import { log } from "./cli.ts";
-import { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary } from "./learningsTruncate.ts";
+import type { ToolContext } from "#app/mcp/server";
+import { apiFetch } from "#app/utils/apiFetch";
+import { log } from "#app/utils/cli";
+import { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary } from "#app/utils/learningsTruncate";
 
 export { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary };
 
@@ -13,7 +13,7 @@ export { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary };
  * back into future runs as durable context. Modeled on the PR-summary tmpfile
  * pattern (see action/utils/prSummary.ts):
  *
- *   1. server seeds `lintel-learnings.md` with the verbatim body of
+ *   1. server seeds `terramend-learnings.md` with the verbatim body of
  *      `Repo.learnings` (or empty for fresh repos), and parses headings
  *      server-side (`utils/learningsToc.ts`) — the parsed TOC is rendered
  *      into the LEARNINGS prompt section, not into the file
@@ -35,7 +35,7 @@ export { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary };
  * agent-targetable on long-lived repos; there is no fixed taxonomy.
  */
 
-export const LEARNINGS_FILE_NAME = "lintel-learnings.md";
+export const LEARNINGS_FILE_NAME = "terramend-learnings.md";
 
 export function learningsFilePath(tmpdir: string): string {
   return join(tmpdir, LEARNINGS_FILE_NAME);

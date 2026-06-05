@@ -2,7 +2,7 @@
  * Pure-stdlib (fetch + Buffer) Codex OAuth refresh + JWT exp decoding.
  *
  * Lives here (not in codexAuth.ts) so the Next.js server side can import it
- * via lintel/internal without dragging in node:child_process / spawn /
+ * via terramend/internal without dragging in node:child_process / spawn /
  * mkdtemp from the rest of codexAuth.ts. Used by:
  *   - action/utils/codexAuth.ts (re-exports refreshCodexAuthBody)
  *   - utils/codexSecretRotation.ts (server-side maybeRotate at run-context)

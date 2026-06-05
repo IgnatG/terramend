@@ -125,7 +125,7 @@ function extractExcerpt(text: string, matchIndex: number): string {
 /**
  * OpenRouter's response when the per-run key's remaining budget can't cover
  * the agent's `max_tokens` reservation. Distinct from a generic provider error
- * because it's a Lintel billing concern, not an upstream outage — the user's
+ * because it's a Terramend billing concern, not an upstream outage — the user's
  * Router wallet ran out (or the key budget was undersized at mint time and the
  * agent ran out of headroom partway through).
  *
@@ -139,7 +139,7 @@ function extractExcerpt(text: string, matchIndex: number): string {
 // `/s` (dotAll) lets `.*?` cross newlines so we still detect the error if any
 // upstream layer reformats the message onto multiple lines. Without it, a
 // single inserted `\n` would silently bypass the BillingError reclassification
-// and the user would see the generic `❌ Lintel failed` dump instead of the
+// and the user would see the generic `❌ Terramend failed` dump instead of the
 // actionable top-up CTA.
 const ROUTER_KEYLIMIT_EXHAUSTED_PATTERN =
   /requires more credits.*?fewer max_tokens|requested up to \d+ tokens.*?can only afford/is;
@@ -153,7 +153,7 @@ export function isRouterKeylimitExhaustedError(text: string): boolean {
  * provider wallet is empty (DeepSeek "Insufficient Balance", Anthropic
  * "credit balance is too low", OpenCode Zen `CreditsError` /
  * `FreeUsageLimitError`, Gemini "spending cap"). Distinct from
- * `isRouterKeylimitExhaustedError` — that's Lintel's Router wallet, this
+ * `isRouterKeylimitExhaustedError` — that's Terramend's Router wallet, this
  * is the user's own provider account.
  */
 export function isProviderBillingExhausted(text: string): boolean {

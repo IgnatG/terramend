@@ -1,4 +1,4 @@
-import { Inputs, JsonPayload } from "./payload.ts";
+import { Inputs, JsonPayload } from "#app/utils/payload";
 
 describe("Inputs schema", () => {
   it("only prompt is required", () => {
@@ -31,15 +31,15 @@ describe("Inputs schema", () => {
 });
 
 describe("JsonPayload schema", () => {
-  it("requires ~lintel and version and prompt", () => {
+  it("requires ~terramend and version and prompt", () => {
     const result = JsonPayload.assert({
-      "~lintel": true,
+      "~terramend": true,
       version: "1.2.3",
       prompt: "test prompt",
     });
-    expect(result).toMatchObject({ "~lintel": true, version: "1.2.3", prompt: "test prompt" });
+    expect(result).toMatchObject({ "~terramend": true, version: "1.2.3", prompt: "test prompt" });
     expect(() => JsonPayload.assert({})).toThrow();
-    expect(() => JsonPayload.assert({ "~lintel": true })).toThrow();
+    expect(() => JsonPayload.assert({ "~terramend": true })).toThrow();
     expect(() => JsonPayload.assert({ version: "1.2.3" })).toThrow();
   });
 
@@ -50,7 +50,7 @@ describe("JsonPayload schema", () => {
     ["model", "anthropic/claude-opus"],
     ["event", { trigger: "unknown" }],
   ] as const)("should accept optional %s with value %s", (prop, value) => {
-    const input = { "~lintel": true, version: "1.2.3", prompt: "test prompt", [prop]: value };
+    const input = { "~terramend": true, version: "1.2.3", prompt: "test prompt", [prop]: value };
     expect(() => JsonPayload.assert(input)).not.toThrow();
   });
 });

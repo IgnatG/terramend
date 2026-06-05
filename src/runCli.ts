@@ -3,9 +3,9 @@ import { accessSync, constants, existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import actionPackageJson from "../package.json" with { type: "json" };
+import actionPackageJson from "#package.json" with { type: "json" };
 
-interface RunLintelCliParams {
+interface RunTerramendCliParams {
   cliArgs: string[];
   swallowErrors?: boolean;
 }
@@ -19,7 +19,7 @@ interface RuntimeContext {
 }
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
-const FALLBACK_PACKAGE_SPEC = `lintel@^${actionPackageJson.version}`;
+const FALLBACK_PACKAGE_SPEC = `terramend@^${actionPackageJson.version}`;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -43,7 +43,7 @@ function canAccessExecutable(path: string): boolean {
   }
 }
 
-// reject PATH entries that an attacker can plausibly write to before lintel
+// reject PATH entries that an attacker can plausibly write to before terramend
 // runs. specifically: relative entries (., bin, etc., which resolve against
 // cwd), and anything inside the customer's checkout. an attacker who can land
 // a malicious `npx` in the repo and prepend `$GITHUB_WORKSPACE/bin` to
@@ -107,7 +107,7 @@ function createRuntimeContext(): RuntimeContext {
   env.COREPACK_NPM_REGISTRY = NPM_REGISTRY;
   // bypass customer-side release-age gates (npm's `min-release-age`, pnpm's
   // `minimumReleaseAge`) so our bootstrap can resolve the latest publish.
-  // lintel's npm version is server-stamped from a SHA-pinned action ref the
+  // terramend's npm version is server-stamped from a SHA-pinned action ref the
   // customer already vets at the action layer — not a customer-vetted dep, so
   // the gate is the wrong affordance here. env beats .npmrc in both tools.
   // npm uses `npm_config_*`; pnpm v11+ requires `pnpm_config_*` (the v10→v11
@@ -126,7 +126,7 @@ function createRuntimeContext(): RuntimeContext {
   };
 }
 
-// $GITHUB_WORKSPACE is the customer's repo. running `npx --yes lintel@…`
+// $GITHUB_WORKSPACE is the customer's repo. running `npx --yes terramend@…`
 // there makes npm read THEIR `package.json` first, which on npm v11+ enforces
 // `devEngines.packageManager` and aborts the bootstrap with EBADDEVENGINES
 // before the agent ever boots. our bootstrap doesn't need anything from the
@@ -135,13 +135,13 @@ function createRuntimeContext(): RuntimeContext {
 //
 // `mkdtempSync` (vs raw `tmpdir()`): `$TMPDIR` is overridable from a prior
 // `$GITHUB_ENV` step, and a customer-authored or compromised prior step
-// could plant `node_modules/lintel/` in the resolved tmpdir to hijack
-// `npx --yes lintel@<version>` resolution. a fresh per-invocation
+// could plant `node_modules/terramend/` in the resolved tmpdir to hijack
+// `npx --yes terramend@<version>` resolution. a fresh per-invocation
 // subdirectory is mode 0700 and not pre-writable by anything earlier in
 // the job.
 function runCommand(params: { context: RuntimeContext; command: string; args: string[] }): void {
   execFileSync(params.command, params.args, {
-    cwd: mkdtempSync(join(tmpdir(), "lintel-bootstrap-")),
+    cwd: mkdtempSync(join(tmpdir(), "terramend-bootstrap-")),
     stdio: "inherit",
     env: params.context.env,
   });
@@ -226,13 +226,13 @@ function runLocalCli(context: RuntimeContext, cliArgs: string[]): void {
   });
 }
 
-function runLintelCliInner(context: RuntimeContext, cliArgs: string[]): void {
-  if (process.env.LINTEL_FORCE_LOCAL_CLI === "1") {
+function runTerramendCliInner(context: RuntimeContext, cliArgs: string[]): void {
+  if (process.env.TERRAMEND_FORCE_LOCAL_CLI === "1") {
     runLocalCli(context, cliArgs);
     return;
   }
 
-  if (context.actionRef === "main" && context.actionRepository === "lintel/lintel") {
+  if (context.actionRef === "main" && context.actionRepository === "terramend/terramend") {
     runLocalCli(context, cliArgs);
     return;
   }
@@ -256,21 +256,21 @@ function propagateChildExit(error: unknown): never {
   throw error;
 }
 
-export function runLintelCli(params: RunLintelCliParams): void {
+export function runTerramendCli(params: RunTerramendCliParams): void {
   const context = createRuntimeContext();
 
   if (params.swallowErrors) {
     try {
-      runLintelCliInner(context, params.cliArgs);
+      runTerramendCliInner(context, params.cliArgs);
     } catch (error) {
-      console.warn(`» lintel cleanup bootstrap failed: ${getErrorMessage(error)}`);
+      console.warn(`» terramend cleanup bootstrap failed: ${getErrorMessage(error)}`);
       // best-effort cleanup
     }
     return;
   }
 
   try {
-    runLintelCliInner(context, params.cliArgs);
+    runTerramendCliInner(context, params.cliArgs);
   } catch (error) {
     propagateChildExit(error);
   }

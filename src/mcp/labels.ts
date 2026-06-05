@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { log } from "../utils/cli.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { log } from "#app/utils/cli";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const AddLabelsParams = type({
   issue_number: type.number.describe("the issue or PR number to add labels to"),

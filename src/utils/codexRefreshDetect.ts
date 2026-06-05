@@ -1,5 +1,5 @@
 /** Convert an on-disk OpenCode auth.json back to the Codex CLI shape so the
- * post-hook can write it to the Lintel secret store. Returns null when the
+ * post-hook can write it to the Terramend secret store. Returns null when the
  * file's `openai` entry is missing, has the wrong type, or hasn't actually
  * refreshed (refresh token unchanged from `originalRefresh`). Lives in its
  * own module so `entryPost.ts` can import it without pulling in `codexHome.ts`

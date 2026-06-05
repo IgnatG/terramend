@@ -39,7 +39,7 @@ jobs:
             skill-invoke-opencode,
             smoke,
             token-exfil,
-            # vertex-claude,  # disabled: 0 anthropic quota on lintel GCP vertex
+            # vertex-claude,  # disabled: 0 anthropic quota on terramend GCP vertex
             vertex-opencode,
           ]
         exclude:
@@ -65,12 +65,12 @@ jobs:
       AWS_REGION: us-east-1
       BEDROCK_MODEL_ID: us.anthropic.claude-sonnet-4-6
       VERTEX_SERVICE_ACCOUNT_JSON: ${{ secrets.VERTEX_SERVICE_ACCOUNT_JSON }}
-      GOOGLE_CLOUD_PROJECT: lintel
+      GOOGLE_CLOUD_PROJECT: terramend
       VERTEX_LOCATION: global
       VERTEX_MODEL_ID: gemini-2.5-flash
-      LINTEL_MODEL: ${{ vars.LINTEL_MODEL }}
-      # CI smoke-testing shortcut only — production stores this in Lintel's
-      # per-org secret store (Postgres), set via `lintel auth codex`. GH
+      TERRAMEND_MODEL: ${{ vars.TERRAMEND_MODEL }}
+      # CI smoke-testing shortcut only — production stores this in Terramend's
+      # per-org secret store (Postgres), set via `terramend auth codex`. GH
       # Actions secrets are immutable at runtime so the post-hook can't write
       # back the rotated refresh token; CI accepts the staleness and we
       # manually re-provision when smoke tests start failing. Do not copy this

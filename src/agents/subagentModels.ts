@@ -1,4 +1,4 @@
-import { modelAliases } from "../models.ts";
+import { modelAliases } from "#app/models";
 
 /**
  * Derive a cheaper subagent model override from the orchestrator's resolved

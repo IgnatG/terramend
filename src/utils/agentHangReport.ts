@@ -12,7 +12,7 @@ const MAX_STDERR_BYTES = 3000;
  * buffer, so the diagnostic always reflects the latest captured tail.
  */
 export type AgentDiagnostic = {
-  /** display label for the agent, e.g. "Lintel". used in the headline. */
+  /** display label for the agent, e.g. "Terramend". used in the headline. */
   label: string;
   /** shared reference to the harness's bounded stderr ring buffer. */
   recentStderr: string[];
@@ -147,7 +147,7 @@ function formatBillingExhaustedBody(diagnostic: AgentDiagnostic): string {
     ? `Top up your provider balance, then re-run: [${billingUrl}](${billingUrl})`
     : "Top up your model-provider balance (or rotate to a key with remaining credits) and re-run.";
   const explanation =
-    "The agent kept retrying the request because the provider marked the failure as transient. Lintel's activity-timeout watchdog ended the run after no further events were emitted.";
+    "The agent kept retrying the request because the provider marked the failure as transient. Terramend's activity-timeout watchdog ended the run after no further events were emitted.";
 
   const parts = [headline, "", explanation, "", cta];
 

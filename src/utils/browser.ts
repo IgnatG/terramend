@@ -1,10 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ToolState } from "../toolState.ts";
-import { log } from "./cli.ts";
-import { filterEnv } from "./secrets.ts";
-import { getDevDependencyVersion } from "./version.ts";
+import type { ToolState } from "#app/toolState";
+import { log } from "#app/utils/cli";
+import { filterEnv } from "#app/utils/secrets";
+import { getDevDependencyVersion } from "#app/utils/version";
 
 // agent-browser already discovers chrome via `which` and the playwright cache as fallbacks,
 // so this list only needs to cover the GHA ubuntu-latest runner where we know the exact path.

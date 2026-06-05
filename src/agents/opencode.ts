@@ -15,48 +15,48 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import * as core from "@actions/core";
-import { lintelMcpName } from "../external.ts";
-import { BEDROCK_MODEL_ID_ENV } from "../models.ts";
-import type { ToolState } from "../toolState.ts";
-import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "../utils/activity.ts";
-import { type AgentDiagnostic, formatAgentHangBody } from "../utils/agentHangReport.ts";
-import { formatJsonValue, log } from "../utils/cli.ts";
-import { installCodexAuth } from "../utils/codexHome.ts";
-import { findProviderErrorMatch } from "../utils/providerErrors.ts";
-import { addSkill, installBundledSkills } from "../utils/skills.ts";
+import { terramendMcpName } from "#app/external";
+import { BEDROCK_MODEL_ID_ENV } from "#app/models";
+import type { ToolState } from "#app/toolState";
+import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "#app/utils/activity";
+import { type AgentDiagnostic, formatAgentHangBody } from "#app/utils/agentHangReport";
+import { formatJsonValue, log } from "#app/utils/cli";
+import { installCodexAuth } from "#app/utils/codexHome";
+import { findProviderErrorMatch } from "#app/utils/providerErrors";
+import { addSkill, installBundledSkills } from "#app/utils/skills";
 import {
   DEFAULT_MAX_RETAINED_BYTES,
   SPAWN_ACTIVITY_TIMEOUT_CODE,
   SpawnTimeoutError,
   spawn,
   TailBuffer,
-} from "../utils/subprocess.ts";
-import { ThinkingTimer } from "../utils/timer.ts";
-import type { TodoTracker } from "../utils/todoTracking.ts";
-import { getDevDependencyVersion } from "../utils/version.ts";
-import { resolveVertexOpenCodeModel } from "../utils/vertex.ts";
-import { GIT_NATIVE_READ_DENY_OPENCODE, GIT_NATIVE_WRITE_DENY_OPENCODE } from "./nativeFsDenies.ts";
+} from "#app/utils/subprocess";
+import { ThinkingTimer } from "#app/utils/timer";
+import type { TodoTracker } from "#app/utils/todoTracking";
+import { getDevDependencyVersion } from "#app/utils/version";
+import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
+import { GIT_NATIVE_READ_DENY_OPENCODE, GIT_NATIVE_WRITE_DENY_OPENCODE } from "#app/agents/nativeFsDenies";
 import {
-  LINTEL_BUS_EVENT_TYPE,
-  LINTEL_OPENCODE_GATE_PLUGIN_FILENAME,
-  LINTEL_OPENCODE_GATE_PLUGIN_SOURCE,
-  LINTEL_OPENCODE_PLUGIN_FILENAME,
-  LINTEL_OPENCODE_PLUGIN_SOURCE,
-} from "./opencodePlugin.ts";
+  TERRAMEND_BUS_EVENT_TYPE,
+  TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME,
+  TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE,
+  TERRAMEND_OPENCODE_PLUGIN_FILENAME,
+  TERRAMEND_OPENCODE_PLUGIN_SOURCE,
+} from "#app/agents/opencodePlugin";
 import {
   autoSelectModel,
   buildReviewerAgentConfig,
   geminiHighThinkingOverrides,
   installOpencodeCli,
   type OpenCodeConfig,
-} from "./opencodeShared.ts";
+} from "#app/agents/opencodeShared";
 import {
   buildLearningsReflectionPrompt,
   runPostRunRetryLoop,
   shouldRunReflection,
-} from "./postRun.ts";
-import { REVIEWER_AGENT_NAME } from "./reviewer.ts";
-import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "./sessionLabeler.ts";
+} from "#app/agents/postRun";
+import { REVIEWER_AGENT_NAME } from "#app/agents/reviewer";
+import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "#app/agents/sessionLabeler";
 import {
   type AgentResult,
   type AgentRunContext,
@@ -64,11 +64,11 @@ import {
   agent,
   logTokenTable,
   MAX_STDERR_LINES,
-} from "./shared.ts";
+} from "#app/agents/shared";
 
 // re-export for the existing test (`./opencode.test.ts`) — once v1 is
 // retired this module collapses and the test imports from opencodeShared.
-export { geminiHighThinkingOverrides } from "./opencodeShared.ts";
+export { geminiHighThinkingOverrides } from "#app/agents/opencodeShared";
 
 // v1.4-era npm package shipped a per-platform binary directly at this path.
 const installCli = () => installOpencodeCli({ binPath: "bin/opencode" });
@@ -110,7 +110,7 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
       // deleting live git locks (the corruption in #860/#864 — the dangerous
       // `rm` guidance is gone, but the spurious aborts shouldn't happen either).
       // server-side cap is 600s (`checkout_pr` `timeoutMs`).
-      [lintelMcpName]: { type: "remote", url: ctx.mcpServerUrl, timeout: 300_000 },
+      [terramendMcpName]: { type: "remote", url: ctx.mcpServerUrl, timeout: 300_000 },
     },
     agent: (() => {
       const cfg = buildReviewerAgentConfig(model);
@@ -123,11 +123,11 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
     // MCP/"external" tools with `"Tool '<name>' not in registry. External
     // tools (MCP, environment) cannot be batched - call them directly."`
     // (anomalyco/opencode PR #2983 design). when a model emits parallel
-    // tool_use blocks containing `lintel_*` calls, opencode internally
+    // tool_use blocks containing `terramend_*` calls, opencode internally
     // routes them through batch — they all fail, the model misreads the
     // error as "the tool doesn't exist", and gives up. caught in CI by
     // `restricted-opencode` after a `lens:` subagent dispatched parallel
-    // `lintel_shell` calls and concluded shell was unavailable.
+    // `terramend_shell` calls and concluded shell was unavailable.
     // native parallel tool_use (multiple tool_use blocks per assistant
     // message) still works without batch_tool for both built-in and MCP
     // tools, so we lose only the batch wrapper, not parallelism.
@@ -270,7 +270,7 @@ interface OpenCodeErrorEvent {
 }
 
 /**
- * Envelope event emitted by our `.opencode/plugin/lintel-events.ts` (the
+ * Envelope event emitted by our `.opencode/plugin/terramend-events.ts` (the
  * source lives in `opencodePlugin.ts`). The plugin subscribes to opencode's
  * bus via `bus.subscribeAll()` and re-emits non-orchestrator
  * `message.part.updated` events on stdout so subagent activity surfaces here.
@@ -281,7 +281,7 @@ interface OpenCodeErrorEvent {
  * / `text` handlers by synthesizing the equivalent OpenCode-style event.
  */
 interface OpenCodeBusEnvelopeEvent {
-  type: "lintel_bus_event";
+  type: "terramend_bus_event";
   bus_event?: {
     type?: string;
     properties?: {
@@ -348,7 +348,7 @@ async function runOpenCode(params: RunParams): Promise<AgentResult> {
   // NDJSON stream (`part.sessionID !== sessionID`), so we ship a per-run
   // plugin (`action/agents/opencodePlugin.ts`, written into the tmpdir at
   // setup) that re-emits non-orchestrator `message.part.updated` events. those
-  // arrive here as `lintel_bus_event` envelopes and feed the labeler with
+  // arrive here as `terramend_bus_event` envelopes and feed the labeler with
   // real data per subagent session.
   const labeler = new SessionLabeler();
   function eventLabel(event: Record<string, unknown>): string {
@@ -426,7 +426,7 @@ async function runOpenCode(params: RunParams): Promise<AgentResult> {
       accumulatedTokens.input + accumulatedTokens.cacheRead + accumulatedTokens.cacheWrite;
     return totalInput > 0 || accumulatedTokens.output > 0
       ? {
-          agent: "lintel",
+          agent: "terramend",
           inputTokens: totalInput,
           outputTokens: accumulatedTokens.output,
           cacheReadTokens: accumulatedTokens.cacheRead || undefined,
@@ -529,7 +529,7 @@ async function runOpenCode(params: RunParams): Promise<AgentResult> {
       // step_finish.part.cost is a per-step delta (not a running total) —
       // OpenCode emits varying per-event values that sum to the session cost.
       // verified empirically across Anthropic, OpenAI, Gemini, xAI, DeepSeek,
-      // Moonshot, and OpenRouter (see lintel-baseline/opencode-*.log).
+      // Moonshot, and OpenRouter (see terramend-baseline/opencode-*.log).
       // guard against NaN/Infinity — a single poison value would make the
       // running total un-recoverable for the rest of the session.
       if (typeof event.part?.cost === "number" && Number.isFinite(event.part.cost)) {
@@ -557,7 +557,7 @@ async function runOpenCode(params: RunParams): Promise<AgentResult> {
       // sessionID that appears.
       if (toolName === "task") {
         // may have been pre-registered via the plugin's early task-dispatch
-        // announcement (`lintel_bus_event` handler). dedupe on callID so
+        // announcement (`terramend_bus_event` handler). dedupe on callID so
         // we don't record the same dispatch twice (which would corrupt the
         // FIFO label queue).
         if (!taskDispatchByCallID.has(toolId)) {
@@ -737,7 +737,7 @@ async function runOpenCode(params: RunParams): Promise<AgentResult> {
         }
       }
     },
-    [LINTEL_BUS_EVENT_TYPE]: async (event: OpenCodeBusEnvelopeEvent) => {
+    [TERRAMEND_BUS_EVENT_TYPE]: async (event: OpenCodeBusEnvelopeEvent) => {
       // surface subagent activity that opencode's CLI run-loop discards (it
       // filters `part.sessionID !== sessionID`). our injected plugin
       // (action/agents/opencodePlugin.ts) re-emits non-orchestrator
@@ -1103,7 +1103,7 @@ export const opencode = agent({
     //
     // we deliberately do NOT gate on `!isBedrockAnthropicId(rawModel)` here:
     // Anthropic-on-Bedrock normally routes to claude-code (per `resolveAgent`),
-    // but `LINTEL_AGENT=opencode` is the documented escape hatch for forcing
+    // but `TERRAMEND_AGENT=opencode` is the documented escape hatch for forcing
     // opencode regardless. when that override fires, opencode still needs the
     // `amazon-bedrock/` prefix or the provider lookup fails with
     // "Model not found: <modelId>/.". the Anthropic-vs-other discriminant
@@ -1137,14 +1137,14 @@ export const opencode = agent({
     const opencodePluginDir = join(homeEnv.XDG_CONFIG_HOME, "opencode", "plugin");
     mkdirSync(opencodePluginDir, { recursive: true });
     writeFileSync(
-      join(opencodePluginDir, LINTEL_OPENCODE_PLUGIN_FILENAME),
-      LINTEL_OPENCODE_PLUGIN_SOURCE
+      join(opencodePluginDir, TERRAMEND_OPENCODE_PLUGIN_FILENAME),
+      TERRAMEND_OPENCODE_PLUGIN_SOURCE
     );
     // the subagent gate ships as a separate plugin so the active v2 harness
     // can install it without the events re-emitter (see opencodePlugin.ts).
     writeFileSync(
-      join(opencodePluginDir, LINTEL_OPENCODE_GATE_PLUGIN_FILENAME),
-      LINTEL_OPENCODE_GATE_PLUGIN_SOURCE
+      join(opencodePluginDir, TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME),
+      TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE
     );
 
     const agentBrowserVersion = getDevDependencyVersion("agent-browser");
@@ -1157,7 +1157,7 @@ export const opencode = agent({
 
     installBundledSkills({ home: homeEnv.HOME });
 
-    // materialize CODEX_AUTH_JSON (Lintel-stored Codex subscription
+    // materialize CODEX_AUTH_JSON (Terramend-stored Codex subscription
     // credential) into the runner's REAL $HOME/.local/share/opencode/auth.json
     // so OpenCode's CodexAuthPlugin picks it up and routes openai requests
     // through the ChatGPT subscription instead of needing OPENAI_API_KEY.
@@ -1170,7 +1170,7 @@ export const opencode = agent({
     // OPENCODE_PERMISSION has absolute highest precedence (merged after managed/MDM configs).
     // external_directory gates ALL native filesystem tools (Read, Write, Edit, Glob, Grep, etc.)
     // for paths outside the project root. last-match-wins: deny everything, then allow /tmp.
-    // codex auth lives at /var/lib/lintel/opencode/auth.json (see codexHome.ts),
+    // codex auth lives at /var/lib/terramend/opencode/auth.json (see codexHome.ts),
     // which is outside /tmp/* — deny-default protects it from native FS tools.
     //
     // read + edit rules deny git surfaces INSIDE the project root (so
@@ -1225,11 +1225,11 @@ export const opencode = agent({
 
     const repoDir = process.cwd();
 
-    log.debug(`» starting Lintel (OpenCode): ${cliPath} ${baseArgs.join(" ")}`);
+    log.debug(`» starting Terramend (OpenCode): ${cliPath} ${baseArgs.join(" ")}`);
     log.debug(`» working directory: ${repoDir}`);
 
     const runParams = {
-      label: "Lintel",
+      label: "Terramend",
       cliPath,
       cwd: repoDir,
       env,

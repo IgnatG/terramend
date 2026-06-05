@@ -14,7 +14,7 @@ export type {
   ShellPermission,
   ToolPermission,
   WriteablePayload,
-} from "../external.ts";
+} from "#app/external";
 export {
   DEFAULT_PROXY_MODEL,
   getAutoSelectHintModel,
@@ -25,50 +25,50 @@ export {
   modelAliases,
   parseModel,
   providers,
-  lintelMcpName,
+  terramendMcpName,
   resolveCliModel,
   resolveDisplayAlias,
   resolveModelSlug,
   resolveOpenRouterModel,
-} from "../external.ts";
-export type { Mode } from "../modes.ts";
-export { modes } from "../modes.ts";
+} from "#app/external";
+export type { Mode } from "#app/modes";
+export { modes } from "#app/modes";
 export type {
-  BuildLintelFooterParams,
+  BuildTerramendFooterParams,
   WorkflowRunFooterInfo,
-} from "../utils/buildLintelFooter.ts";
+} from "#app/utils/buildTerramendFooter";
 export {
-  buildLintelFooter,
-  LINTEL_DIVIDER,
+  buildTerramendFooter,
+  TERRAMEND_DIVIDER,
   stripExistingFooter,
-} from "../utils/buildLintelFooter.ts";
-export type { CodexAuthBody } from "../utils/codexOAuth.ts";
+} from "#app/utils/buildTerramendFooter";
+export type { CodexAuthBody } from "#app/utils/codexOAuth";
 export {
   decodeJwtExpMs,
   OAuthInvalidGrantError,
   parseCodexAuthBody,
   refreshCodexAuthBody,
   stringifyCodexAuthBody,
-} from "../utils/codexOAuth.ts";
-export type { ResourceUsage, UsageSummary } from "../utils/github.ts";
+} from "#app/utils/codexOAuth";
+export type { ResourceUsage, UsageSummary } from "#app/utils/github";
 export {
   isLeapingIntoActionCommentBody,
   LEAPING_INTO_ACTION_PREFIX,
-} from "../utils/leapingComment.ts";
-export { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary } from "../utils/learningsTruncate.ts";
+} from "#app/utils/leapingComment";
+export { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary } from "#app/utils/learningsTruncate";
 export type {
   CreateProgressCommentTarget,
   ProgressComment,
   ProgressCommentType,
-} from "../utils/progressComment.ts";
+} from "#app/utils/progressComment";
 export {
   createLeapingProgressComment,
   deleteProgressCommentApi,
   getProgressComment,
   updateProgressComment,
-} from "../utils/progressComment.ts";
+} from "#app/utils/progressComment";
 export {
   isValidTimeString,
   parseTimeString,
   TIMEOUT_DISABLED,
-} from "../utils/time.ts";
+} from "#app/utils/time";

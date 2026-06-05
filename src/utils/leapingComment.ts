@@ -1,11 +1,11 @@
-import { stripExistingFooter } from "./buildLintelFooter.ts";
+import { stripExistingFooter } from "#app/utils/buildTerramendFooter";
 
 /**
  * The prefix text for the initial "leaping into action" comment.
  * Used to detect whether a progress comment is still in its initial state
  * and hasn't been updated with real progress or error messages.
  *
- * Lives in `utils/` (not `mcp/`) so it can be re-exported via `lintel/internal`
+ * Lives in `utils/` (not `mcp/`) so it can be re-exported via `terramend/internal`
  * without dragging the MCP server's transitive imports into the Next.js app's
  * type-check graph.
  */

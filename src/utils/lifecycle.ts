@@ -1,11 +1,11 @@
-import { LIFECYCLE_HOOK_TIMEOUT_MS } from "../lifecycle.ts";
-import { log } from "./cli.ts";
+import { LIFECYCLE_HOOK_TIMEOUT_MS } from "#app/lifecycle";
+import { log } from "#app/utils/cli";
 import {
   SPAWN_ACTIVITY_TIMEOUT_CODE,
   SPAWN_TIMEOUT_CODE,
   SpawnTimeoutError,
   spawn,
-} from "./subprocess.ts";
+} from "#app/utils/subprocess";
 
 export interface ExecuteLifecycleHookParams {
   event: string;

@@ -2,11 +2,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Octokit } from "@octokit/rest";
 import { type } from "arktype";
-import { resolveBodyAssets } from "../utils/body.ts";
-import { stripExistingFooter } from "../utils/buildLintelFooter.ts";
-import { log } from "../utils/log.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { resolveBodyAssets } from "#app/utils/body";
+import { stripExistingFooter } from "#app/utils/buildTerramendFooter";
+import { log } from "#app/utils/log";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 // GraphQL query to fetch all review threads for a PR with full comment history
 export const REVIEW_THREADS_QUERY = `
@@ -670,9 +670,9 @@ export function GetReviewCommentsTool(ctx: ToolContext) {
 
       const { threadBlocks, reviewer, formatted } = result;
 
-      const tempDir = process.env.LINTEL_TEMP_DIR;
+      const tempDir = process.env.TERRAMEND_TEMP_DIR;
       if (!tempDir) {
-        throw new Error("LINTEL_TEMP_DIR not set");
+        throw new Error("TERRAMEND_TEMP_DIR not set");
       }
       const filename = `review-${params.review_id}-threads.md`;
       const commentsPath = join(tempDir, filename);

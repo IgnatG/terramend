@@ -1,9 +1,9 @@
 import { type } from "arktype";
-import type { PrepOptions, PrepResult } from "../prep/index.ts";
-import { runPrepPhase } from "../prep/index.ts";
-import { packageManagerBinDir } from "../utils/packageManager.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import type { PrepOptions, PrepResult } from "#app/prep/index";
+import { runPrepPhase } from "#app/prep/index";
+import { packageManagerBinDir } from "#app/utils/packageManager";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 // empty schema for tools with no parameters
 const EmptyParams = type({});

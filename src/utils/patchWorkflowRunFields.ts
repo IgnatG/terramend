@@ -1,8 +1,8 @@
-import type { AgentUsage } from "../agents/shared.ts";
-import type { ToolContext } from "../mcp/server.ts";
-import { apiFetch } from "./apiFetch.ts";
-import { log } from "./cli.ts";
-import { retry } from "./retry.ts";
+import type { AgentUsage } from "#app/agents/shared";
+import type { ToolContext } from "#app/mcp/server";
+import { apiFetch } from "#app/utils/apiFetch";
+import { log } from "#app/utils/cli";
+import { retry } from "#app/utils/retry";
 
 /**
  * Artifact tracking fields — one-off PATCHes from MCP tools as GitHub entities
@@ -48,7 +48,7 @@ const NUMBER_KEYS: WorkflowRunUsagePatchKey[] = [
   "costUsd",
 ];
 
-/** PATCH workflow-run fields (Lintel JWT, not GitHub). */
+/** PATCH workflow-run fields (Terramend JWT, not GitHub). */
 export async function patchWorkflowRunFields(
   ctx: ToolContext,
   fields: WorkflowRunPatch

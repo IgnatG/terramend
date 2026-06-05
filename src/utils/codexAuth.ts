@@ -2,13 +2,13 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CodexAuthBody, refreshCodexAuthBody, stringifyCodexAuthBody } from "./codexOAuth.ts";
+import { type CodexAuthBody, refreshCodexAuthBody, stringifyCodexAuthBody } from "#app/utils/codexOAuth";
 
 /**
  * minted Codex subscription credential. raw `auth.json` body that Codex CLI /
  * OpenCode plugins consume. validated to be `auth_mode: "chatgpt"` with a
  * refresh token before being returned. caller is responsible for storing it
- * (typically as the `CODEX_AUTH_JSON` Lintel secret).
+ * (typically as the `CODEX_AUTH_JSON` Terramend secret).
  */
 export interface CodexAuth {
   /** raw JSON body of the minted `auth.json`; safe to persist verbatim. */
@@ -42,8 +42,8 @@ interface RunOptions {
   onProgress?: (event: ProgressEvent) => void;
   /**
    * pass-through control over the child's stdio. `inherit` streams Codex's
-   * own UI directly to the user's terminal. `pipe` is what `lintel auth
-   * codex` uses so it can re-render each line with a Lintel-styled rail
+   * own UI directly to the user's terminal. `pipe` is what `terramend auth
+   * codex` uses so it can re-render each line with a Terramend-styled rail
    * + dim formatting via `onChildLine`.
    */
   childStdio?: "inherit" | "pipe";
@@ -71,7 +71,7 @@ interface RunOptions {
 export async function mintCodexAuth(options: RunOptions): Promise<CodexAuth> {
   // mkdtempSync already creates the dir with the default 0o700 perms on
   // posix; an extra mkdirSync would just be ceremony.
-  const codexHome = mkdtempSync(join(tmpdir(), "lintel-codex-"));
+  const codexHome = mkdtempSync(join(tmpdir(), "terramend-codex-"));
   try {
     // device auth requires file-backed credentials; otherwise Codex routes the
     // refresh token into the OS keyring and we can't observe / persist it.

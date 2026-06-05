@@ -4,7 +4,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { modelAliases, type ProviderConfig, providers } from "../src/models.ts";
+import { modelAliases, type ProviderConfig, providers } from "#app/models";
 
 const TIMEOUT_MS = 60_000;
 const PROMPT = "respond with just the word hello";

@@ -30,7 +30,7 @@
  * NOTE: the per-PR-precision matrix lives in `matrix.ts`, which calls into
  * this file. raw invocation here emits the unfiltered matrix.
  */
-import { modelAliases } from "../src/models.ts";
+import { modelAliases } from "#app/models";
 import { providers } from "./providers.ts";
 
 export type MatrixEntry = {

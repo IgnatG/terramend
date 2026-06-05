@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_ALLOWED_PATHS, globToRegex, isPathAllowed } from "./guardrails.ts";
+import { DEFAULT_ALLOWED_PATHS, globToRegex, isPathAllowed } from "#app/mcp/guardrails";
 
 describe("globToRegex", () => {
   it("matches **/*.tf at any depth", () => {

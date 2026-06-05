@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { runLintelCli } from "./runCli.ts";
+import { runTerramendCli } from "#app/runCli";
 
-runLintelCli({
+runTerramendCli({
   cliArgs: ["gha"],
 });

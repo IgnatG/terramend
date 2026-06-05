@@ -1,26 +1,26 @@
 import { type } from "arktype";
-import { getApiUrl } from "../utils/apiUrl.ts";
-import { buildLintelFooter, stripExistingFooter } from "../utils/buildLintelFooter.ts";
-import { log } from "../utils/cli.ts";
-import { fixDoubleEscapedString } from "../utils/fixDoubleEscapedString.ts";
-import { patchWorkflowRunFields } from "../utils/patchWorkflowRunFields.ts";
+import { getApiUrl } from "#app/utils/apiUrl";
+import { buildTerramendFooter, stripExistingFooter } from "#app/utils/buildTerramendFooter";
+import { log } from "#app/utils/cli";
+import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
+import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
 import {
   createLeapingProgressComment,
   deleteProgressCommentApi,
   updateProgressComment,
-} from "../utils/progressComment.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+} from "#app/utils/progressComment";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 // re-export for backward compat with anything importing the leaping helpers from mcp/comment
 export {
   isLeapingIntoActionCommentBody,
   LEAPING_INTO_ACTION_PREFIX,
-} from "../utils/leapingComment.ts";
+} from "#app/utils/leapingComment";
 
 function buildCommentFooter(ctx: ToolContext, customParts?: string[]): string {
   const runId = ctx.runId;
-  return buildLintelFooter({
+  return buildTerramendFooter({
     triggeredBy: true,
     workflowRun:
       runId !== undefined

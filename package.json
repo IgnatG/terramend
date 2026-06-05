@@ -1,15 +1,19 @@
 {
-  "name": "lintel",
-  "version": "0.1.21",
+  "name": "terramend",
+  "version": "0.1.0",
+  "description": "GitHub Action that remediates Terraform to best practices (terraform fmt/validate, tflint, tfsec, checkov) and opens one scoped pull request per concern.",
   "type": "module",
   "bin": {
-    "lintel": "dist/cli.mjs",
-    "lintel-dev": "dist/cli.mjs",
-    "pf": "dist/cli.mjs"
+    "terramend": "dist/cli.mjs"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "src/"
   ],
+  "imports": {
+    "#app/*": "./src/*.ts",
+    "#package.json": "./package.json"
+  },
   "scripts": {
     "test": "vitest",
     "test:catalog": "vitest run --config vitest.main.config.ts",
@@ -17,79 +21,79 @@
     "build": "node esbuild.config.js && tsc -p tsconfig.exports.json",
     "check:entrypoints": "node scripts/check-entrypoint-imports.ts",
     "docker": "node docker.ts",
-    "play": "node play.ts",
+    "dev:run": "node dev-run.ts",
     "runtest": "node test/run.ts",
-    "scratch": "node scratch.ts",
     "upDeps": "pnpm up --latest",
-    "lock": "pnpm install --no-frozen-lockfile",
-    "prepare": "cd .. && husky"
+    "lock": "pnpm install --no-frozen-lockfile"
   },
   "devDependencies": {
     "@actions/core": "^1.11.1",
-    "@anthropic-ai/claude-code": "2.1.150",
+    "@anthropic-ai/claude-code": "2.1.165",
     "@ark/fs": "0.56.0",
     "@ark/util": "0.56.0",
-    "@clack/prompts": "^1.2.0",
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "@opencode-ai/sdk": "1.2.27",
+    "@clack/prompts": "^1.5.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/plugin-throttling": "^11.0.3",
-    "@octokit/rest": "^22.0.0",
+    "@octokit/rest": "^22.0.1",
     "@octokit/webhooks-types": "^7.6.1",
+    "@opencode-ai/sdk": "1.16.0",
     "@standard-schema/spec": "1.1.0",
     "@toon-format/toon": "^1.0.0",
     "@types/node": "^24.7.2",
     "@types/semver": "^7.7.1",
-    "@types/turndown": "^5.0.5",
+    "@types/turndown": "^5.0.6",
     "agent-browser": "0.25.4",
-    "ajv": "^8.18.0",
+    "ajv": "^8.20.0",
     "arg": "^5.0.2",
     "arkregex": "0.0.5",
     "arktype": "2.2.0",
-    "dotenv": "^17.2.3",
-    "esbuild": "^0.25.9",
-    "execa": "^9.6.0",
+    "dotenv": "^17.4.2",
+    "esbuild": "^0.28.0",
+    "execa": "^9.6.1",
     "fastmcp": "^3.34.0",
     "file-type": "^21.3.0",
-    "husky": "^9.0.0",
-    "opencode-ai": "1.15.13",
+    "opencode-ai": "1.16.0",
     "package-manager-detector": "^1.6.0",
     "picocolors": "^1.1.1",
-    "semver": "^7.7.3",
-    "skills": "1.4.9",
+    "semver": "^7.8.2",
+    "skills": "1.5.10",
     "table": "^6.9.0",
-    "turndown": "^7.2.0",
+    "turndown": "^7.2.4",
     "typescript": "^5.9.3",
     "undici": "^7.22.0",
-    "vitest": "^4.0.17",
-    "yaml": "^2.8.2"
+    "vitest": "^4.1.8",
+    "yaml": "^2.9.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lintel/lintel.git"
+    "url": "git+https://github.com/terramend/terramend.git"
   },
   "keywords": [
     "github-actions",
-    "ai-coding-agent",
-    "code-review"
+    "terraform",
+    "iac",
+    "remediation",
+    "best-practices",
+    "ai-coding-agent"
   ],
-  "author": "Lintel contributors",
+  "author": "Gabriel Ignat",
   "license": "AGPL-3.0-or-later",
   "bugs": {
-    "url": "https://github.com/lintel/lintel/issues"
+    "url": "https://github.com/terramend/terramend/issues"
   },
-  "homepage": "https://github.com/lintel/lintel#readme",
+  "homepage": "https://github.com/terramend/terramend#readme",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "@lintel/source": "./src/index.ts",
+      "@terramend/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./internal": {
-      "@lintel/source": "./src/internal/index.ts",
+      "@terramend/source": "./src/internal/index.ts",
       "types": "./dist/internal/index.d.ts",
       "import": "./dist/internal.js",
       "default": "./dist/internal.js"

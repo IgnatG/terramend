@@ -79,5 +79,5 @@ export const test: TestRunnerOptions = {
   validator,
   tags: ["adhoc", "security"],
   agents: ["opencode"],
-  env: { LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1" },
+  env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
 };

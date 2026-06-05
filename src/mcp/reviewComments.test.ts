@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type FormatReviewDataInput, formatReviewData } from "./reviewComments.ts";
+import { type FormatReviewDataInput, formatReviewData } from "#app/mcp/reviewComments";
 
 // fixtures captured by action/scripts/refresh-test-fixtures.ts; re-run
 // (with creds) when GitHub's review/threads/listFiles response shape
@@ -19,7 +19,7 @@ function loadFixture(file: string): ReviewFixture {
 
 describe("formatReviewData", () => {
   it("formats thread blocks with TOC and correct line numbers", () => {
-    const fx = loadFixture("lintel-scratch-pr-49-review-3485940013.json");
+    const fx = loadFixture("terramend-scratch-pr-49-review-3485940013.json");
     const result = formatReviewData(fx);
     expect(result).toBeDefined();
     if (!result) return;
@@ -29,7 +29,7 @@ describe("formatReviewData", () => {
   });
 
   it("formats body-only review", () => {
-    const fx = loadFixture("lintel-scratch-pr-64-review-3531000326.json");
+    const fx = loadFixture("terramend-scratch-pr-64-review-3531000326.json");
     const result = formatReviewData(fx);
     expect(result).toBeDefined();
     if (!result) return;

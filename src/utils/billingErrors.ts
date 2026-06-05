@@ -67,7 +67,7 @@ export class TransientError extends Error {
  * that pays for this repo's runs, which is the right scope for billing.
  */
 function billingConsoleUrl(owner: string, anchor: "billing" | "model-access"): string {
-  return `https://lintel.com/console/${encodeURIComponent(owner)}#${anchor}`;
+  return `https://terramend.com/console/${encodeURIComponent(owner)}#${anchor}`;
 }
 
 /**
@@ -75,7 +75,7 @@ function billingConsoleUrl(owner: string, anchor: "billing" | "model-access"): s
  * and the PR progress comment). Goals:
  *
  *   - quiet, not alarmist — bold first line instead of an `### ❌` H3, since
- *     the comment already has Lintel branding in the footer
+ *     the comment already has Terramend branding in the footer
  *   - actionable — every branch ends in a single CTA deep-linked to the
  *     correct section of the owner's console
  *   - honest — say what actually went wrong (card declined vs. balance
@@ -105,7 +105,7 @@ function billingConsoleUrl(owner: string, anchor: "billing" | "model-access"): s
 export function formatBillingErrorSummary(error: BillingError, owner: string): string {
   if (error.code === "router_requires_card") {
     return [
-      "**Add a card to start using Lintel Router.**",
+      "**Add a card to start using Terramend Router.**",
       "",
       "Router proxies OpenRouter at raw cost — no platform markup. Add a card and we'll auto-reload your wallet so runs keep flowing.",
       "",
@@ -115,7 +115,7 @@ export function formatBillingErrorSummary(error: BillingError, owner: string): s
 
   if (error.code === "router_balance_exhausted") {
     return [
-      "**Your Lintel Router balance is exhausted.**",
+      "**Your Terramend Router balance is exhausted.**",
       "",
       "You have a card on file but auto-reload is disabled, so runs paused once your balance went past the overdraft buffer.",
       "",
@@ -125,7 +125,7 @@ export function formatBillingErrorSummary(error: BillingError, owner: string): s
 
   if (error.code === "router_keylimit_exhausted") {
     return [
-      "**This run was cut short — your Lintel Router balance ran out mid-run.**",
+      "**This run was cut short — your Terramend Router balance ran out mid-run.**",
       "",
       "OpenRouter stopped the agent because the per-run budget was exhausted. Your wallet is now negative; top up or enable auto-reload to keep runs flowing.",
       "",
@@ -135,7 +135,7 @@ export function formatBillingErrorSummary(error: BillingError, owner: string): s
 
   if (error.code === "router_monthly_limit") {
     return [
-      "**Lintel Router hit its monthly spend limit.**",
+      "**Terramend Router hit its monthly spend limit.**",
       "",
       "Auto-reloads are paused for the rest of this UTC month. Ask your admin to raise the cap, or wait for it to reset at 00:00 UTC on the 1st.",
       "",
@@ -148,7 +148,7 @@ export function formatBillingErrorSummary(error: BillingError, owner: string): s
     return [
       `**Your card issuer requires 3D Secure on every charge** (\`${code}\`).`,
       "",
-      "Lintel can't complete a 3DS challenge from inside a workflow. Top up your Router balance once in Stripe Checkout — subsequent runs draw from the prepaid balance without re-triggering 3DS.",
+      "Terramend can't complete a 3DS challenge from inside a workflow. Top up your Router balance once in Stripe Checkout — subsequent runs draw from the prepaid balance without re-triggering 3DS.",
       "",
       `[Top up balance →](${billingConsoleUrl(owner, "billing")})`,
     ].join("\n");
@@ -158,14 +158,14 @@ export function formatBillingErrorSummary(error: BillingError, owner: string): s
     return [
       `**Your card was declined** (\`${error.declineCode}\`).`,
       "",
-      "Update your payment method and Lintel will retry on the next run.",
+      "Update your payment method and Terramend will retry on the next run.",
       "",
       `[Update payment method →](${billingConsoleUrl(owner, "billing")})`,
     ].join("\n");
   }
 
   return [
-    "**Your Lintel balance is empty.**",
+    "**Your Terramend balance is empty.**",
     "",
     "Top up your balance or enable auto-reload to keep runs flowing.",
     "",
@@ -180,10 +180,10 @@ export function formatBillingErrorSummary(error: BillingError, owner: string): s
  */
 export function formatTransientErrorSummary(error: TransientError, owner: string): string {
   return [
-    "**Lintel billing is temporarily unavailable.**",
+    "**Terramend billing is temporarily unavailable.**",
     "",
     error.message,
     "",
-    `Usually transient — the next dispatch should succeed. If it persists, check [status.lintel.com](https://status.lintel.com) or [your console](${billingConsoleUrl(owner, "billing")}).`,
+    `Usually transient — the next dispatch should succeed. If it persists, check [status.terramend.com](https://status.terramend.com) or [your console](${billingConsoleUrl(owner, "billing")}).`,
   ].join("\n");
 }

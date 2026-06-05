@@ -3,9 +3,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { agents } from "../src/agents/index.ts";
-import type { WorkflowPermissions } from "../src/external.ts";
-import { providers } from "../src/models.ts";
+import { agents } from "#app/agents/index";
+import type { WorkflowPermissions } from "#app/external";
+import { providers } from "#app/models";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const actionDir = join(__dirname, "..");
@@ -64,7 +64,7 @@ const expectedAgentEnvVars = [
   ...new Set(
     Object.values(providers).flatMap((p) => [...p.envVars, ...(p.managedCredentials ?? [])])
   ),
-  "LINTEL_MODEL",
+  "TERRAMEND_MODEL",
 ].sort();
 
 const expectedAgnosticEnvVars = ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"].sort();

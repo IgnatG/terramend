@@ -1,5 +1,5 @@
 import { performance } from "node:perf_hooks";
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 export class Timer {
   private initialTimestamp: number;

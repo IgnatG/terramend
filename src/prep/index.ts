@@ -1,10 +1,10 @@
 import { performance } from "node:perf_hooks";
-import { log } from "../utils/cli.ts";
-import { installNodeDependencies } from "./installNodeDependencies.ts";
-import { installPythonDependencies } from "./installPythonDependencies.ts";
-import type { PrepDefinition, PrepOptions, PrepResult } from "./types.ts";
+import { log } from "#app/utils/cli";
+import { installNodeDependencies } from "#app/prep/installNodeDependencies";
+import { installPythonDependencies } from "#app/prep/installPythonDependencies";
+import type { PrepDefinition, PrepOptions, PrepResult } from "#app/prep/types";
 
-export type { PrepOptions, PrepResult } from "./types.ts";
+export type { PrepOptions, PrepResult } from "#app/prep/types";
 
 // register all prep steps here
 const prepSteps: PrepDefinition[] = [installNodeDependencies, installPythonDependencies];

@@ -6,13 +6,13 @@
 // then it keeps both runners synchronized so a config drift can't make v1 a
 // silently-broken fallback.
 
-import { modelAliases } from "../models.ts";
-import { log } from "../utils/cli.ts";
-import { installFromNpmTarball } from "../utils/install.ts";
-import { getAuthorizedModels } from "../utils/openCodeModels.ts";
-import { getDevDependencyVersion } from "../utils/version.ts";
-import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "./reviewer.ts";
-import { deriveSubagentModels } from "./subagentModels.ts";
+import { modelAliases } from "#app/models";
+import { log } from "#app/utils/cli";
+import { installFromNpmTarball } from "#app/utils/install";
+import { getAuthorizedModels } from "#app/utils/openCodeModels";
+import { getDevDependencyVersion } from "#app/utils/version";
+import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
+import { deriveSubagentModels } from "#app/agents/subagentModels";
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
@@ -89,13 +89,13 @@ export async function installOpencodeCli(params: { binPath: string }): Promise<s
 
 // ── model auto-select fallback ──────────────────────────────────────────────────
 //
-// steps 1–2 of model resolution (LINTEL_MODEL env, slug resolution) happen
+// steps 1–2 of model resolution (TERRAMEND_MODEL env, slug resolution) happen
 // in resolveModel() in utils/agent.ts before the agent runs. this is step 3:
 // auto-select using the authorized model set captured in main.ts via
 // `opencode models` introspection.
 
 const AUTO_SELECT_WARNING =
-  "select a model explicitly in the Lintel console (https://lintel.com/console) to avoid this.";
+  "select a model explicitly in the Terramend console (https://terramend.com/console) to avoid this.";
 
 export function autoSelectModel(): string | undefined {
   const authorized = getAuthorizedModels();

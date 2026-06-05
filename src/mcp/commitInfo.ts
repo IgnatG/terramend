@@ -1,10 +1,10 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import { log } from "../utils/cli.ts";
-import { formatFilesWithLineNumbers } from "./checkout.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { log } from "#app/utils/cli";
+import { formatFilesWithLineNumbers } from "#app/mcp/checkout";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const CommitInfo = type({
   sha: type.string.describe("the commit SHA (full or abbreviated) to fetch"),
@@ -30,10 +30,10 @@ export function CommitInfoTool(ctx: ToolContext) {
 
       // format diff with line numbers and write to file
       const formatResult = formatFilesWithLineNumbers(files);
-      const tempDir = process.env.LINTEL_TEMP_DIR;
+      const tempDir = process.env.TERRAMEND_TEMP_DIR;
       if (!tempDir) {
         throw new Error(
-          "LINTEL_TEMP_DIR not set - get_commit_info must run in lintel action context"
+          "TERRAMEND_TEMP_DIR not set - get_commit_info must run in terramend action context"
         );
       }
       const diffFile = join(tempDir, `commit-${sha.slice(0, 7)}.diff`);

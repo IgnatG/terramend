@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises";
-import { LIFECYCLE_HOOK_TIMEOUT_MS } from "../lifecycle.ts";
-import { NON_COMMITTING_MODES } from "../modes.ts";
-import type { ToolState } from "../toolState.ts";
-import { log } from "../utils/cli.ts";
+import { LIFECYCLE_HOOK_TIMEOUT_MS } from "#app/lifecycle";
+import { NON_COMMITTING_MODES } from "#app/modes";
+import type { ToolState } from "#app/toolState";
+import { log } from "#app/utils/cli";
 import {
   SPAWN_ACTIVITY_TIMEOUT_CODE,
   SPAWN_TIMEOUT_CODE,
   SpawnTimeoutError,
   spawn,
-} from "../utils/subprocess.ts";
+} from "#app/utils/subprocess";
 import {
   type AgentResult,
   type AgentRunContext,
@@ -20,7 +20,7 @@ import {
   mergeAgentUsage,
   type PostRunIssues,
   type StopHookFailure,
-} from "./shared.ts";
+} from "#app/agents/shared";
 
 /**
  * derive "agent picked a review mode but never produced visible output" from
@@ -312,7 +312,7 @@ export function shouldRunReflection(mode: string | undefined): boolean {
  * `Repo.learnings`.
  *
  * the prompt copy is shaped by repo-wide audits of the actual content the
- * agent has been writing (issue #619 in lintel/app). recurring failure
+ * agent has been writing (issue #619 in terramend/app). recurring failure
  * modes the framing pushes back on:
  *  - massive multi-paragraph "bullets" that are really mini-articles
  *  - facts anchored to moving repo state (PR / review / commit / branch

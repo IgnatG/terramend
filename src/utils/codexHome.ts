@@ -1,6 +1,6 @@
 // Codex-to-OpenCode auth bridging for the action runtime.
 //
-// `lintel auth codex` stores a Codex CLI `auth.json` blob in the Lintel
+// `terramend auth codex` stores a Codex CLI `auth.json` blob in the Terramend
 // per-org secret store (production Postgres) — NOT a GitHub Actions secret.
 // This is non-negotiable: the OAuth refresh chain rotates on every use, and
 // `entryPost.ts` writes the rotated chain back via `PUT /api/runtime/secret`
@@ -9,7 +9,7 @@
 // wiki/codex-auth.md for the full constraint.
 //
 // At runtime, `CODEX_AUTH_JSON` lands in process.env via `runContext.dbSecrets`
-// merged in main.ts — sourced from Lintel Postgres through the OIDC-validated
+// merged in main.ts — sourced from Terramend Postgres through the OIDC-validated
 // run-context endpoint, never from `${{ secrets.CODEX_AUTH_JSON }}` in
 // workflow yaml.
 //
@@ -31,15 +31,15 @@
 //      refresh_token, id_token?, account_id? } }` into OpenCode's shape
 //      `{ openai: { type: "oauth", refresh, access, expires, accountId } }`
 //   4. materializes it to disk under a path the MCP-shell mount-namespace
-//      sandbox can hide from bash: `/var/lib/lintel/opencode/auth.json` in
+//      sandbox can hide from bash: `/var/lib/terramend/opencode/auth.json` in
 //      CI (sudo-bootstrapped, fail-closed if sudo unavailable),
 //      `$HOME/.local/share/opencode/auth.json` locally (sandbox is no-op
 //      locally so the path is irrelevant to security)
 //   5. returns the path + the original refresh token so the post-run hook
-//      can detect a mid-run rotation and write back to Lintel
+//      can detect a mid-run rotation and write back to Terramend
 //
-// Why `/var/lib/lintel/` and not `$HOME` in CI: bash via MCP runs inside a
-// mount namespace that overlays tmpfs on `/var/lib/lintel/` (see FS_MOUNTS
+// Why `/var/lib/terramend/` and not `$HOME` in CI: bash via MCP runs inside a
+// mount namespace that overlays tmpfs on `/var/lib/terramend/` (see FS_MOUNTS
 // in action/mcp/shell.ts), so bash sees an empty dir while opencode's
 // internal auth module — which runs in the agent process outside that
 // namespace — reads/writes the real file. `$HOME` can't be tmpfs-overlaid
@@ -52,19 +52,19 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
 import { join } from "node:path";
-import { log } from "./cli.ts";
-import { decodeJwtExpMs, parseCodexAuthBody } from "./codexOAuth.ts";
+import { log } from "#app/utils/cli";
+import { decodeJwtExpMs, parseCodexAuthBody } from "#app/utils/codexOAuth";
 
 const CODEX_AUTH_ENV = "CODEX_AUTH_JSON";
 
-/** sandbox-hidden home for lintel-managed on-disk secrets in CI. bash via
+/** sandbox-hidden home for terramend-managed on-disk secrets in CI. bash via
  * MCP shell tmpfs-overlays this path; opencode's internal auth module
  * bypasses external_directory and reaches the real file. mirrors the
  * pattern in action/agents/claude.ts installManagedSettings.
  *
  * not used for codex auth in local dev — the sandbox is no-op there, so
  * the path doesn't matter. local dev keeps the existing $HOME path. */
-export const LINTEL_DATA_DIR = "/var/lib/lintel";
+export const TERRAMEND_DATA_DIR = "/var/lib/terramend";
 
 interface OpenCodeAuthFile {
   openai: {
@@ -143,7 +143,7 @@ export function installCodexAuth(): InstalledCodexAuth | null {
  * - **local dev (CI != true)**: use $HOME. mount-namespace sandbox is no-op
  *   locally so the file isn't protected from bash either way; codex auth on
  *   a developer's machine is the developer's responsibility.
- * - **CI**: bootstrap /var/lib/lintel via sudo. MCP shell's mount namespace
+ * - **CI**: bootstrap /var/lib/terramend via sudo. MCP shell's mount namespace
  *   tmpfs-overlays this path, and claude managed-settings + opencode
  *   external_directory both deny it — three independent layers.
  *
@@ -156,11 +156,11 @@ export function installCodexAuth(): InstalledCodexAuth | null {
  * `CODEX_AUTH_JSON` from the run entirely. */
 function resolveDataHome(): string {
   if (process.env.CI !== "true") return join(homedir(), ".local", "share");
-  bootstrapLintelDataDir();
-  return LINTEL_DATA_DIR;
+  bootstrapTerramendDataDir();
+  return TERRAMEND_DATA_DIR;
 }
 
-function bootstrapLintelDataDir(): void {
+function bootstrapTerramendDataDir(): void {
   const user = userInfo().username;
   // `id -gn $user` resolves the user's primary group name correctly even on
   // self-hosted images where the group isn't `<user>:<user>` (e.g., `runner`
@@ -176,14 +176,14 @@ function bootstrapLintelDataDir(): void {
   // `-n` (non-interactive) makes sudo fail-fast on locked-down runners
   // instead of prompting and timing out.
   try {
-    execFileSync("sudo", ["-n", "mkdir", "-p", LINTEL_DATA_DIR], { stdio: "pipe" });
-    execFileSync("sudo", ["-n", "chown", `${user}:${primaryGroup}`, LINTEL_DATA_DIR], {
+    execFileSync("sudo", ["-n", "mkdir", "-p", TERRAMEND_DATA_DIR], { stdio: "pipe" });
+    execFileSync("sudo", ["-n", "chown", `${user}:${primaryGroup}`, TERRAMEND_DATA_DIR], {
       stdio: "pipe",
     });
-    execFileSync("sudo", ["-n", "chmod", "700", LINTEL_DATA_DIR], { stdio: "pipe" });
+    execFileSync("sudo", ["-n", "chmod", "700", TERRAMEND_DATA_DIR], { stdio: "pipe" });
   } catch (err) {
     throw new Error(
-      `failed to bootstrap ${LINTEL_DATA_DIR} (required for codex auth in CI): ${err instanceof Error ? err.message : String(err)}. ` +
+      `failed to bootstrap ${TERRAMEND_DATA_DIR} (required for codex auth in CI): ${err instanceof Error ? err.message : String(err)}. ` +
         `the MCP shell's mount-namespace sandbox cannot protect the auth file when it lives under $HOME, ` +
         `and silently falling back would contradict the "three independent layers" claim in wiki/codex-auth.md. ` +
         `passwordless sudo is required for codex auth on this runner — either configure it, or remove ` +

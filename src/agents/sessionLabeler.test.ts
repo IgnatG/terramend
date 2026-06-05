@@ -4,7 +4,7 @@ import {
   formatWithLabel,
   ORCHESTRATOR_LABEL,
   SessionLabeler,
-} from "./sessionLabeler.ts";
+} from "#app/agents/sessionLabeler";
 
 describe("deriveLabelFromTaskInput", () => {
   test("prefers explicit lens marker in prompt over description", () => {

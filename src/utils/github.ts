@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import * as core from "@actions/core";
 import { throttling } from "@octokit/plugin-throttling";
 import { Octokit } from "@octokit/rest";
-import { apiFetch } from "./apiFetch.ts";
-import { retry } from "./retry.ts";
+import { apiFetch } from "#app/utils/apiFetch";
+import { retry } from "#app/utils/retry";
 
 function isObject(value: unknown) {
   return typeof value === "object" && value !== null;
@@ -116,7 +116,7 @@ class TokenExchangeError extends Error {
 }
 
 async function acquireTokenViaOIDC(opts?: AcquireTokenOptions): Promise<string> {
-  const oidcToken = await core.getIDToken("lintel-api");
+  const oidcToken = await core.getIDToken("terramend-api");
 
   const repos = [...(opts?.repos ?? [])];
   const targetRepo = process.env.GITHUB_REPOSITORY?.split("/")[1];
@@ -222,7 +222,7 @@ const githubRequest = async <T>(
   const url = `https://api.github.com${path}`;
   const requestHeaders = {
     Accept: "application/vnd.github.v3+json",
-    "User-Agent": "Lintel-Installation-Token-Generator/1.0",
+    "User-Agent": "Terramend-Installation-Token-Generator/1.0",
     ...headers,
   };
 
@@ -340,14 +340,14 @@ async function acquireTokenViaGitHubApp(opts?: AcquireTokenOptions): Promise<str
  *
  * otherwise falls back to GitHub App credentials for local development.
  *
- * only called from play.ts (test/dev path) — the live action calls
+ * only called from dev-run.ts (test/dev path) — the live action calls
  * main() directly and never calls this.
  */
 export async function ensureGitHubToken(): Promise<void> {
   // when OIDC is available, always mint a fresh token scoped to
   // GITHUB_REPOSITORY. the inherited GITHUB_TOKEN may be scoped to a
-  // different repo (e.g., runner token for lintel/app when tests
-  // target lintel/test-repo).
+  // different repo (e.g., runner token for terramend/app when tests
+  // target terramend/test-repo).
   if (isOIDCAvailable()) {
     const token = await acquireNewToken();
     process.env.GITHUB_TOKEN = token;
@@ -386,19 +386,19 @@ export async function acquireNewToken(opts?: AcquireTokenOptions): Promise<strin
   // local-dev only. see #739.
   if (process.env.GITHUB_ACTIONS === "true") {
     throw new Error(
-      "missing `permissions: id-token: write` on the Lintel workflow job.\n" +
+      "missing `permissions: id-token: write` on the Terramend workflow job.\n" +
         "\n" +
-        "Lintel mints short-lived GitHub App installation tokens via OIDC and\n" +
+        "Terramend mints short-lived GitHub App installation tokens via OIDC and\n" +
         "requires `id-token: write` to be granted at the job level. add the\n" +
         "following to your workflow yaml:\n" +
         "\n" +
         "  jobs:\n" +
-        "    lintel:\n" +
+        "    terramend:\n" +
         "      permissions:\n" +
-        "        id-token: write   # mint Lintel installation tokens via OIDC\n" +
+        "        id-token: write   # mint Terramend installation tokens via OIDC\n" +
         "        contents: read    # for actions/checkout\n" +
         "\n" +
-        "see https://docs.lintel.com/headless-action#required-permissions for the full template."
+        "see https://docs.terramend.com/headless-action#required-permissions for the full template."
     );
   }
   // local development via GitHub App

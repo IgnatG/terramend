@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PROXY_MODEL, modelAliases, resolveDisplayAlias } from "../src/models.ts";
+import { DEFAULT_PROXY_MODEL, modelAliases, resolveDisplayAlias } from "#app/models";
 
 // ── catalog drift tests ─────────────────────────────────────────────────────
 //
@@ -8,7 +8,7 @@ import { DEFAULT_PROXY_MODEL, modelAliases, resolveDisplayAlias } from "../src/m
 // catalog drift (new model ships, old model deprecated, etc.) causes failures
 // that are unrelated to any code change in a typical PR — so these are gated
 // off for normal PRs and run only on main pushes plus PRs from the
-// `lintel/models-bump` branch (the bot-authored bump PR — this test IS the
+// `terramend/models-bump` branch (the bot-authored bump PR — this test IS the
 // integrity gate for its edits, so it has to run on the PR itself, not just
 // post-merge).
 //

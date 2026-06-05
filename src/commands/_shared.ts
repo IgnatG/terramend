@@ -1,12 +1,12 @@
 // shared helpers used by `init` and `auth` subcommands. these were originally
 // inlined in `init.ts`; pulled out so `auth.ts` can reuse them without
-// duplicating gh-auth/lintel-api/secret-save logic.
+// duplicating gh-auth/terramend-api/secret-save logic.
 
 import { execFileSync } from "node:child_process";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 
-export const LINTEL_API_URL = (process.env.LINTEL_API_URL || "https://lintel.com").replace(
+export const TERRAMEND_API_URL = (process.env.TERRAMEND_API_URL || "https://terramend.com").replace(
   /\/+$/,
   ""
 );
@@ -73,7 +73,7 @@ export function parseGitRemote(): { owner: string; repo: string } {
   return { owner: match[1], repo: match[2] };
 }
 
-// ── Lintel API ──
+// ── Terramend API ──
 
 type SecretsApiData = {
   error?: string;
@@ -84,7 +84,7 @@ type SecretsApiData = {
   accessible?: boolean;
   repoSecrets?: string[];
   orgSecrets?: string[];
-  lintelSecrets?: string[];
+  terramendSecrets?: string[];
   repoStatus?: string | null;
   repoModel?: string | null;
   hasRuns?: boolean;
@@ -96,7 +96,7 @@ type SecretsInfo = {
   secretsAccessible: boolean;
   repoSecrets: string[];
   orgSecrets: string[];
-  lintelSecrets: string[];
+  terramendSecrets: string[];
   model: string | null;
   hasRuns: boolean;
 };
@@ -118,7 +118,7 @@ type ApiResult<T = Record<string, unknown>> = {
   data: T;
 };
 
-async function lintelApi<T = Record<string, unknown>>(ctx: {
+async function terramendApi<T = Record<string, unknown>>(ctx: {
   path: string;
   token: string;
   method?: string;
@@ -129,7 +129,7 @@ async function lintelApi<T = Record<string, unknown>>(ctx: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const response = await fetch(`${LINTEL_API_URL}${ctx.path}`, {
+    const response = await fetch(`${TERRAMEND_API_URL}${ctx.path}`, {
       method: ctx.method || "GET",
       headers,
       body: ctx.body ? JSON.stringify(ctx.body) : null,
@@ -147,7 +147,7 @@ export async function fetchStatus(ctx: {
   owner: string;
   repo: string;
 }): Promise<StatusResult> {
-  const result = await lintelApi<SecretsApiData>({
+  const result = await terramendApi<SecretsApiData>({
     path: `/api/cli/secrets?owner=${encodeURIComponent(ctx.owner)}&repo=${encodeURIComponent(ctx.repo)}`,
     token: ctx.token,
   });
@@ -178,7 +178,7 @@ export async function fetchStatus(ctx: {
     secretsAccessible: result.data.accessible !== false,
     repoSecrets: result.data.repoSecrets || [],
     orgSecrets: result.data.orgSecrets || [],
-    lintelSecrets: result.data.lintelSecrets || [],
+    terramendSecrets: result.data.terramendSecrets || [],
     model: result.data.repoModel ?? null,
     hasRuns: result.data.hasRuns === true,
   };
@@ -188,17 +188,17 @@ export async function fetchStatus(ctx: {
 
 export type SecretScope = "account" | "repo";
 
-type LintelSecretResult = { saved: boolean; error: string };
+type TerramendSecretResult = { saved: boolean; error: string };
 
-export async function setLintelSecret(ctx: {
+export async function setTerramendSecret(ctx: {
   token: string;
   owner: string;
   repo: string;
   name: string;
   value: string;
   scope: SecretScope;
-}): Promise<LintelSecretResult> {
-  const result = await lintelApi<{ success?: boolean; error?: string }>({
+}): Promise<TerramendSecretResult> {
+  const result = await terramendApi<{ success?: boolean; error?: string }>({
     path: "/api/cli/secrets",
     token: ctx.token,
     method: "POST",

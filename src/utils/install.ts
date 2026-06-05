@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 export interface InstallFromNpmTarballParams {
   packageName: string;
@@ -54,8 +54,8 @@ interface NpmRegistryData {
  * The temp directory will be cleaned up by the OS automatically
  */
 export async function installFromNpmTarball(params: InstallFromNpmTarballParams): Promise<string> {
-  const tempDir = process.env.LINTEL_TEMP_DIR;
-  if (!tempDir) throw new Error("LINTEL_TEMP_DIR is not set");
+  const tempDir = process.env.TERRAMEND_TEMP_DIR;
+  if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR is not set");
 
   const extractedDir = join(tempDir, "package");
   const cliPath = join(extractedDir, params.executablePath);
@@ -200,10 +200,10 @@ async function fetchWithRetry(
  * The temp directory will be cleaned up by the OS automatically
  */
 export async function installFromGithub(params: InstallFromGithubParams): Promise<string> {
-  // use a deterministic subdir in LINTEL_TEMP_DIR so repeated calls are cached
-  const lintelTemp = process.env.LINTEL_TEMP_DIR;
-  const installDir = lintelTemp
-    ? join(lintelTemp, `github-${params.owner}-${params.repo}`)
+  // use a deterministic subdir in TERRAMEND_TEMP_DIR so repeated calls are cached
+  const terramendTemp = process.env.TERRAMEND_TEMP_DIR;
+  const installDir = terramendTemp
+    ? join(terramendTemp, `github-${params.owner}-${params.repo}`)
     : await mkdtemp(join(tmpdir(), `${params.owner}-${params.repo}-github-`));
 
   const expectedCliPath = join(installDir, params.executablePath ?? params.assetName ?? "asset");
@@ -282,8 +282,8 @@ export async function installFromGithub(params: InstallFromGithubParams): Promis
 export async function installFromGithubTarball(
   params: InstallFromGithubTarballParams
 ): Promise<string> {
-  const tempDir = process.env.LINTEL_TEMP_DIR;
-  if (!tempDir) throw new Error("LINTEL_TEMP_DIR is not set");
+  const tempDir = process.env.TERRAMEND_TEMP_DIR;
+  if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR is not set");
 
   const cliPath = join(tempDir, params.executablePath);
 
@@ -371,8 +371,8 @@ export async function installFromGithubTarball(
 export async function installFromDirectTarball(
   params: InstallFromDirectTarballParams
 ): Promise<string> {
-  const tempDir = process.env.LINTEL_TEMP_DIR;
-  if (!tempDir) throw new Error("LINTEL_TEMP_DIR is not set");
+  const tempDir = process.env.TERRAMEND_TEMP_DIR;
+  if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR is not set");
 
   const extractDir = join(tempDir, "direct-package");
   const cliPath = join(extractDir, params.executablePath);
@@ -427,8 +427,8 @@ export async function installFromDirectTarball(
  * The temp directory will be cleaned up by the OS automatically
  */
 export async function installFromCurl(params: InstallFromCurlParams): Promise<string> {
-  const tempDir = process.env.LINTEL_TEMP_DIR;
-  if (!tempDir) throw new Error("LINTEL_TEMP_DIR is not set");
+  const tempDir = process.env.TERRAMEND_TEMP_DIR;
+  if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR is not set");
 
   const cliPath = join(tempDir, ".local", "bin", params.executableName);
 

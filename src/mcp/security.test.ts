@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkoutPrBranch, type PrData } from "./checkout.ts";
+import { checkoutPrBranch, type PrData } from "#app/mcp/checkout";
 import {
   AUTH_REQUIRED_REDIRECT,
   DeleteBranchTool,
@@ -8,8 +8,8 @@ import {
   rejectIfLeadingDash,
   rejectSpecialRef,
   validateTagName,
-} from "./git.ts";
-import type { ToolContext } from "./server.ts";
+} from "#app/mcp/git";
+import type { ToolContext } from "#app/mcp/server";
 
 // ─── git tool security tests ────────────────────────────────────────────
 //

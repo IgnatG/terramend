@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import semver from "semver";
-import { log } from "./cli.ts";
-import { spawn } from "./subprocess.ts";
+import { log } from "#app/utils/cli";
+import { spawn } from "#app/utils/subprocess";
 
 export type SupportedPackageManager = "npm" | "pnpm" | "yarn" | "bun";
 

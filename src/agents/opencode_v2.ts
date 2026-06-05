@@ -4,7 +4,7 @@
  *
  * Architecture, post v2-in-process migration:
  *
- *   1. Spawn ONE `opencode serve --port <p>` subprocess per Lintel run via
+ *   1. Spawn ONE `opencode serve --port <p>` subprocess per Terramend run via
  *      `node:child_process.spawn` directly (NOT our `spawn()` wrapper — see
  *      `bootOpencodeServer` for why: long-lived stdio streaming, manual
  *      activity gating against the SDK event loop, killGroup teardown).
@@ -35,7 +35,7 @@
  * What stays identical:
  *   - bash: "deny" via OPENCODE_CONFIG_CONTENT
  *   - OPENCODE_PERMISSION filesystem sandbox — deny-all + allow /tmp
- *   - MCP Lintel server injected via `mcp.<name> = { type: "remote", url }`
+ *   - MCP Terramend server injected via `mcp.<name> = { type: "remote", url }`
  *   - ASKPASS for git auth
  *   - codex auth materialization + post-hook writeback
  *   - reviewfrog subagent config / model derivation
@@ -57,38 +57,38 @@ import {
   type TextPartInput,
 } from "@opencode-ai/sdk/v2";
 import { Agent, fetch as undiciFetch } from "undici";
-import { lintelMcpName } from "../external.ts";
-import { BEDROCK_MODEL_ID_ENV } from "../models.ts";
-import type { ToolState } from "../toolState.ts";
-import { AGENT_ACTIVITY_TIMEOUT_MS, markActivity } from "../utils/activity.ts";
-import type { AgentDiagnostic } from "../utils/agentHangReport.ts";
-import { formatJsonValue, log } from "../utils/cli.ts";
-import { installCodexAuth } from "../utils/codexHome.ts";
-import { findProviderErrorMatch } from "../utils/providerErrors.ts";
-import { addSkill, installBundledSkills } from "../utils/skills.ts";
-import { trackChild, untrackChild } from "../utils/subprocess.ts";
-import type { TodoTracker } from "../utils/todoTracking.ts";
-import { getDevDependencyVersion } from "../utils/version.ts";
-import { resolveVertexOpenCodeModel } from "../utils/vertex.ts";
-import { GIT_NATIVE_READ_DENY_OPENCODE, GIT_NATIVE_WRITE_DENY_OPENCODE } from "./nativeFsDenies.ts";
+import { terramendMcpName } from "#app/external";
+import { BEDROCK_MODEL_ID_ENV } from "#app/models";
+import type { ToolState } from "#app/toolState";
+import { AGENT_ACTIVITY_TIMEOUT_MS, markActivity } from "#app/utils/activity";
+import type { AgentDiagnostic } from "#app/utils/agentHangReport";
+import { formatJsonValue, log } from "#app/utils/cli";
+import { installCodexAuth } from "#app/utils/codexHome";
+import { findProviderErrorMatch } from "#app/utils/providerErrors";
+import { addSkill, installBundledSkills } from "#app/utils/skills";
+import { trackChild, untrackChild } from "#app/utils/subprocess";
+import type { TodoTracker } from "#app/utils/todoTracking";
+import { getDevDependencyVersion } from "#app/utils/version";
+import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
+import { GIT_NATIVE_READ_DENY_OPENCODE, GIT_NATIVE_WRITE_DENY_OPENCODE } from "#app/agents/nativeFsDenies";
 import {
-  LINTEL_OPENCODE_GATE_PLUGIN_FILENAME,
-  LINTEL_OPENCODE_GATE_PLUGIN_SOURCE,
-} from "./opencodePlugin.ts";
+  TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME,
+  TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE,
+} from "#app/agents/opencodePlugin";
 import {
   autoSelectModel,
   buildReviewerAgentConfig,
   geminiHighThinkingOverrides,
   installOpencodeCli,
   type OpenCodeConfig,
-} from "./opencodeShared.ts";
+} from "#app/agents/opencodeShared";
 import {
   buildLearningsReflectionPrompt,
   runPostRunRetryLoop,
   shouldRunReflection,
-} from "./postRun.ts";
-import { REVIEWER_AGENT_NAME } from "./reviewer.ts";
-import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "./sessionLabeler.ts";
+} from "#app/agents/postRun";
+import { REVIEWER_AGENT_NAME } from "#app/agents/reviewer";
+import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "#app/agents/sessionLabeler";
 import {
   type AgentResult,
   type AgentRunContext,
@@ -96,7 +96,7 @@ import {
   agent,
   logTokenTable,
   MAX_STDERR_LINES,
-} from "./shared.ts";
+} from "#app/agents/shared";
 
 const installCli = () => installOpencodeCli({ binPath: "bin/opencode.exe" });
 
@@ -119,7 +119,7 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
       // deleting live git locks (the corruption in #860/#864 — the dangerous
       // `rm` guidance is gone, but the spurious aborts shouldn't happen either).
       // server-side cap is 600s (`checkout_pr` `timeoutMs`).
-      [lintelMcpName]: { type: "remote", url: ctx.mcpServerUrl, timeout: 300_000 },
+      [terramendMcpName]: { type: "remote", url: ctx.mcpServerUrl, timeout: 300_000 },
     },
     agent: (() => {
       const cfg = buildReviewerAgentConfig(model);
@@ -851,7 +851,7 @@ async function aggregateTurnUsage(
   if (total === 0 && outputTokens === 0 && costUsd === 0) return undefined;
 
   return {
-    agent: "lintel",
+    agent: "terramend",
     inputTokens: total,
     outputTokens,
     cacheReadTokens: cacheReadTokens || undefined,
@@ -875,7 +875,7 @@ function buildUsage(
   const accumulatorTotal = t.input + t.cacheRead + t.cacheWrite;
   if (accumulatorTotal > 0 || t.output > 0 || turn.costUsd > 0) {
     return {
-      agent: "lintel",
+      agent: "terramend",
       inputTokens: accumulatorTotal,
       outputTokens: t.output,
       cacheReadTokens: t.cacheRead || undefined,
@@ -888,7 +888,7 @@ function buildUsage(
     const total = (at.input || 0) + (at.cache?.read || 0) + (at.cache?.write || 0);
     if (total === 0 && (at.output || 0) === 0 && (assistant.cost || 0) === 0) return undefined;
     return {
-      agent: "lintel",
+      agent: "terramend",
       inputTokens: total,
       outputTokens: at.output || 0,
       cacheReadTokens: at.cache?.read || undefined,
@@ -1000,8 +1000,8 @@ export const opencode = agent({
     const opencodePluginDir = join(homeEnv.XDG_CONFIG_HOME, "opencode", "plugin");
     mkdirSync(opencodePluginDir, { recursive: true });
     writeFileSync(
-      join(opencodePluginDir, LINTEL_OPENCODE_GATE_PLUGIN_FILENAME),
-      LINTEL_OPENCODE_GATE_PLUGIN_SOURCE
+      join(opencodePluginDir, TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME),
+      TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE
     );
 
     const agentBrowserVersion = getDevDependencyVersion("agent-browser");
@@ -1021,7 +1021,7 @@ export const opencode = agent({
     // OPENCODE_PERMISSION has absolute highest precedence (merged after managed/MDM configs).
     // external_directory gates ALL native filesystem tools (Read, Write, Edit, Glob, Grep, etc.)
     // for paths outside the project root. last-match-wins: deny everything, then allow /tmp.
-    // codex auth lives at /var/lib/lintel/opencode/auth.json in CI (see codexHome.ts),
+    // codex auth lives at /var/lib/terramend/opencode/auth.json in CI (see codexHome.ts),
     // which is outside /tmp/* — deny-default protects it from native FS tools.
     //
     // read + edit rules deny git surfaces INSIDE the project root, where
@@ -1068,7 +1068,7 @@ export const opencode = agent({
       );
     }
 
-    log.debug(`» starting Lintel (OpenCode, in-process SDK): ${cliPath}`);
+    log.debug(`» starting Terramend (OpenCode, in-process SDK): ${cliPath}`);
     log.debug(`» working directory: ${repoDir}`);
 
     // ── boot server + create session ─────────────────────────────────────────
@@ -1105,7 +1105,7 @@ export const opencode = agent({
         fetch: fetchWithoutTimeout,
       });
 
-      const sessionResp = await client.session.create({ title: "Lintel" });
+      const sessionResp = await client.session.create({ title: "Terramend" });
       if (sessionResp.error || !sessionResp.data) {
         const msg = sessionResp.error
           ? formatPromptError(sessionResp.error)
@@ -1128,7 +1128,7 @@ export const opencode = agent({
       const runnerCtx: RunnerContext = {
         client,
         sessionID,
-        label: "Lintel",
+        label: "Terramend",
         orchestratorSessionID: sessionID,
         labeler,
         toolState: ctx.toolState,
@@ -1142,7 +1142,7 @@ export const opencode = agent({
         loggedToolCallIDs: new Set(),
         recentStderr: server.recentStderr,
         diagnostic: {
-          label: "Lintel",
+          label: "Terramend",
           recentStderr: server.recentStderr,
           lastProviderError: undefined,
           eventCount: 0,

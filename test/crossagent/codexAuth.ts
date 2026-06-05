@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { detectCodexRefresh } from "../../src/utils/codexRefreshDetect.ts";
+import { detectCodexRefresh } from "#app/utils/codexRefreshDetect";
 import type { AgentResult, TestRunnerOptions, ValidationCheck } from "../utils.ts";
 import { defineFixture } from "../utils.ts";
 
@@ -18,7 +18,7 @@ import { defineFixture } from "../utils.ts";
  *   - the refresh chain advances during the run (proving the refresh path
  *     works end-to-end against live Codex auth servers).
  *   - detectCodexRefresh() would surface the rotation to entryPost.ts for
- *     write-back to Lintel's secret store.
+ *     write-back to Terramend's secret store.
  *
  * the post-hook itself runs in a separate GHA `post:` step and is not
  * invoked by `pnpm runtest`. instead, this test asserts the on-disk auth.json
@@ -94,8 +94,8 @@ export const test: TestRunnerOptions = {
   validator,
   agents: ["opencode"],
   env: {
-    LINTEL_MODEL: "openai/gpt",
-    LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1",
+    TERRAMEND_MODEL: "openai/gpt",
+    TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
   },
   coverage: [
     "action/utils/codexHome.ts",
@@ -105,7 +105,7 @@ export const test: TestRunnerOptions = {
   ],
   // forks + contributors without the Codex secret skip cleanly rather than
   // failing on `auth_materialized=✗` and (with fail-fast: true) cascading
-  // cancellation across the rest of the matrix. CI on `lintel/app` and
+  // cancellation across the rest of the matrix. CI on `terramend/app` and
   // dev-local with `.env` both have the secret and run the test as normal.
   skipIf: () => (process.env.CODEX_AUTH_JSON ? null : "CODEX_AUTH_JSON unset"),
 };

@@ -7,13 +7,13 @@ import {
   learningsFilePath,
   readLearningsFile,
   seedLearningsFile,
-} from "./learnings.ts";
+} from "#app/utils/learnings";
 
 describe("learnings tmpfile round-trip", () => {
   let dir: string;
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "lintel-learnings-test-"));
+    dir = await mkdtemp(join(tmpdir(), "terramend-learnings-test-"));
   });
 
   afterEach(async () => {

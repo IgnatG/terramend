@@ -1,49 +1,49 @@
 // this must be imported first
-import "./arkConfig.ts";
+import "#app/mcp/arkConfig";
 import { createServer } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { FastMCP, type Tool } from "fastmcp";
-import { type AgentId, lintelMcpName } from "../external.ts";
-import type { Mode } from "../modes.ts";
-import type { ToolState } from "../toolState.ts";
-import { closeBrowserDaemon } from "../utils/browser.ts";
-import type { OctokitWithPlugins } from "../utils/github.ts";
-import type { ResolvedPayload } from "../utils/payload.ts";
-import type { AccountPlan } from "../utils/runContext.ts";
-import type { RunContextData } from "../utils/runContextData.ts";
-import { CheckoutPrTool } from "./checkout.ts";
-import { GetCheckSuiteLogsTool } from "./checkSuite.ts";
+import { type AgentId, terramendMcpName } from "#app/external";
+import type { Mode } from "#app/modes";
+import type { ToolState } from "#app/toolState";
+import { closeBrowserDaemon } from "#app/utils/browser";
+import type { OctokitWithPlugins } from "#app/utils/github";
+import type { ResolvedPayload } from "#app/utils/payload";
+import type { AccountPlan } from "#app/utils/runContext";
+import type { RunContextData } from "#app/utils/runContextData";
+import { CheckoutPrTool } from "#app/mcp/checkout";
+import { GetCheckSuiteLogsTool } from "#app/mcp/checkSuite";
 import {
   CreateCommentTool,
   EditCommentTool,
   ReplyToReviewCommentTool,
   ReportProgressTool,
-} from "./comment.ts";
-import { CommitInfoTool } from "./commitInfo.ts";
+} from "#app/mcp/comment";
+import { CommitInfoTool } from "#app/mcp/commitInfo";
 import {
   AwaitDependencyInstallationTool,
   StartDependencyInstallationTool,
-} from "./dependencies.ts";
-import { DeleteBranchTool, GitFetchTool, GitTool, PushBranchTool, PushTagsTool } from "./git.ts";
-import { IssueTool } from "./issue.ts";
-import { GetIssueCommentsTool } from "./issueComments.ts";
-import { GetIssueEventsTool } from "./issueEvents.ts";
-import { IssueInfoTool } from "./issueInfo.ts";
-import { AddLabelsTool } from "./labels.ts";
-import { SetOutputTool } from "./output.ts";
-import { CreatePullRequestTool, UpdatePullRequestBodyTool } from "./pr.ts";
-import { PullRequestInfoTool } from "./prInfo.ts";
-import { CreatePullRequestReviewTool } from "./review.ts";
+} from "#app/mcp/dependencies";
+import { DeleteBranchTool, GitFetchTool, GitTool, PushBranchTool, PushTagsTool } from "#app/mcp/git";
+import { IssueTool } from "#app/mcp/issue";
+import { GetIssueCommentsTool } from "#app/mcp/issueComments";
+import { GetIssueEventsTool } from "#app/mcp/issueEvents";
+import { IssueInfoTool } from "#app/mcp/issueInfo";
+import { AddLabelsTool } from "#app/mcp/labels";
+import { SetOutputTool } from "#app/mcp/output";
+import { CreatePullRequestTool, UpdatePullRequestBodyTool } from "#app/mcp/pr";
+import { PullRequestInfoTool } from "#app/mcp/prInfo";
+import { CreatePullRequestReviewTool } from "#app/mcp/review";
 import {
   GetReviewCommentsTool,
   ListPullRequestReviewsTool,
   ResolveReviewThreadTool,
-} from "./reviewComments.ts";
-import { SelectModeTool } from "./selectMode.ts";
-import { addTools } from "./shared.ts";
-import { TerraformScanTool, TerraformValidateTool } from "./terraform.ts";
-import { KillBackgroundTool, ShellTool } from "./shell.ts";
-import { UploadFileTool } from "./upload.ts";
+} from "#app/mcp/reviewComments";
+import { SelectModeTool } from "#app/mcp/selectMode";
+import { addTools } from "#app/mcp/shared";
+import { TerraformScanTool, TerraformValidateTool } from "#app/mcp/terraform";
+import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
+import { UploadFileTool } from "#app/mcp/upload";
 
 export interface ToolContext {
   agentId: AgentId;
@@ -64,7 +64,7 @@ export interface ToolContext {
   mcpServerUrl: string;
   tmpdir: string;
   // repo-level OSS flag + account-level billing plan. together they decide
-  // whether lintel is paying for marginal infra — see `isInfraCovered` in
+  // whether terramend is paying for marginal infra — see `isInfraCovered` in
   // the server's `utils/billing.ts`. plan gating for endpoints like the
   // learnings PATCH is enforced server-side via 402, so we pass plan along
   // mostly for future use / observability. see wiki/pricing.md.
@@ -82,11 +82,11 @@ const mcpHost = "127.0.0.1";
 const mcpEndpoint = "/mcp";
 
 function readEnvPort(): number | null {
-  const rawPort = process.env.LINTEL_MCP_PORT;
+  const rawPort = process.env.TERRAMEND_MCP_PORT;
   if (!rawPort) return null;
   const parsed = Number.parseInt(rawPort, 10);
   if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
-    throw new Error(`invalid LINTEL_MCP_PORT: ${rawPort}`);
+    throw new Error(`invalid TERRAMEND_MCP_PORT: ${rawPort}`);
   }
   return parsed;
 }
@@ -182,7 +182,7 @@ async function tryStartMcpServer(
   tools: Tool<any, any>[],
   port: number
 ): Promise<McpStartResult | null> {
-  const server = new FastMCP({ name: lintelMcpName, version: "0.0.1" });
+  const server = new FastMCP({ name: terramendMcpName, version: "0.0.1" });
   addTools(ctx, server, tools);
 
   try {

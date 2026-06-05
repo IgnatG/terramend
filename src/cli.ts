@@ -1,19 +1,19 @@
 import { basename } from "node:path";
 import arg from "arg";
 import pc from "picocolors";
-import { runCli as runAuthCli } from "./commands/auth.ts";
-import { runCli as runGhaCli } from "./commands/gha.ts";
-import { runCli as runInitCli } from "./commands/init.ts";
+import { runCli as runAuthCli } from "#app/commands/auth";
+import { runCli as runGhaCli } from "#app/commands/gha";
+import { runCli as runInitCli } from "#app/commands/init";
 
 const VERSION = process.env.CLI_VERSION ?? "0.0.0";
 const bin = basename(process.argv[1] || "");
-const PROG = bin === "pf" || bin === "lintel" ? bin : "lintel";
+const PROG = bin === "pf" || bin === "terramend" ? bin : "terramend";
 const rawArgs = process.argv.slice(2);
 
 function printMainUsage(stream: typeof console.log): void {
   stream(`usage: ${PROG} <command>\n`);
   stream("commands:");
-  stream("  init        set up lintel on the current repository");
+  stream("  init        set up terramend on the current repository");
   stream("  auth        manage provider credentials for the current repository");
   stream("");
   stream("global options:");
@@ -61,7 +61,7 @@ async function run(): Promise<void> {
 
   if (!command) {
     if (globalParsed["--help"]) {
-      console.log(`${pc.bold("lintel")} v${VERSION}\n`);
+      console.log(`${pc.bold("terramend")} v${VERSION}\n`);
       printMainUsage(console.log);
       process.exit(0);
     }

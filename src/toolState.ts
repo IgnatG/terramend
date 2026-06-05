@@ -1,14 +1,14 @@
-import type { AgentUsage } from "./agents/shared.ts";
-import type { PrepResult } from "./prep/types.ts";
-import type { AgentDiagnostic } from "./utils/agentHangReport.ts";
-import { log } from "./utils/cli.ts";
-import type { DiffCoverageState } from "./utils/diffCoverage.ts";
+import type { AgentUsage } from "#app/agents/shared";
+import type { PrepResult } from "#app/prep/types";
+import type { AgentDiagnostic } from "#app/utils/agentHangReport";
+import { log } from "#app/utils/cli";
+import type { DiffCoverageState } from "#app/utils/diffCoverage";
 import {
   type ProgressComment,
   type ProgressCommentType,
   parseProgressComment,
-} from "./utils/progressComment.ts";
-import type { TodoTracker } from "./utils/todoTracking.ts";
+} from "#app/utils/progressComment";
+import type { TodoTracker } from "#app/utils/todoTracking";
 
 export type BackgroundProcess = {
   pid: number;

@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
-import type { AgentId } from "../external.ts";
-import type { ToolState } from "../toolState.ts";
-import { log } from "../utils/cli.ts";
-import type { ResolvedInstructions } from "../utils/instructions.ts";
-import type { ResolvedPayload } from "../utils/payload.ts";
-import type { TodoTracker } from "../utils/todoTracking.ts";
+import type { AgentId } from "#app/external";
+import type { ToolState } from "#app/toolState";
+import { log } from "#app/utils/cli";
+import type { ResolvedInstructions } from "#app/utils/instructions";
+import type { ResolvedPayload } from "#app/utils/payload";
+import type { TodoTracker } from "#app/utils/todoTracking";
 
 // maximum number of stderr lines to keep in the rolling buffer during agent execution
 export const MAX_STDERR_LINES = 20;
@@ -157,8 +157,8 @@ export interface AgentRunContext {
   onActivityTimeout?: (() => void) | undefined;
   onToolUse?: ((event: AgentToolUseEvent) => void) | undefined;
   /**
-   * Lintel API JWT scoped to this run. agents only need this when they
-   * have to write state back to Lintel mid-run (today: opencode.ts uses
+   * Terramend API JWT scoped to this run. agents only need this when they
+   * have to write state back to Terramend mid-run (today: opencode.ts uses
    * it to seed the post-hook's writeback envelope for Codex auth refresh).
    * empty string when the run wasn't context-resolved (e.g. local dry-runs).
    */

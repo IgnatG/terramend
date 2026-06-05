@@ -3,72 +3,72 @@
 import { existsSync, readdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { agents } from "./agents/index.ts";
-import { reportProgress } from "./mcp/comment.ts";
-import { startInstallation } from "./mcp/dependencies.ts";
-import { startMcpHttpServer, type ToolContext } from "./mcp/server.ts";
-import { computeModes } from "./modes.ts";
-import { initToolState } from "./toolState.ts";
+import { agents } from "#app/agents/index";
+import { reportProgress } from "#app/mcp/comment";
+import { startInstallation } from "#app/mcp/dependencies";
+import { startMcpHttpServer, type ToolContext } from "#app/mcp/server";
+import { computeModes } from "#app/modes";
+import { initToolState } from "#app/toolState";
 import {
   type ActivityTimeout,
   AGENT_ACTIVITY_TIMEOUT_MS,
   createProcessOutputActivityTimeout,
   DEFAULT_ACTIVITY_CHECK_INTERVAL_MS,
-} from "./utils/activity.ts";
-import { resolveAgent, resolveModel } from "./utils/agent.ts";
-import { validateAgentApiKey } from "./utils/apiKeys.ts";
-import { resolveBody } from "./utils/body.ts";
-import { selectFallbackModelIfNeeded } from "./utils/byokFallback.ts";
-import { log } from "./utils/cli.ts";
-import { installCodexAuth, LINTEL_DATA_DIR } from "./utils/codexHome.ts";
-import { recordDiffReadFromToolUse } from "./utils/diffCoverage.ts";
-import { onExitSignal } from "./utils/exitHandler.ts";
-import { resolveGit, setGitAuthServer } from "./utils/gitAuth.ts";
-import { startGitAuthServer } from "./utils/gitAuthServer.ts";
-import { createOctokit, writeGitHubUsageSummaryToFile } from "./utils/github.ts";
-import { resolveInstructions } from "./utils/instructions.ts";
-import { persistLearnings, seedLearningsFile } from "./utils/learnings.ts";
-import { describeSetupFailure, executeLifecycleHook } from "./utils/lifecycle.ts";
-import { normalizeEnv, sanitizeSecret } from "./utils/normalizeEnv.ts";
+} from "#app/utils/activity";
+import { resolveAgent, resolveModel } from "#app/utils/agent";
+import { validateAgentApiKey } from "#app/utils/apiKeys";
+import { resolveBody } from "#app/utils/body";
+import { selectFallbackModelIfNeeded } from "#app/utils/byokFallback";
+import { log } from "#app/utils/cli";
+import { installCodexAuth, TERRAMEND_DATA_DIR } from "#app/utils/codexHome";
+import { recordDiffReadFromToolUse } from "#app/utils/diffCoverage";
+import { onExitSignal } from "#app/utils/exitHandler";
+import { resolveGit, setGitAuthServer } from "#app/utils/gitAuth";
+import { startGitAuthServer } from "#app/utils/gitAuthServer";
+import { createOctokit, writeGitHubUsageSummaryToFile } from "#app/utils/github";
+import { resolveInstructions } from "#app/utils/instructions";
+import { persistLearnings, seedLearningsFile } from "#app/utils/learnings";
+import { describeSetupFailure, executeLifecycleHook } from "#app/utils/lifecycle";
+import { normalizeEnv, sanitizeSecret } from "#app/utils/normalizeEnv";
 import {
   captureAuthorizedModels,
   captureBaselineModels,
   getAuthorizedModels,
-} from "./utils/openCodeModels.ts";
-import { applyOverrides } from "./utils/overrides.ts";
+} from "#app/utils/openCodeModels";
+import { applyOverrides } from "#app/utils/overrides";
 import {
   ensurePackageManager,
   packageManagerBinDir,
   resolvePackageManagerSpec,
-} from "./utils/packageManager.ts";
-import { aggregateUsage, patchWorkflowRunFields } from "./utils/patchWorkflowRunFields.ts";
-import { resolveOutputSchema, resolvePayload, resolvePromptInput } from "./utils/payload.ts";
-import { type OidcCredentials, runProxyResolution } from "./utils/proxy.ts";
-import { fetchPreviousSnapshot, persistSummary, seedSummaryFile } from "./utils/prSummary.ts";
-import { handleAgentResult } from "./utils/run.ts";
-import { resolveRunContextData } from "./utils/runContextData.ts";
-import { renderRunError } from "./utils/runErrorRenderer.ts";
+} from "#app/utils/packageManager";
+import { aggregateUsage, patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
+import { resolveOutputSchema, resolvePayload, resolvePromptInput } from "#app/utils/payload";
+import { type OidcCredentials, runProxyResolution } from "#app/utils/proxy";
+import { fetchPreviousSnapshot, persistSummary, seedSummaryFile } from "#app/utils/prSummary";
+import { handleAgentResult } from "#app/utils/run";
+import { resolveRunContextData } from "#app/utils/runContextData";
+import { renderRunError } from "#app/utils/runErrorRenderer";
 import {
   finalizeSuccessRun,
   persistRunArtifacts,
   writeRunErrorOutputs,
-} from "./utils/runLifecycle.ts";
-import { logRunStartup } from "./utils/runStartupLog.ts";
-import { setEnvAllowlist } from "./utils/secrets.ts";
-import { createTempDirectory, setupGit, wipeRunnerLeakSurface } from "./utils/setup.ts";
-import { killTrackedChildren } from "./utils/subprocess.ts";
-import { resolveTimeoutMs, TIMEOUT_DISABLED } from "./utils/time.ts";
-import { Timer } from "./utils/timer.ts";
-import { createTodoTracker } from "./utils/todoTracking.ts";
-import { getJobToken, resolveTokens } from "./utils/token.ts";
+} from "#app/utils/runLifecycle";
+import { logRunStartup } from "#app/utils/runStartupLog";
+import { setEnvAllowlist } from "#app/utils/secrets";
+import { createTempDirectory, setupGit, wipeRunnerLeakSurface } from "#app/utils/setup";
+import { killTrackedChildren } from "#app/utils/subprocess";
+import { resolveTimeoutMs, TIMEOUT_DISABLED } from "#app/utils/time";
+import { Timer } from "#app/utils/timer";
+import { createTodoTracker } from "#app/utils/todoTracking";
+import { getJobToken, resolveTokens } from "#app/utils/token";
 import {
   cleanupVertexCredentials,
   materializeVertexCredentials,
   type VertexCredentials,
-} from "./utils/vertex.ts";
-import { resolveRun } from "./utils/workflow.ts";
+} from "#app/utils/vertex";
+import { resolveRun } from "#app/utils/workflow";
 
-export { Inputs } from "./utils/payload.ts";
+export { Inputs } from "#app/utils/payload";
 
 export interface MainResult {
   success: boolean;
@@ -101,7 +101,7 @@ export async function main(): Promise<MainResult> {
   }
 
   // write usage summary on SIGINT/SIGTERM so the worker can read it after sandbox.exec
-  const usageSummaryPath = process.env.LINTEL_USAGE_SUMMARY_PATH;
+  const usageSummaryPath = process.env.TERRAMEND_USAGE_SUMMARY_PATH;
   if (usageSummaryPath) {
     onExitSignal(() => writeGitHubUsageSummaryToFile(usageSummaryPath));
   }
@@ -128,7 +128,7 @@ export async function main(): Promise<MainResult> {
   timer.checkpoint("runContextData");
 
   // tmpdir hoisted out of the try block: `installFromNpmTarball` reads
-  // LINTEL_TEMP_DIR (set as a side effect of createTempDirectory) when
+  // TERRAMEND_TEMP_DIR (set as a side effect of createTempDirectory) when
   // the opencode CLI install runs below for BYOK introspection. agent +
   // mcp server setup further down also consume the same tmpdir.
   const tmpdir = createTempDirectory();
@@ -267,7 +267,7 @@ export async function main(): Promise<MainResult> {
     // value. Without this, the agent launches with no key, the LLM provider
     // 401s, and the run dies in seconds with a synthetic "Invalid API key"
     // — exactly the silent-churn pattern that took out 15 accounts before
-    // this landed. Router/proxy runs are skipped (Lintel mints the key);
+    // this landed. Router/proxy runs are skipped (Terramend mints the key);
     // see `selectFallbackModelIfNeeded` for the full skip set.
     const authorized = getAuthorizedModels();
     const fallback = selectFallbackModelIfNeeded({
@@ -276,7 +276,7 @@ export async function main(): Promise<MainResult> {
       authorized,
     });
     // when fallback engages we bypass `resolveModel` for the new slug —
-    // `LINTEL_MODEL` has higher priority than the slug arg inside that
+    // `TERRAMEND_MODEL` has higher priority than the slug arg inside that
     // helper and would otherwise re-override back to the unkeyed model.
     // the free fallback slug is already a CLI-ready specifier, so using
     // it verbatim is correct and avoids the override.
@@ -406,7 +406,7 @@ export async function main(): Promise<MainResult> {
     // wrapped in best-effort try/catch: this block runs unconditionally,
     // and an unwrapped filesystem failure (ENOSPC, EACCES, hostile sandbox)
     // would unwind into the outer main() catch and flip an otherwise-
-    // successful run to "❌ Lintel failed" before the agent even starts.
+    // successful run to "❌ Terramend failed" before the agent even starts.
     // on failure toolState.learningsFilePath stays unset, and downstream
     // consumers (`persistLearnings`, agent harnesses, `resolveInstructions`)
     // all treat undefined as "no learnings affordance this run".
@@ -568,12 +568,12 @@ export async function main(): Promise<MainResult> {
       resolvedModel,
       mcpServerUrl: mcpHttpServer.url,
       tmpdir,
-      // LINTEL_DATA_DIR (/var/lib/lintel) holds codex auth.json + any
-      // future lintel-managed on-disk secrets. bash via MCP tmpfs-overlays
+      // TERRAMEND_DATA_DIR (/var/lib/terramend) holds codex auth.json + any
+      // future terramend-managed on-disk secrets. bash via MCP tmpfs-overlays
       // it; agent native FS tools deny it via the same secretDenyPaths plumbing
       // used for vertex creds. see wiki/security.md "Filesystem Sandbox".
       secretDenyPaths: [
-        LINTEL_DATA_DIR,
+        TERRAMEND_DATA_DIR,
         ...(vertexCredentials ? [vertexCredentials.secretDir] : []),
       ],
       instructions,

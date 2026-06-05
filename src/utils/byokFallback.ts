@@ -20,7 +20,7 @@ export type FallbackDecision = { fallback: false } | { fallback: true; from: str
  * for surfacing the swap (log line + run summary).
  *
  * Skip cases (return `fallback: false` without consulting `authorized`):
- *   - Router / proxy runs (`proxyModel` set): Lintel mints the key.
+ *   - Router / proxy runs (`proxyModel` set): Terramend mints the key.
  *   - No resolved model: auto-select handles it downstream.
  *   - Resolved model is the free fallback already.
  *   - Resolved model is a raw Bedrock / Vertex ID (no `/`): the routing

@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
-import { spawn, TailBuffer } from "./subprocess.ts";
+import { spawn, TailBuffer } from "#app/utils/subprocess";
 
 describe("spawn error path", () => {
   it("surfaces ENOENT-style spawn failures in stderr so callers can diagnose", async () => {

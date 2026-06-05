@@ -1,8 +1,8 @@
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
-import { DEFAULT_ACTIVITY_CHECK_INTERVAL_MS, DEFAULT_ACTIVITY_TIMEOUT_MS } from "./activity.ts";
-import { log } from "./cli.ts";
-import { onExitSignal } from "./exitHandler.ts";
+import { DEFAULT_ACTIVITY_CHECK_INTERVAL_MS, DEFAULT_ACTIVITY_TIMEOUT_MS } from "#app/utils/activity";
+import { log } from "#app/utils/cli";
+import { onExitSignal } from "#app/utils/exitHandler";
 
 export type TrackChildOptions = {
   child: ChildProcess;

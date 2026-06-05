@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { type AgentUsage, mergeAgentUsage } from "./shared.ts";
+import { type AgentUsage, mergeAgentUsage } from "#app/agents/shared";
 
 const entry = (overrides: Partial<AgentUsage>): AgentUsage => ({
-  agent: "lintel",
+  agent: "terramend",
   inputTokens: 0,
   outputTokens: 0,
   ...overrides,

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { formatApiKeyErrorSummary, isApiKeyAuthError, validateAgentApiKey } from "./apiKeys.ts";
+import { formatApiKeyErrorSummary, isApiKeyAuthError, validateAgentApiKey } from "#app/utils/apiKeys";
 
 const savedEnv = { ...process.env };
 
@@ -211,7 +211,7 @@ describe("validateAgentApiKey — Vertex routing", () => {
 
 describe("isApiKeyAuthError", () => {
   it("matches the missing-key marker thrown by validateAgentApiKey", () => {
-    expect(isApiKeyAuthError("no API key found. Lintel needs ...")).toBe(true);
+    expect(isApiKeyAuthError("no API key found. Terramend needs ...")).toBe(true);
   });
 
   it("matches Claude CLI 401 strings", () => {
@@ -234,7 +234,7 @@ describe("isApiKeyAuthError", () => {
     ).toBe(true);
     expect(
       isApiKeyAuthError(
-        "» Lintel result error: subtype=success, api_error_status=401, message=Failed to authenticate."
+        "» Terramend result error: subtype=success, api_error_status=401, message=Failed to authenticate."
       )
     ).toBe(true);
   });

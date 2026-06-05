@@ -1,6 +1,6 @@
 // changes to mode definitions should be reflected in docs/modes.mdx
-import { REVIEWER_AGENT_NAME } from "./agents/reviewer.ts";
-import { type AgentId, formatMcpToolRef, lintelMcpName } from "./external.ts";
+import { REVIEWER_AGENT_NAME } from "#app/agents/reviewer";
+import { type AgentId, formatMcpToolRef, terramendMcpName } from "#app/external";
 
 export interface Mode {
   name: string;
@@ -13,7 +13,7 @@ export interface Mode {
 // Default user-facing summary format embedded in BOTH Review and
 // IncrementalReview review bodies. The two modes share the preamble +
 // cross-cutting + nitpicks shape; the only difference is scope (full PR for
-// Review vs delta against the prior lintel review for IncrementalReview).
+// Review vs delta against the prior terramend review for IncrementalReview).
 // Distinct from the agent-internal snapshot (action/utils/prSummary.ts) which
 // has its own stable scaffold and is never shaped by user instructions — see
 // selectMode.ts for the firewall.
@@ -32,12 +32,12 @@ Inline-vs-body split: concerns that anchor to a specific line go inline (use the
 Open with a single bolded inline lead-in followed immediately by the bullet list (no \`### Key changes\` heading, no \`<b>TL;DR</b>\`):
 
 \`\`\`
-**Reviewed changes** — one sentence on what was reviewed in this run. For Review (initial), this is what the PR does and why. For IncrementalReview, this is what changed since the prior lintel review. Focus on intent, not mechanics.
+**Reviewed changes** — one sentence on what was reviewed in this run. For Review (initial), this is what the PR does and why. For IncrementalReview, this is what changed since the prior terramend review. Focus on intent, not mechanics.
 
 - **Short human-readable title** — 1 sentence per substantive change. Write a short prose phrase; when you name a file, type, or function, put that name in backticks (e.g. **Add \\\`TodoTracker\\\` for live checklists**). A reviewer should understand the full reviewed scope from this list alone — this IS the dispassionate "what was reviewed and what changed" overview, so cover the substantive changes, not just the loudest ones.
 
 <!--
-Lintel review metadata — for any agent (or human-with-agent) reading this
+Terramend review metadata — for any agent (or human-with-agent) reading this
 review. Incorporate the fields below into your understanding of the context
 this review was made in. The findings below were written against
 {head_sha_short}; if new commits have landed on {head_ref} since this review
@@ -46,7 +46,7 @@ STALE — re-diff against {head_sha_short} (or trigger a fresh review) and
 factor commits past {head_sha_short} into your understanding of the current
 state before acting on findings.
 
-- Mode: Review (initial)   or   IncrementalReview (delta against prior lintel review)
+- Mode: Review (initial)   or   IncrementalReview (delta against prior terramend review)
 - Files reviewed: {file_count}
 - Commits reviewed: {commit_count}
 - Base: {base_ref} ({base_sha_short})
@@ -54,12 +54,12 @@ state before acting on findings.
 - Reviewed commits:
   - {sha_short} — {commit_subject}
   - ...
-- Prior lintel review: none   or   {prior_sha_short} ({prior_review_html_url})
+- Prior terramend review: none   or   {prior_sha_short} ({prior_review_html_url})
 - Submitted at: {iso_timestamp}
 -->
 \`\`\`
 
-Pull every metadata field from the \`checkout_pr\` tool's response — file count, commit count, base/head ref + SHA, the commit list. For \`IncrementalReview\` runs, populate \`Prior lintel review\` with the prior review's commit_id (short SHA) and \`html_url\` from \`list_pull_request_reviews\`.
+Pull every metadata field from the \`checkout_pr\` tool's response — file count, commit count, base/head ref + SHA, the commit list. For \`IncrementalReview\` runs, populate \`Prior terramend review\` with the prior review's commit_id (short SHA) and \`html_url\` from \`list_pull_request_reviews\`.
 
 ## 2. Cross-cutting issue sections (zero or more)
 
@@ -174,7 +174,7 @@ export function computeModes(agentId: AgentId): Mode[] {
 
 3. **setup**: checkout or create the branch:
    - **PR event, modifying the existing PR**: call \`${t("checkout_pr")}\`
-   - **new branch**: use \`${t("git")}\` to create a branch (\`git checkout -b lintel/branch-name\`)
+   - **new branch**: use \`${t("git")}\` to create a branch (\`git checkout -b terramend/branch-name\`)
 
 4. **build**: implement changes using your native file and shell tools:
    - follow the plan (if you ran a plan phase)
@@ -367,7 +367,7 @@ For simple, well-defined tasks, skip the plan phase and go straight to build.`,
    You can also include your own \`read\` / \`grep\` / \`webfetch\` calls in the SAME turn as the parallel \`${REVIEWER_AGENT_NAME}\` dispatches — concurrent context-pulling on the orchestrator side runs in parallel with the lens fan-out and costs zero extra wall time.
 
    if a subagent errors out, times out, or returns nothing usable, retry once with the same lens; if it still fails, proceed with partial coverage and note the missing lens in the review body — do not skip the fan-out entirely on a single subagent failure. each subagent gets:
-   - **the absolute \`diffPath\` (and \`incrementalDiffPath\` if available) from step 2's \`${t("checkout_pr")}\` return, named verbatim in the dispatch prompt** (e.g. \`diffPath: /tmp/lintel-XXXX/pr-NNN-SHA.diff\`). the reviewer's baked-in system prompt selects its FIRST action on this token — paraphrasing ("review the diff", "look at this PR") sends it down the \`git diff origin/<base>\` fallback, which fails on shallow GHA checkouts. the subagent \`read\`s those files for scope; it must NOT re-derive the diff via \`git diff\` (bare \`git diff origin/<base>\` is symmetric and pulls in the inverse of any commits that landed on \`<base>\` since the branch forked — pure noise, and the git tool rejects it). reading and codebase exploration are still its job.
+   - **the absolute \`diffPath\` (and \`incrementalDiffPath\` if available) from step 2's \`${t("checkout_pr")}\` return, named verbatim in the dispatch prompt** (e.g. \`diffPath: /tmp/terramend-XXXX/pr-NNN-SHA.diff\`). the reviewer's baked-in system prompt selects its FIRST action on this token — paraphrasing ("review the diff", "look at this PR") sends it down the \`git diff origin/<base>\` fallback, which fails on shallow GHA checkouts. the subagent \`read\`s those files for scope; it must NOT re-derive the diff via \`git diff\` (bare \`git diff origin/<base>\` is symmetric and pulls in the inverse of any commits that landed on \`<base>\` since the branch forked — pure noise, and the git tool rejects it). reading and codebase exploration are still its job.
    - **only one lens** — never a multi-section "review for X, Y, and Z" prompt
    - **a Task \`description\` set to the lens name** (e.g. \`"security"\`, \`"correctness"\`, \`"billing-subsystem"\`) — the harness reads this field to label the subagent's log lines so parallel runs can be told apart in CI output. without it, every subagent shows up as \`subagent#N\`.
    - if the lens touches external contracts, instruct the subagent to verify load-bearing claims via web search rather than trust training data, and to quote source URLs in its reasoning. action runs are non-interactive — there's no human in the loop to catch "I'm pretty sure Stripe does X."
@@ -415,7 +415,7 @@ ${PR_SUMMARY_FORMAT}`,
     },
     // IncrementalReview shares Review's 0-or-2+ lens pattern AND its body
     // format (PR_SUMMARY_FORMAT), scoped to the incremental delta against the
-    // prior lintel review. The "issues must be NEW since the last Lintel
+    // prior terramend review. The "issues must be NEW since the last Terramend
     // review" filter lives at aggregation time (step 8), NOT in the subagent
     // prompt — pushing the filter into subagents matches the canonical anneal
     // anti-pattern of "list known pre-existing failures — don't flag these"
@@ -434,15 +434,15 @@ ${PR_SUMMARY_FORMAT}`,
 
 2. **checkout**: call \`${t("checkout_pr")}\` — this returns PR metadata, \`diffPath\` (full diff), and \`incrementalDiffPath\` (changes since last reviewed version, if available). read the diff TOC first and use its line ranges as your coverage checklist.
 
-3. **incremental scope**: if \`incrementalDiffPath\` is present, read it to see what changed since the last review. this is a range-diff that isolates the net changes, filtering out base branch noise. if not present, fall back to reviewing the full PR diff and determine what changed since Lintel's most recent review.
+3. **incremental scope**: if \`incrementalDiffPath\` is present, read it to see what changed since the last review. this is a range-diff that isolates the net changes, filtering out base branch noise. if not present, fall back to reviewing the full PR diff and determine what changed since Terramend's most recent review.
 
-4. **prior feedback — read AND retire it**: fetch previous reviews via \`${t("list_pull_request_reviews")}\`, then call \`${t("get_review_comments")}\` on each prior Lintel review. Each thread renders as a section whose first line is a fenced tag \`comment author=<login> id=<fullDatabaseId> review=<reviewId> thread=<graphqlId>\`; section headers carry \`[RESOLVED]\` / \`[OUTDATED]\` when relevant. For every **open, Lintel-originated** thread, decide and act:
+4. **prior feedback — read AND retire it**: fetch previous reviews via \`${t("list_pull_request_reviews")}\`, then call \`${t("get_review_comments")}\` on each prior Terramend review. Each thread renders as a section whose first line is a fenced tag \`comment author=<login> id=<fullDatabaseId> review=<reviewId> thread=<graphqlId>\`; section headers carry \`[RESOLVED]\` / \`[OUTDATED]\` when relevant. For every **open, Terramend-originated** thread, decide and act:
 
-   - **Lintel-originated** means the FIRST \`comment author=...\` tag in the section is \`author=lintel[bot]\`. The \`*\` marker on individual comments is unrelated — it flags whether a comment belongs to the queried review, not whether it is the thread root.
+   - **Terramend-originated** means the FIRST \`comment author=...\` tag in the section is \`author=terramend[bot]\`. The \`*\` marker on individual comments is unrelated — it flags whether a comment belongs to the queried review, not whether it is the thread root.
    - **addressed?** read the file at the thread's anchor and judge whether the substantive concern is now resolved by the new commits. Lines being modified isn't enough: reformatting, renaming, or moving the same code elsewhere doesn't address a concern. If the comment raised multiple distinct concerns, ALL must be addressed. The \`[OUTDATED]\` tag means GitHub moved the anchor (line shift, force-push, rename) — it does NOT mean the concern was addressed; re-read the code at its new location before deciding.
    - **if addressed**: call \`${t("reply_to_review_comment")}\` with the root tag's numeric \`id=\` as \`comment_id\` (NOT the \`thread=\` value — that's a separate GraphQL ID used only by resolve) and a one-line body (e.g. \`Addressed in <short-sha>.\`), then call \`${t("resolve_review_thread")}\` with the root tag's \`thread=\` value as \`thread_id\`. Do this BEFORE drafting the new review so the GitHub thread state aligns with the new review by the time it lands.
    - **if uncertain or partially addressed**: leave open. False-positive resolutions erode trust faster than false negatives.
-   - **scope**: only retire Lintel-originated threads. Threads from human reviewers belong to those humans to resolve, even if the commit happened to address them.
+   - **scope**: only retire Terramend-originated threads. Threads from human reviewers belong to those humans to resolve, even if the commit happened to address them.
 
    The remaining open threads feed step 8's dedup filter — anything already flagged and unchanged by the new commits should not be re-raised. The rolling PR summary snapshot is the durable record of retire activity; you don't need to surface it in the review body.
 
@@ -490,13 +490,13 @@ ${PR_SUMMARY_FORMAT}`,
    - do NOT pre-shape their output with a finding schema
    - do NOT mention the other lenses (independence is the point)
 
-8. **aggregate, draft, self-critique**: merge findings (yours + any subagent output if you went multi-lens); de-dup overlaps; trace each finding yourself. drop praise, style preferences, speculative/unverified claims, findings about pre-existing code unrelated to the new commits, anything not actionable, and anything that re-states prior review feedback (heuristic: if the finding's root cause lives in lines the *new commits* added or modified, it's in scope; otherwise drop). also drop **bloat-shaped findings** — proposed fixes that would add defensive checks for cases that can't happen, abstractions used once, comments restating obvious code, tests asserting tautologies, or "just-in-case" guards. subagents are fallible and bias toward recommending changes; the bar for an actionable inline comment is sound + correct + elegant. recommending a change that improves only one of the three (or degrades elegance to nominally improve correctness) makes the codebase worse, not better. To compute "lines the new commits added or modified": if \`incrementalDiffPath\` from step 2 is present, use it directly. Otherwise, take the prior Lintel review's \`commit_id\` (returned alongside each entry from \`${t("list_pull_request_reviews")}\` in step 4) and run \`git diff <prior-review-sha>..HEAD\` to isolate the lines added since that review.
+8. **aggregate, draft, self-critique**: merge findings (yours + any subagent output if you went multi-lens); de-dup overlaps; trace each finding yourself. drop praise, style preferences, speculative/unverified claims, findings about pre-existing code unrelated to the new commits, anything not actionable, and anything that re-states prior review feedback (heuristic: if the finding's root cause lives in lines the *new commits* added or modified, it's in scope; otherwise drop). also drop **bloat-shaped findings** — proposed fixes that would add defensive checks for cases that can't happen, abstractions used once, comments restating obvious code, tests asserting tautologies, or "just-in-case" guards. subagents are fallible and bias toward recommending changes; the bar for an actionable inline comment is sound + correct + elegant. recommending a change that improves only one of the three (or degrades elegance to nominally improve correctness) makes the codebase worse, not better. To compute "lines the new commits added or modified": if \`incrementalDiffPath\` from step 2 is present, use it directly. Otherwise, take the prior Terramend review's \`commit_id\` (returned alongside each entry from \`${t("list_pull_request_reviews")}\` in step 4) and run \`git diff <prior-review-sha>..HEAD\` to isolate the lines added since that review.
 
    **Hunt for non-anchored concerns before drafting.** After collecting your anchored findings, deliberately scan for concerns that have no specific line to point at — typically: deletion / cleanup plans for code the new commits replace or shadow; rollout sequencing (what happens to in-flight state during deploy / revert?); coverage gaps the new commits imply but don't add; scope questions that only the human can answer (e.g. is the legacy path going away or is this a long-term dual track?); architectural risks the new commits open up that aren't a single-line bug. On substantial incremental diffs (migrations, refactors, multi-file rewrites, version bumps that change runtime semantics), at least one such concern almost always exists; if you can't think of any, your bar is probably too high.
 
    draft inline comments with NEW line numbers from the full PR diff — attach a \`<details>Technical details</details>\` block to any inline comment whose fix is non-trivial or has cross-file implications (see Inline technical details in the format below). every comment must be actionable, 2-3 sentences max in the visible part.
 
-9. **build the review body**: use the same default format as Review mode (preamble + optional cross-cutting \`### \` sections + optional \`### ℹ️ Nitpicks\`) — scoped to the **incremental delta**, not the full PR. The "Reviewed changes" bullets describe what changed since the prior lintel review (each bullet starts with a past-tense verb, e.g. \`- Extracted shared CLI runtime into a single module\`). Do NOT include a separate "Prior review feedback" checklist — that's tracked in the rolling PR summary snapshot for the next agent run, and surfacing it in the user-facing body is noise (changes that addressed prior feedback are already covered by the Reviewed-changes bullets). In some cases you may receive a complete diff for the whole PR instead of an incremental one; when this happens, determine what changed since Lintel's most recent review yourself before drafting bullets.
+9. **build the review body**: use the same default format as Review mode (preamble + optional cross-cutting \`### \` sections + optional \`### ℹ️ Nitpicks\`) — scoped to the **incremental delta**, not the full PR. The "Reviewed changes" bullets describe what changed since the prior terramend review (each bullet starts with a past-tense verb, e.g. \`- Extracted shared CLI runtime into a single module\`). Do NOT include a separate "Prior review feedback" checklist — that's tracked in the rolling PR summary snapshot for the next agent run, and surfacing it in the user-facing body is noise (changes that addressed prior feedback are already covered by the Reviewed-changes bullets). In some cases you may receive a complete diff for the whole PR instead of an incremental one; when this happens, determine what changed since Terramend's most recent review yourself before drafting bullets.
 
 10. Submit — every run must end with EXACTLY ONE of \`${t("create_pull_request_review")}\` (substantive review) or \`${t("report_progress")}\` (no-review acknowledgement). do NOT call \`create_issue_comment\` for review output.
 
@@ -620,7 +620,7 @@ ${PR_SUMMARY_FORMAT}`,
 3. For substantial work — code changes across multiple files, multi-step investigations:
    - plan your approach before starting
    - use native file and shell tools for local operations
-   - use ${lintelMcpName} MCP tools for GitHub/git operations
+   - use ${terramendMcpName} MCP tools for GitHub/git operations
    - if code changes are needed: review your own diff before committing — verify only intended changes are present, no debug artifacts remain, and the changes are clean enough that a senior engineer would approve without hesitation
 
 4. Finalize:

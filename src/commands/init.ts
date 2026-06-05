@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import * as p from "@clack/prompts";
 import arg from "arg";
 import pc from "picocolors";
-import { modelAliases, type ProviderConfig, providers, resolveDisplayAlias } from "../models.ts";
+import { modelAliases, type ProviderConfig, providers, resolveDisplayAlias } from "#app/models";
 
-const LINTEL_API_URL = (process.env.LINTEL_API_URL || "https://lintel.com").replace(
+const TERRAMEND_API_URL = (process.env.TERRAMEND_API_URL || "https://terramend.com").replace(
   /\/+$/,
   ""
 );
@@ -26,7 +26,7 @@ function buildProviders(): CliProvider[] {
     .map(([key, config]: [string, ProviderConfig]) => {
       // bedrock requires multi-secret setup (auth + region + model id) that
       // doesn't fit the single-paste flow below — direct users to
-      // https://docs.lintel.com/bedrock instead. revisit once the init flow
+      // https://docs.terramend.com/bedrock instead. revisit once the init flow
       // supports multi-value setup. `hidden` excludes internal-only subagent
       // targets (e.g. openai/gpt-5.4) per #710.
       const aliases = modelAliases.filter(
@@ -157,7 +157,7 @@ function openBrowser(url: string) {
   }
 }
 
-// ── Lintel API ──
+// ── Terramend API ──
 
 type SecretsApiData = {
   error?: string;
@@ -168,7 +168,7 @@ type SecretsApiData = {
   accessible?: boolean;
   repoSecrets?: string[];
   orgSecrets?: string[];
-  lintelSecrets?: string[];
+  terramendSecrets?: string[];
   repoStatus?: string | null;
   repoModel?: string | null;
   hasRuns?: boolean;
@@ -180,7 +180,7 @@ type SecretsInfo = {
   secretsAccessible: boolean;
   repoSecrets: string[];
   orgSecrets: string[];
-  lintelSecrets: string[];
+  terramendSecrets: string[];
   model: string | null;
   hasRuns: boolean;
 };
@@ -218,7 +218,7 @@ type DispatchApiData = {
 
 type ApiResult<T = Record<string, unknown>> = { ok: boolean; status: number; data: T };
 
-async function lintelApi<T = Record<string, unknown>>(ctx: {
+async function terramendApi<T = Record<string, unknown>>(ctx: {
   path: string;
   token: string;
   method?: string;
@@ -229,7 +229,7 @@ async function lintelApi<T = Record<string, unknown>>(ctx: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
   try {
-    const response = await fetch(`${LINTEL_API_URL}${ctx.path}`, {
+    const response = await fetch(`${TERRAMEND_API_URL}${ctx.path}`, {
       method: ctx.method || "GET",
       headers,
       body: ctx.body ? JSON.stringify(ctx.body) : null,
@@ -247,7 +247,7 @@ async function fetchStatus(ctx: {
   owner: string;
   repo: string;
 }): Promise<StatusResult> {
-  const result = await lintelApi<SecretsApiData>({
+  const result = await terramendApi<SecretsApiData>({
     path: `/api/cli/secrets?owner=${encodeURIComponent(ctx.owner)}&repo=${encodeURIComponent(ctx.repo)}`,
     token: ctx.token,
   });
@@ -278,7 +278,7 @@ async function fetchStatus(ctx: {
     secretsAccessible: result.data.accessible !== false,
     repoSecrets: result.data.repoSecrets || [],
     orgSecrets: result.data.orgSecrets || [],
-    lintelSecrets: result.data.lintelSecrets || [],
+    terramendSecrets: result.data.terramendSecrets || [],
     model: result.data.repoModel ?? null,
     hasRuns: result.data.hasRuns === true,
   };
@@ -292,7 +292,7 @@ async function createSession(ctx: {
   repo: string;
 }): Promise<string | null> {
   try {
-    const result = await lintelApi<SessionApiData>({
+    const result = await terramendApi<SessionApiData>({
       path: "/api/cli/session",
       token: ctx.token,
       method: "POST",
@@ -308,7 +308,7 @@ async function createSession(ctx: {
 type PollResult = "installed" | "pending" | "expired";
 
 async function pollSession(ctx: { token: string; sessionId: string }): Promise<PollResult> {
-  const result = await lintelApi<SessionApiData>({
+  const result = await terramendApi<SessionApiData>({
     path: `/api/cli/session/${ctx.sessionId}`,
     token: ctx.token,
   });
@@ -318,7 +318,7 @@ async function pollSession(ctx: { token: string; sessionId: string }): Promise<P
 }
 
 function cleanupSession(ctx: { token: string; sessionId: string }) {
-  void lintelApi({
+  void terramendApi({
     path: `/api/cli/session/${ctx.sessionId}`,
     token: ctx.token,
     method: "DELETE",
@@ -365,11 +365,11 @@ async function ensureInstallation(ctx: {
   owner: string;
   repo: string;
 }): Promise<SecretsInfo> {
-  activeSpin!.start("checking lintel app installation");
+  activeSpin!.start("checking terramend app installation");
 
   const initial = await fetchStatus(ctx);
   if (initial.installed) {
-    activeSpin!.stop(`lintel app is installed on ${pc.cyan(`@${ctx.owner}`)}`);
+    activeSpin!.stop(`terramend app is installed on ${pc.cyan(`@${ctx.owner}`)}`);
     if (initial.installationId) {
       const configUrl = installationConfigUrl({
         owner: ctx.owner,
@@ -390,7 +390,7 @@ async function ensureInstallation(ctx: {
       installationId: initial.installationId,
       isOrg: initial.isOrg,
     });
-    activeSpin!.stop(`lintel is installed on selected repos, but ${repoRef} is not included.`);
+    activeSpin!.stop(`terramend is installed on selected repos, but ${repoRef} is not included.`);
     p.log.info(
       `add it under "Repository access" on the installation config page.\n  ${pc.dim(configUrl)}`
     );
@@ -398,7 +398,7 @@ async function ensureInstallation(ctx: {
     handleCancel(openIt);
     if (openIt) openBrowser(configUrl);
   } else {
-    activeSpin!.stop("lintel app not installed");
+    activeSpin!.stop("terramend app not installed");
     const installUrl = `https://github.com/apps/${initial.appSlug}/installations/select_target?state=cli`;
     p.log.info(`opening browser to install...\n  ${pc.dim(installUrl)}`);
     openBrowser(installUrl);
@@ -425,7 +425,7 @@ async function ensureInstallation(ctx: {
         hintShown = true;
       }
 
-      const doneMsg = isRepoAccessUpdate ? "repo access confirmed" : "lintel app installed";
+      const doneMsg = isRepoAccessUpdate ? "repo access confirmed" : "terramend app installed";
 
       if (listener.consume()) {
         activeSpin!.message("rechecking via GitHub API");
@@ -484,16 +484,16 @@ async function ensureInstallation(ctx: {
   bail(
     isRepoAccessUpdate
       ? "timed out waiting for repo access.\n" +
-          `  ${pc.dim("add the repo, then re-run:")} npx lintel init`
+          `  ${pc.dim("add the repo, then re-run:")} npx terramend init`
       : "timed out waiting for app installation.\n" +
           `  ${pc.dim("if your org requires admin approval, ask an admin to approve,")}\n` +
-          `  ${pc.dim("then re-run:")} npx lintel init`
+          `  ${pc.dim("then re-run:")} npx terramend init`
   );
 }
 
 // ── secret management ──
 
-type StorageMethod = "lintel" | "github";
+type StorageMethod = "terramend" | "github";
 type SecretScope = "account" | "repo";
 
 type SecretSetResult = { saved: boolean; orgFailed: boolean };
@@ -531,17 +531,17 @@ function setGhSecret(ctx: {
   }
 }
 
-type LintelSecretResult = { saved: boolean; error: string };
+type TerramendSecretResult = { saved: boolean; error: string };
 
-async function setLintelSecret(ctx: {
+async function setTerramendSecret(ctx: {
   token: string;
   owner: string;
   repo: string;
   name: string;
   value: string;
   scope: SecretScope;
-}): Promise<LintelSecretResult> {
-  const result = await lintelApi<{ success?: boolean; error?: string }>({
+}): Promise<TerramendSecretResult> {
+  const result = await terramendApi<{ success?: boolean; error?: string }>({
     path: "/api/cli/secrets",
     token: ctx.token,
     method: "POST",
@@ -582,7 +582,7 @@ async function handleSecret(ctx: {
 
   const matches: { name: string; source: string }[] = [];
   for (const v of ctx.provider.envVars) {
-    if (ctx.secrets.lintelSecrets.includes(v)) matches.push({ name: v, source: "lintel" });
+    if (ctx.secrets.terramendSecrets.includes(v)) matches.push({ name: v, source: "terramend" });
     else if (ctx.secrets.secretsAccessible && ctx.secrets.orgSecrets.includes(v))
       matches.push({ name: v, source: "org secret" });
     else if (ctx.secrets.secretsAccessible && ctx.secrets.repoSecrets.includes(v))
@@ -631,14 +631,14 @@ async function handleSecret(ctx: {
     message: `where should ${pc.cyan(envVar)} be stored?`,
     options: [
       {
-        value: "lintel",
-        label: "Lintel",
+        value: "terramend",
+        label: "Terramend",
         hint: "recommended — auto-injected, no workflow changes",
       },
       {
         value: "github",
         label: "GitHub Actions secret",
-        hint: "requires env block in lintel.yml",
+        hint: "requires env block in terramend.yml",
       },
     ],
   });
@@ -655,18 +655,18 @@ async function handleSecret(ctx: {
 
   if (!apiKey) {
     p.log.info(
-      `skipped — set it manually at:\n  ${pc.dim(method === "lintel" ? `${LINTEL_API_URL}/console/${ctx.owner}` : repoSecretsUrl)}`
+      `skipped — set it manually at:\n  ${pc.dim(method === "terramend" ? `${TERRAMEND_API_URL}/console/${ctx.owner}` : repoSecretsUrl)}`
     );
     return;
   }
 
-  if (method === "lintel") {
+  if (method === "terramend") {
     const scope: SecretScope = ctx.secrets.isOrg ? await promptScope(ctx) : "account";
 
     activeSpin!.start(`saving ${envVar}`);
-    let saveResult: LintelSecretResult;
+    let saveResult: TerramendSecretResult;
     try {
-      saveResult = await setLintelSecret({
+      saveResult = await setTerramendSecret({
         token: ctx.token,
         owner: ctx.owner,
         repo: ctx.repo,
@@ -677,17 +677,17 @@ async function handleSecret(ctx: {
     } catch (error) {
       activeSpin!.stop(pc.red("could not save secret"));
       p.log.warn(
-        `${error instanceof Error ? error.message : "network error"}\n  set it manually at: ${pc.dim(`${LINTEL_API_URL}/console/${ctx.owner}`)}`
+        `${error instanceof Error ? error.message : "network error"}\n  set it manually at: ${pc.dim(`${TERRAMEND_API_URL}/console/${ctx.owner}`)}`
       );
       return;
     }
 
     if (saveResult.saved) {
-      activeSpin!.stop(`saved ${pc.cyan(envVar)} to Lintel`);
+      activeSpin!.stop(`saved ${pc.cyan(envVar)} to Terramend`);
     } else {
       activeSpin!.stop(pc.red("could not save secret"));
       p.log.warn(
-        `${saveResult.error}\n  set it manually at: ${pc.dim(`${LINTEL_API_URL}/console/${ctx.owner}`)}`
+        `${saveResult.error}\n  set it manually at: ${pc.dim(`${TERRAMEND_API_URL}/console/${ctx.owner}`)}`
       );
     }
     return;
@@ -736,7 +736,7 @@ async function promptTestRun(ctx: { token: string; owner: string; repo: string }
   if (!proceed) return;
 
   activeSpin!.start("dispatching test run");
-  const result = await lintelApi<DispatchApiData>({
+  const result = await terramendApi<DispatchApiData>({
     path: "/api/cli/dispatch",
     token: ctx.token,
     method: "POST",
@@ -761,7 +761,7 @@ async function promptTestRun(ctx: { token: string; owner: string; repo: string }
 // ── main ──
 
 async function main() {
-  p.intro(pc.bgGreen(pc.black(" lintel ")));
+  p.intro(pc.bgGreen(pc.black(" terramend ")));
 
   const spin = p.spinner();
   activeSpin = spin;
@@ -780,7 +780,7 @@ async function main() {
     bail(
       `your token is missing the ${pc.bold('"repo"')} scope.\n` +
         `  ${pc.dim("run:")} gh auth refresh --scopes repo\n` +
-        `  ${pc.dim("then:")} npx lintel init`
+        `  ${pc.dim("then:")} npx terramend init`
     );
   }
 
@@ -847,9 +847,9 @@ async function main() {
   await handleSecret({ token, owner: remote.owner, repo: remote.repo, provider, secrets });
 
   // 6. create workflow
-  spin.start("creating lintel.yml workflow");
+  spin.start("creating terramend.yml workflow");
 
-  const result = await lintelApi<SetupApiData>({
+  const result = await terramendApi<SetupApiData>({
     path: "/api/cli/setup",
     token,
     method: "POST",
@@ -863,16 +863,16 @@ async function main() {
   let skipTestRun = false;
 
   if (result.data.already_existed) {
-    spin.stop("lintel.yml already exists");
+    spin.stop("terramend.yml already exists");
   } else if (result.data.pull_request_url) {
-    spin.stop("opened pull request with lintel.yml");
+    spin.stop("opened pull request with terramend.yml");
     process.stdout.write(
       `${pc.gray(p.S_BAR)}    ${link(pc.dim(result.data.pull_request_url), result.data.pull_request_url)}\n`
     );
     openBrowser(result.data.pull_request_url);
 
     const merged = await p.select({
-      message: "merge the PR to activate lintel, then continue",
+      message: "merge the PR to activate terramend, then continue",
       options: [
         { value: true, label: "continue", hint: "PR has been merged" },
         { value: false, label: "skip" },
@@ -883,7 +883,7 @@ async function main() {
   } else {
     const short = result.data.hash?.slice(0, 7);
     spin.stop(
-      short ? `committed lintel.yml to repo ${pc.dim(short)}` : "committed lintel.yml to repo"
+      short ? `committed terramend.yml to repo ${pc.dim(short)}` : "committed terramend.yml to repo"
     );
   }
 
@@ -891,9 +891,9 @@ async function main() {
     await promptTestRun({ token, owner: remote.owner, repo: remote.repo });
   }
 
-  const consoleUrl = `${LINTEL_API_URL}/console/${remote.owner}/${remote.repo}`;
+  const consoleUrl = `${TERRAMEND_API_URL}/console/${remote.owner}/${remote.repo}`;
   spin.start("");
-  spin.stop("repo is configurable via the Lintel dashboard");
+  spin.stop("repo is configurable via the Terramend dashboard");
   process.stdout.write(`${pc.gray(p.S_BAR)}    ${link(pc.dim(consoleUrl), consoleUrl)}\n`);
   activeSpin = null;
   p.outro("done.");
@@ -907,7 +907,7 @@ interface InitCliParams {
 
 function printInitUsage(params: { stream: typeof console.log; prog: string }): void {
   params.stream(`usage: ${params.prog} init\n`);
-  params.stream("set up lintel on the current repository.");
+  params.stream("set up terramend on the current repository.");
   params.stream("");
   params.stream("options:");
   params.stream("  -h, --help   show help");
