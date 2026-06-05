@@ -4,7 +4,7 @@ import {
   getDiffCoverageBreakdown,
   parseDiffTocEntries,
   recordDiffReadFromToolUse,
-} from "./diffCoverage.ts";
+} from "#app/utils/diffCoverage";
 
 const diffPath = "/tmp/pr-1.diff";
 const toc = `## Files (2)

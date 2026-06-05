@@ -1,5 +1,5 @@
 /**
- * model-smoke: per-alias resolution + auth check that bypasses the Lintel
+ * model-smoke: per-alias resolution + auth check that bypasses the Terramend
  * harness. resolves a model alias to its concrete provider/model + agent CLI,
  * invokes the CLI directly with a trivial "reply OK" prompt, and asserts the
  * provider replied. validates exactly the surface that changes when models.ts
@@ -12,16 +12,16 @@
  *
  * usage:
  *   node action/test/model-smoke.ts --slug openai/gpt
- *   LINTEL_MODEL=openai/gpt node action/test/model-smoke.ts
+ *   TERRAMEND_MODEL=openai/gpt node action/test/model-smoke.ts
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "dotenv";
-import { modelAliases, resolveCliModel } from "../src/models.ts";
-import { installFromNpmTarball } from "../src/utils/install.ts";
-import { getDevDependencyVersion } from "../src/utils/version.ts";
+import { modelAliases, resolveCliModel } from "#app/models";
+import { installFromNpmTarball } from "#app/utils/install";
+import { getDevDependencyVersion } from "#app/utils/version";
 
 config({ path: join(import.meta.dirname, "..", ".env") });
 config({ path: join(import.meta.dirname, "..", "..", ".env") });
@@ -38,8 +38,8 @@ const TIMEOUT_MS = 120_000;
 function parseSlug(): string {
   const argIdx = process.argv.indexOf("--slug");
   if (argIdx >= 0 && process.argv[argIdx + 1]) return process.argv[argIdx + 1];
-  if (process.env.LINTEL_MODEL) return process.env.LINTEL_MODEL;
-  throw new Error("model-smoke: pass --slug <alias> or set LINTEL_MODEL");
+  if (process.env.TERRAMEND_MODEL) return process.env.TERRAMEND_MODEL;
+  throw new Error("model-smoke: pass --slug <alias> or set TERRAMEND_MODEL");
 }
 
 type Plan =
@@ -51,7 +51,7 @@ async function plan(slug: string): Promise<Plan> {
   if (!alias) throw new Error(`model-smoke: unknown alias "${slug}"`);
   if (alias.routing) {
     throw new Error(
-      `model-smoke: ${slug} is a routing slug (no fixed model). pass an explicit Bedrock model ID via LINTEL_MODEL or the workflow env block.`
+      `model-smoke: ${slug} is a routing slug (no fixed model). pass an explicit Bedrock model ID via TERRAMEND_MODEL or the workflow env block.`
     );
   }
 
@@ -154,10 +154,10 @@ async function main(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), "model-smoke-"));
   const homeDir = join(tempDir, "home");
 
-  // installFromNpmTarball reads LINTEL_TEMP_DIR from process.env, not from
+  // installFromNpmTarball reads TERRAMEND_TEMP_DIR from process.env, not from
   // the spawn env, so we mutate process.env up-front. HOME/XDG_CONFIG_HOME are
   // redirected to keep the agent CLIs from picking up the dev user's config.
-  process.env.LINTEL_TEMP_DIR = tempDir;
+  process.env.TERRAMEND_TEMP_DIR = tempDir;
   process.env.HOME = homeDir;
   process.env.XDG_CONFIG_HOME = join(homeDir, ".config");
   // opencode reads GOOGLE_GENERATIVE_AI_API_KEY for gemini; mirror the harness fallback.

@@ -1,8 +1,8 @@
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec";
 import { Ajv } from "ajv";
 import { type } from "arktype";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const SetOutputParams = type({
   value: type.string.describe("the output value to expose as a GitHub Action output"),

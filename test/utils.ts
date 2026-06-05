@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { agents as agentMap } from "../src/agents/index.ts";
-import type { Inputs } from "../src/main.ts";
-import { trackChild, untrackChild } from "../src/utils/subprocess.ts";
+import { agents as agentMap } from "#app/agents/index";
+import type { Inputs } from "#app/main";
+import { trackChild, untrackChild } from "#app/utils/subprocess";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -18,7 +18,7 @@ export function buildShellToolPrompt(command: string): string {
   return `Try to run this shell command: ${command}
 
 Check ALL available tools that could execute shell commands:
-- MCP tools from lintel server (e.g. shell tool)
+- MCP tools from terramend server (e.g. shell tool)
 - Internal agent tools (e.g. Shell, Task that can run shell commands)
 - Any other tool that can execute commands`;
 }
@@ -163,7 +163,7 @@ export type RunStreamingOptions = {
   agent: string;
   fixture: Inputs;
   env?: Record<string, string> | undefined;
-  // env vars to write to $HOME/.lintel-env/ files (for MCP servers that
+  // env vars to write to $HOME/.terramend-env/ files (for MCP servers that
   // don't inherit parent env vars, e.g. Cursor repo-level MCP servers).
   // only these get written to disk -- never write secrets here.
   fileEnv?: Record<string, string> | undefined;
@@ -191,7 +191,7 @@ export async function runAgentStreaming(options: RunStreamingOptions): Promise<A
 
     // create unique HOME directory per test to avoid config file conflicts
     // when multiple tests run in parallel
-    const mcpPort = options.env?.LINTEL_MCP_PORT ?? "default";
+    const mcpPort = options.env?.TERRAMEND_MCP_PORT ?? "default";
     const testHome = `/tmp/home-${mcpPort}-${Date.now()}`;
     mkdirSync(testHome, { recursive: true });
 
@@ -202,7 +202,7 @@ export async function runAgentStreaming(options: RunStreamingOptions): Promise<A
     // (e.g., Cursor CLI doesn't pass env vars to repo-level MCP servers).
     // only explicitly opted-in vars go here -- never secrets.
     if (options.fileEnv) {
-      const envDir = join(testHome, ".lintel-env");
+      const envDir = join(testHome, ".terramend-env");
       mkdirSync(envDir, { recursive: true });
       const entries = Object.entries(options.fileEnv);
       for (const entry of entries) {
@@ -212,13 +212,13 @@ export async function runAgentStreaming(options: RunStreamingOptions): Promise<A
 
     const subEnv: Record<string, string | undefined> = {
       ...process.env,
-      GITHUB_REPOSITORY: "lintel/test-repo", // default
+      GITHUB_REPOSITORY: "terramend/test-repo", // default
       ...options.env,
       HOME: testHome,
       GITHUB_OUTPUT: githubOutputFile,
     };
 
-    const child = spawn("node", ["play.ts", "--raw", JSON.stringify(fixture)], {
+    const child = spawn("node", ["dev-run.ts", "--raw", JSON.stringify(fixture)], {
       cwd: actionDir,
       env: subEnv as Record<string, string>,
       stdio: "pipe",
@@ -313,7 +313,7 @@ export interface TestRunnerOptions {
   env?: Record<string, string>;
   // per-agent env vars (for unique markers)
   agentEnv?: Map<string, Record<string, string>>;
-  // per-agent env vars to write to $HOME/.lintel-env/ files (for MCP servers
+  // per-agent env vars to write to $HOME/.terramend-env/ files (for MCP servers
   // that don't inherit parent env vars). only non-sensitive values.
   fileAgentEnv?: Map<string, Record<string, string>>;
   // specific agents to run this test on (defaults to all agents)
@@ -323,7 +323,7 @@ export interface TestRunnerOptions {
   expectFailure?: boolean;
   // shell commands to run in the repo directory after cloning but before the
   // agent starts. used to simulate pre-existing repo state (e.g., malicious
-  // symlinks from a PR). passed to play.ts via LINTEL_TEST_REPO_SETUP env var.
+  // symlinks from a PR). passed to dev-run.ts via TERRAMEND_TEST_REPO_SETUP env var.
   repoSetup?: string;
   // tags for grouping tests (e.g., ["agnostic"], ["fs"])
   // special tags:

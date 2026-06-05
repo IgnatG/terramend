@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { type FormatFilesResult, formatFilesWithLineNumbers } from "./checkout.ts";
+import { type FormatFilesResult, formatFilesWithLineNumbers } from "#app/mcp/checkout";
 
 /**
  * parses TOC entries like "- src/math.ts → lines 7-42 · diff-<hex>" into structured data.
@@ -37,8 +37,8 @@ function loadFixture<T>(file: string): T {
 }
 
 describe("formatFilesWithLineNumbers", () => {
-  it("generates accurate TOC line numbers for lintel/test-repo#1", () => {
-    const fx = loadFixture<DiffFixture>("lintel-test-repo-pr-1.diff.json");
+  it("generates accurate TOC line numbers for terramend/test-repo#1", () => {
+    const fx = loadFixture<DiffFixture>("terramend-test-repo-pr-1.diff.json");
     const result: FormatFilesResult = formatFilesWithLineNumbers(fx.files);
 
     expect(result.content.startsWith(result.toc)).toBe(true);

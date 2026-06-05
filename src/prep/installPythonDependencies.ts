@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { log } from "../utils/cli.ts";
-import { spawn } from "../utils/subprocess.ts";
+import { log } from "#app/utils/cli";
+import { spawn } from "#app/utils/subprocess";
 import type {
   PrepDefinition,
   PrepOptions,
   PythonPackageManager,
   PythonPrepResult,
-} from "./types.ts";
+} from "#app/prep/types";
 
 interface PythonConfig {
   file: string;

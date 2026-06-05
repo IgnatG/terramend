@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import * as core from "@actions/core";
-import type { PushPermission } from "../external.ts";
-import { log } from "./cli.ts";
-import { onExitSignal } from "./exitHandler.ts";
-import { acquireNewToken } from "./github.ts";
-import { isGitHubActions } from "./globals.ts";
+import type { PushPermission } from "#app/external";
+import { log } from "#app/utils/cli";
+import { onExitSignal } from "#app/utils/exitHandler";
+import { acquireNewToken } from "#app/utils/github";
+import { isGitHubActions } from "#app/utils/globals";
 
-// re-export for `lintel gha token` subcommand
+// re-export for `terramend gha token` subcommand
 export { acquireNewToken as acquireInstallationToken };
 export { revokeGitHubInstallationToken as revokeInstallationToken };
 

@@ -1,5 +1,5 @@
-import { log } from "./cli.ts";
-import { $ } from "./shell.ts";
+import { log } from "#app/utils/cli";
+import { $ } from "#app/utils/shell";
 
 type ComputeIncrementalDiffParams = {
   baseBranch: string;

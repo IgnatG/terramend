@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { VERTEX_MODEL_ID_ENV } from "../models.ts";
+import { VERTEX_MODEL_ID_ENV } from "#app/models";
 
 export const VERTEX_SERVICE_ACCOUNT_JSON_ENV = "VERTEX_SERVICE_ACCOUNT_JSON";
 export const GOOGLE_APPLICATION_CREDENTIALS_ENV = "GOOGLE_APPLICATION_CREDENTIALS";
@@ -41,8 +41,8 @@ export function readProjectIdFromVertexServiceAccountJson(): string | undefined 
 }
 
 function createSecretDir(): string {
-  const base = process.env.LINTEL_SECRET_HOME || process.env.HOME || homedir();
-  const secretDir = join(base, ".lintel", "secrets", randomUUID());
+  const base = process.env.TERRAMEND_SECRET_HOME || process.env.HOME || homedir();
+  const secretDir = join(base, ".terramend", "secrets", randomUUID());
   mkdirSync(secretDir, { recursive: true, mode: 0o700 });
   return secretDir;
 }

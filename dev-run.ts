@@ -1,30 +1,32 @@
-// thin CLI for ad-hoc fixture runs against the Lintel action.
+// dev-run.ts — developer harness to run the Terramend action against an
+// ad-hoc fixture locally, without GitHub. It's a CI emulator for fast manual
+// iteration / dogfooding; it is NOT part of the published action or CI.
 //
 // invoke from the repo root:
-//   pnpm play [args…]            # host, in-process — fast iteration (default)
-//   pnpm play:docker [args…]     # local docker container that mocks GHA
-//   pnpm docker play.ts [args…]  # explicit container form (equivalent to `pnpm play:docker`)
-//
-// see wiki/docker.md for when host vs container matters.
+//   pnpm dev:run [args…]            # host, in-process — fast iteration (default)
+//   pnpm docker dev-run.ts [args…]  # local docker container that mocks GHA
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import arg from "arg";
 import { config } from "dotenv";
-import type { Inputs } from "./src/main.ts";
+import type { Inputs } from "#app/main";
 import { defineFixture } from "./test/utils.ts";
-import { log } from "./src/utils/cli.ts";
-import { run } from "./src/utils/runFixture.ts";
+import { log } from "#app/utils/cli";
+import { run } from "#app/utils/runFixture";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-config();
+// load .env from the repo root first, then fall back to a parent-dir .env
+// (supports running standalone or nested inside a monorepo). dotenv does not
+// override already-set vars, so the repo-root value wins.
+config({ path: join(__dirname, ".env") });
 config({ path: join(__dirname, "..", ".env") });
 
 /**
- * default fixture for ad-hoc `pnpm play` runs. change this freely without
+ * default fixture for ad-hoc `pnpm dev:run` runs. change this freely without
  * affecting any tests — it's only consumed by this script's no-arg path.
  */
-export const playFixture = defineFixture(
+export const devFixture = defineFixture(
   {
     prompt: `List every MCP tool you have access to. Call set_output with a JSON array of all tool names you can see.`,
   },
@@ -44,19 +46,19 @@ if (isDirectExecution) {
 
   if (args["--help"]) {
     log.info(`
-Usage: pnpm play         [--raw <input>]   (host, in-process; this entry)
-       pnpm play:docker  [--raw <input>]   (local docker container that mocks GHA)
+Usage: pnpm dev:run            [--raw <input>]   (host, in-process; this entry)
+       pnpm docker dev-run.ts  [--raw <input>]   (local docker container that mocks GHA)
 
-Run the Lintel action against an inline fixture.
+Run the Terramend action against an inline fixture.
 
 Options:
   --raw <input>    raw string used as the prompt, or JSON object as full fixture
   -h, --help       show this message
 
 Examples:
-  pnpm play
-  pnpm play --raw "Hello world"
-  pnpm play --raw '{"prompt":"Hi","timeout":"5s"}'
+  pnpm dev:run
+  pnpm dev:run --raw "Hello world"
+  pnpm dev:run --raw '{"prompt":"Hi","timeout":"5s"}'
     `);
     process.exit(0);
   }
@@ -73,6 +75,6 @@ Examples:
     process.exit(result.success ? 0 : 1);
   }
 
-  const result = await run(playFixture);
+  const result = await run(devFixture);
   process.exit(result.success ? 0 : 1);
 }

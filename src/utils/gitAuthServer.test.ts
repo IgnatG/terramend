@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type GitAuthServer, startGitAuthServer } from "./gitAuthServer.ts";
+import { type GitAuthServer, startGitAuthServer } from "#app/utils/gitAuthServer";
 
 let server: GitAuthServer | undefined;
 

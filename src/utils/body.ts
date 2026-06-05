@@ -1,8 +1,8 @@
 import TurndownService from "turndown";
-import type { PayloadEvent } from "../external.ts";
-import { downloadAssetsInMarkdown } from "./assets.ts";
-import type { OctokitWithPlugins } from "./github.ts";
-import type { RunContextData } from "./runContextData.ts";
+import type { PayloadEvent } from "#app/external";
+import { downloadAssetsInMarkdown } from "#app/utils/assets";
+import type { OctokitWithPlugins } from "#app/utils/github";
+import type { RunContextData } from "#app/utils/runContextData";
 
 const turndown = new TurndownService();
 

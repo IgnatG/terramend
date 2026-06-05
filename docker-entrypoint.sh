@@ -1,5 +1,5 @@
 #!/bin/bash
-# entrypoint for the lintel GHA-like container (see Dockerfile).
+# entrypoint for the terramend GHA-like container (see Dockerfile).
 #
 # - remaps `testuser` to the host uid/gid so bind-mounted files keep correct
 #   ownership after writes inside the container

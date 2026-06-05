@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { type } from "arktype";
 import { FastMCP } from "fastmcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { execute, tool } from "./shared.ts";
+import { execute, tool } from "#app/mcp/shared";
 
 function getRandomPort(): Promise<number> {
   return new Promise((resolve, reject) => {

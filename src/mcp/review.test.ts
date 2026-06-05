@@ -9,7 +9,7 @@ import {
   type ReviewCommentInput,
   reviewSkipDecision,
   validateInlineComments,
-} from "./review.ts";
+} from "#app/mcp/review";
 
 describe("commentableLinesForFile", () => {
   it("returns empty sets for missing patches (binary or no changes)", () => {
@@ -231,7 +231,7 @@ describe("formatDroppedCommentsNote", () => {
 describe("reviewSkipDecision", () => {
   // GitHub 422s `event: "COMMENT"` reviews with no body + no comments
   // ("{\"message\":\"Unprocessable Entity\",\"errors\":[\"\"]}"). verified
-  // empirically against repos/lintel/preview-546-run-issues-fixes/pulls/1
+  // empirically against repos/terramend/preview-546-run-issues-fixes/pulls/1
   // with and without commit_id set. the skip function must return a decision
   // for every shape that lands on that API call.
 

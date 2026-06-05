@@ -1,5 +1,5 @@
-# LINTEL ACTION — DO NOT EDIT EXCEPT WHERE INDICATED
-name: Lintel
+# TERRAMEND ACTION — DO NOT EDIT EXCEPT WHERE INDICATED
+name: Terramend
 run-name: ${{ inputs.name || github.workflow }}
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  lintel:
+  terramend:
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -26,7 +26,7 @@ jobs:
         with:
           fetch-depth: 1
       - name: Run agent
-        uses: lintel/lintel@main
+        uses: terramend/terramend@main
         with:
           prompt: ${{ inputs.prompt }}
         env:

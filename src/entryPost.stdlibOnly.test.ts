@@ -12,11 +12,16 @@ import { describe, expect, it } from "vitest";
 // any specifier that isn't one of:
 //   - node:* (stdlib)
 //   - ./* or ../* (relative)
+//   - #app/* or #package.json (local subpath imports — resolve to ./src/* and
+//     ./package.json via the package.json `imports` map, which ships in the
+//     action checkout; no `node_modules` needed)
 //
-// Any other specifier (`@actions/core`, `lintel`, `zod`, etc.) means the
+// Any other specifier (`@actions/core`, `terramend`, `zod`, etc.) means the
 // post-hook will need a `node_modules` tree the rsync drops.
 
 const ENTRY_FILE = resolve(import.meta.dirname, "entryPost.ts");
+// `#app/*` maps to `./src/*` (see package.json imports); entryPost.ts lives in src/.
+const SRC_ROOT = import.meta.dirname;
 
 const IMPORT_RE = /^\s*(?:import|export)(?:\s+(?:type\s+)?[\s\S]*?)?\s+from\s+["']([^"']+)["']/gm;
 const SIDE_EFFECT_RE = /^\s*import\s+["']([^"']+)["']/gm;
@@ -35,7 +40,13 @@ function extractImports(filePath: string): string[] {
 }
 
 function isAllowed(spec: string): boolean {
-  return spec.startsWith("node:") || spec.startsWith("./") || spec.startsWith("../");
+  return (
+    spec.startsWith("node:") ||
+    spec.startsWith("./") ||
+    spec.startsWith("../") ||
+    spec.startsWith("#app/") ||
+    spec === "#package.json"
+  );
 }
 
 type WalkResult = {
@@ -58,8 +69,10 @@ function walk(start: string): WalkResult {
         violations.push({ file, spec });
         continue;
       }
-      if (spec.startsWith("node:")) continue;
-      const resolved = resolve(dirname(file), spec);
+      if (spec.startsWith("node:") || spec === "#package.json") continue;
+      const resolved = spec.startsWith("#app/")
+        ? resolve(SRC_ROOT, spec.slice("#app/".length))
+        : resolve(dirname(file), spec);
       const candidate = resolved.endsWith(".ts") ? resolved : `${resolved}.ts`;
       try {
         readFileSync(candidate, "utf8");
@@ -87,9 +100,9 @@ describe("entryPost.ts stdlib-only invariant (#834)", () => {
   it("matches the modules entryPost actually imports today", () => {
     const direct = extractImports(ENTRY_FILE).sort();
     expect(direct).toEqual([
-      "./utils/codexRefreshDetect.ts",
-      "./utils/ghaCore.ts",
-      "./utils/postApiFetch.ts",
+      "#app/utils/codexRefreshDetect",
+      "#app/utils/ghaCore",
+      "#app/utils/postApiFetch",
       "node:fs",
     ]);
   });

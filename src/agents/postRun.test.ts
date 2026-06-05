@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ToolState } from "../toolState.ts";
-import { getUnsubmittedReview } from "./postRun.ts";
+import type { ToolState } from "#app/toolState";
+import { getUnsubmittedReview } from "#app/agents/postRun";
 
 function makeToolState(overrides: Partial<ToolState> = {}): ToolState {
   return {

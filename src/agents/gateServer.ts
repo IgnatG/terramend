@@ -22,14 +22,14 @@
  * false` — that state cannot be set from a stdout-only hook.
  */
 import { createServer } from "node:http";
-import { log } from "../utils/cli.ts";
+import { log } from "#app/utils/cli";
 import {
   buildLearningsReflectionPrompt,
   buildPostRunPrompt,
   collectPostRunIssues,
   shouldRunReflection,
-} from "./postRun.ts";
-import { type AgentRunContext, hasPostRunIssues, MAX_POST_RUN_RETRIES } from "./shared.ts";
+} from "#app/agents/postRun";
+import { type AgentRunContext, hasPostRunIssues, MAX_POST_RUN_RETRIES } from "#app/agents/shared";
 
 export interface GateServerHandle {
   url: string;

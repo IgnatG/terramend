@@ -1,12 +1,12 @@
 import { type } from "arktype";
-import { buildLintelFooter, stripExistingFooter } from "../utils/buildLintelFooter.ts";
-import { log } from "../utils/cli.ts";
-import { fixDoubleEscapedString } from "../utils/fixDoubleEscapedString.ts";
-import { patchWorkflowRunFields } from "../utils/patchWorkflowRunFields.ts";
-import { $ } from "../utils/shell.ts";
-import { assertUnderPrCap, recordRemediationPrOpened } from "./guardrails.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { buildTerramendFooter, stripExistingFooter } from "#app/utils/buildTerramendFooter";
+import { log } from "#app/utils/cli";
+import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
+import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
+import { $ } from "#app/utils/shell";
+import { assertUnderPrCap, recordRemediationPrOpened } from "#app/mcp/guardrails";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const PullRequest = type({
   title: type.string.describe("the title of the pull request"),
@@ -18,7 +18,7 @@ export const PullRequest = type({
 });
 
 function buildPrBodyWithFooter(ctx: ToolContext, body: string): string {
-  const footer = buildLintelFooter({
+  const footer = buildTerramendFooter({
     triggeredBy: true,
     workflowRun: ctx.runId
       ? { owner: ctx.repo.owner, repo: ctx.repo.name, runId: ctx.runId, jobId: ctx.jobId }

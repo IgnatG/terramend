@@ -6,11 +6,11 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type } from "arktype";
-import { ensureBrowserDaemon } from "../utils/browser.ts";
-import { log } from "../utils/log.ts";
-import { resolveEnv } from "../utils/secrets.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { ensureBrowserDaemon } from "#app/utils/browser";
+import { log } from "#app/utils/log";
+import { resolveEnv } from "#app/utils/secrets";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const ShellParams = type({
   command: "string",
@@ -104,7 +104,7 @@ const PROC_CLEANUP =
 // without sudo. bind-mounting /dev/null on top inside the sandbox's mount
 // namespace makes the socket unreachable from sandboxed shells without
 // touching the host runner (so it doesn't break user workflow steps that
-// run before/after lintel and legitimately need docker). same trick for
+// run before/after terramend and legitimately need docker). same trick for
 // podman/containerd/cri-o sockets — all silent-fail if the path is missing.
 const SOCKET_CLEANUP = [
   "/var/run/docker.sock",
@@ -118,20 +118,20 @@ const SOCKET_CLEANUP = [
   .join(" ");
 
 // extend the mount-namespace isolation that PROC_CLEANUP and SOCKET_CLEANUP
-// already establish. these mounts hide lintel-managed on-disk secrets,
+// already establish. these mounts hide terramend-managed on-disk secrets,
 // block env-injection into subsequent workflow steps, and make git's
 // code-execution config read-only inside the bash subprocess.
 //
-//   1. tmpfs over /var/lib/lintel/ — codex auth.json and any future
-//      lintel-managed on-disk secret live here (see action/utils/codexHome.ts
-//      LINTEL_DATA_DIR). opencode's internal auth module runs in the agent
+//   1. tmpfs over /var/lib/terramend/ — codex auth.json and any future
+//      terramend-managed on-disk secret live here (see action/utils/codexHome.ts
+//      TERRAMEND_DATA_DIR). opencode's internal auth module runs in the agent
 //      process outside this namespace and reads the real file via bypass of
 //      external_directory; bash sees an empty tmpfs. mkdir -p the path
 //      first so the tmpfs always engages — without that, runs without
 //      CODEX_AUTH_JSON wouldn't have bootstrapped the dir, the mountpoint
 //      wouldn't exist, and `mount -t tmpfs` would silent-fail. precreate
 //      keeps the overlay active for any future on-disk secret that lands
-//      under /var/lib/lintel regardless of which install path created it.
+//      under /var/lib/terramend regardless of which install path created it.
 //   2. tmpfs over $RUNNER_TEMP/_runner_file_commands/ — anything bash writes
 //      to $GITHUB_ENV / $GITHUB_PATH / $GITHUB_OUTPUT / $GITHUB_STATE lands in
 //      a per-namespace tmpfs that the GHA runner never sees. our own action
@@ -177,8 +177,8 @@ function buildFsMounts(repoDir: string): string {
   // escape keeps us correct against arbitrary user-configured workspaces.
   const escaped = repoDir.replace(/'/g, "'\\''");
   return [
-    `mkdir -p /var/lib/lintel 2>/dev/null;`,
-    `mount -t tmpfs tmpfs /var/lib/lintel 2>/dev/null;`,
+    `mkdir -p /var/lib/terramend 2>/dev/null;`,
+    `mount -t tmpfs tmpfs /var/lib/terramend 2>/dev/null;`,
     `[ -n "$RUNNER_TEMP" ] && [ -d "$RUNNER_TEMP/_runner_file_commands" ] && mount -t tmpfs tmpfs "$RUNNER_TEMP/_runner_file_commands" 2>/dev/null;`,
     `[ -e '${escaped}/.git' ] && mount --bind '${escaped}/.git' '${escaped}/.git' 2>/dev/null && mount -o remount,bind,ro '${escaped}/.git' 2>/dev/null;`,
   ].join(" ");
@@ -301,9 +301,9 @@ async function killProcessGroup(proc: ChildProcess): Promise<void> {
 }
 
 function getTempDir(): string {
-  const tempDir = process.env.LINTEL_TEMP_DIR;
+  const tempDir = process.env.TERRAMEND_TEMP_DIR;
   if (!tempDir) {
-    throw new Error("LINTEL_TEMP_DIR not set");
+    throw new Error("TERRAMEND_TEMP_DIR not set");
   }
   return tempDir;
 }

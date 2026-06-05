@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
-import { killTrackedChildren, setSignalHandler } from "../src/utils/subprocess.ts";
+import { killTrackedChildren, setSignalHandler } from "#app/utils/subprocess";
 import {
   type AgentResult,
   agents,
@@ -300,15 +300,15 @@ async function runTestForAgent(ctx: RunContext): Promise<ValidationResult> {
     }
   }
 
-  env.LINTEL_AGENT = ctx.agent;
+  env.TERRAMEND_AGENT = ctx.agent;
 
-  // override DB model to avoid mismatch when LINTEL_AGENT forces a specific agent
+  // override DB model to avoid mismatch when TERRAMEND_AGENT forces a specific agent
   // (DB model may belong to a different provider than the forced agent supports).
-  // precedence: testConfig.env > process.env.LINTEL_MODEL > per-agent default.
+  // precedence: testConfig.env > process.env.TERRAMEND_MODEL > per-agent default.
   // the process.env pass-through lets CI (models-live matrix) pin an alias per job.
-  if (!Object.hasOwn(env, "LINTEL_MODEL")) {
-    if (process.env.LINTEL_MODEL) {
-      env.LINTEL_MODEL = process.env.LINTEL_MODEL;
+  if (!Object.hasOwn(env, "TERRAMEND_MODEL")) {
+    if (process.env.TERRAMEND_MODEL) {
+      env.TERRAMEND_MODEL = process.env.TERRAMEND_MODEL;
     } else {
       const defaultModels: Record<string, string> = {
         claude: "anthropic/claude-sonnet-4-6",
@@ -316,18 +316,18 @@ async function runTestForAgent(ctx: RunContext): Promise<ValidationResult> {
       };
       const model = defaultModels[ctx.agent];
       if (model) {
-        env.LINTEL_MODEL = model;
+        env.TERRAMEND_MODEL = model;
       }
     }
   }
 
-  if (!Object.hasOwn(env, "LINTEL_MCP_PORT")) {
-    env.LINTEL_MCP_PORT = String(allocateMcpPort());
+  if (!Object.hasOwn(env, "TERRAMEND_MCP_PORT")) {
+    env.TERRAMEND_MCP_PORT = String(allocateMcpPort());
   }
 
-  // pass repo setup commands to play.ts for pre-agent execution
+  // pass repo setup commands to dev-run.ts for pre-agent execution
   if (testConfig.repoSetup) {
-    env.LINTEL_TEST_REPO_SETUP = testConfig.repoSetup;
+    env.TERRAMEND_TEST_REPO_SETUP = testConfig.repoSetup;
   }
 
   // build file-based env vars for MCP servers that don't inherit parent env
@@ -350,7 +350,7 @@ async function runTestForAgent(ctx: RunContext): Promise<ValidationResult> {
 
     // allocate a fresh port on retries (previous server is gone)
     if (attempt > 0) {
-      env.LINTEL_MCP_PORT = String(allocateMcpPort());
+      env.TERRAMEND_MCP_PORT = String(allocateMcpPort());
     }
 
     const result = await runAgentStreaming({

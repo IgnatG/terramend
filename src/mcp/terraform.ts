@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { type } from "arktype";
-import { log } from "../utils/cli.ts";
-import { resolveEnv } from "../utils/secrets.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { log } from "#app/utils/cli";
+import { resolveEnv } from "#app/utils/secrets";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 /**
  * Internal "concern" model — the Remediator's ground truth for "what is not

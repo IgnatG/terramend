@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AgentUsage } from "../agents/shared.ts";
-import { aggregateUsage } from "./patchWorkflowRunFields.ts";
+import type { AgentUsage } from "#app/agents/shared";
+import { aggregateUsage } from "#app/utils/patchWorkflowRunFields";
 
 const entry = (overrides: Partial<AgentUsage>): AgentUsage => ({
-  agent: "lintel",
+  agent: "terramend",
   inputTokens: 0,
   outputTokens: 0,
   ...overrides,
@@ -51,7 +51,7 @@ describe("aggregateUsage", () => {
           costUsd: 0.1,
         }),
         entry({
-          agent: "lintel",
+          agent: "terramend",
           inputTokens: 200,
           outputTokens: 80,
           cacheReadTokens: 2000,

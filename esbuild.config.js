@@ -97,7 +97,7 @@ const cliContent = readFileSync(cliPath, "utf8");
 writeFileSync(cliPath, `#!/usr/bin/env node\n${cliContent}`);
 
 // copy bundled SKILL.md files into dist/ so the npm-published runtime can read
-// them via readFileSync. source-mode runs (LINTEL_FORCE_LOCAL_CLI=1) read
+// them via readFileSync. source-mode runs (TERRAMEND_FORCE_LOCAL_CLI=1) read
 // directly from src/skills/ instead. see src/utils/skills.ts.
 cpSync("./src/skills", "./dist/skills", { recursive: true });
 

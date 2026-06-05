@@ -1,6 +1,6 @@
 import * as core from "@actions/core";
-import { log } from "./cli.ts";
-import { isSensitiveEnvName } from "./secrets.ts";
+import { log } from "#app/utils/cli";
+import { isSensitiveEnvName } from "#app/utils/secrets";
 
 /**
  * Trim surrounding whitespace from a sensitive value and register it as a

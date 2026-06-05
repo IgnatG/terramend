@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderRunError } from "./runErrorRenderer.ts";
+import { renderRunError } from "#app/utils/runErrorRenderer";
 
 const repo = { owner: "acme", name: "widget" };
 
@@ -20,9 +20,9 @@ describe("renderRunError BYOK provider billing exhausted (#835)", () => {
     });
     expect(result.summary).toContain("`deepseek` account is out of credit");
     expect(result.summary).toContain("https://platform.deepseek.com/top_up");
-    expect(result.summary).toContain("### ❌ Lintel failed");
+    expect(result.summary).toContain("### ❌ Terramend failed");
     expect(result.comment).toContain("`deepseek` account is out of credit");
-    expect(result.comment).not.toContain("### ❌ Lintel failed");
+    expect(result.comment).not.toContain("### ❌ Terramend failed");
   });
 
   it("matches Anthropic 'credit balance is too low' (#835 Anthropic case)", () => {
@@ -68,7 +68,7 @@ describe("renderRunError ProviderModelNotFoundError (#816)", () => {
       repo,
       agentDiagnostic: undefined,
     });
-    expect(result.summary).toContain("Lintel's free fallback model is no longer available");
+    expect(result.summary).toContain("Terramend's free fallback model is no longer available");
     expect(result.summary).toContain("`acme/widget`");
     expect(result.summary).toContain("retired-free-model");
     expect(result.comment).toBe(result.summary);
@@ -80,7 +80,7 @@ describe("renderRunError ProviderModelNotFoundError (#816)", () => {
       repo,
       agentDiagnostic: undefined,
     });
-    expect(result.summary).toContain("Lintel's free fallback model is no longer available");
+    expect(result.summary).toContain("Terramend's free fallback model is no longer available");
     expect(result.summary).toContain("big-pickle");
   });
 

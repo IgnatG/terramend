@@ -1,6 +1,6 @@
 /**
  * Definition of the `reviewfrog` named subagent — the constrained
- * read-only worker dispatched by Build mode self-review and the in-Lintel
+ * read-only worker dispatched by Build mode self-review and the in-Terramend
  * /anneal multi-lens review.
  *
  * The contract: non-mutative + non-recursive.

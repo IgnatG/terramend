@@ -27,7 +27,7 @@ export const test: TestRunnerOptions = {
   fixture,
   validator,
   expectFailure: true,
-  env: { LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1" },
+  env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   tags: ["agnostic"],
   coverage: [
     "action/utils/timer.ts",

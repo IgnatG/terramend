@@ -25,8 +25,8 @@ export const test: TestRunnerOptions = {
   fixture,
   validator,
   env: {
-    LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1",
-    LINTEL_MODEL: "vertex/byok",
+    TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
+    TERRAMEND_MODEL: "vertex/byok",
     VERTEX_MODEL_ID: "gemini-2.5-flash",
     VERTEX_LOCATION: "global",
   },

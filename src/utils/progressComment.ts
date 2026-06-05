@@ -1,6 +1,6 @@
 /**
  * Single source of truth for reading, updating, deleting, and creating "progress comments" —
- * the GitHub comments Lintel uses to surface a run's status.
+ * the GitHub comments Terramend uses to surface a run's status.
  *
  * A progress comment can be one of two distinct GitHub entities with non-overlapping IDs and
  * distinct REST endpoints:

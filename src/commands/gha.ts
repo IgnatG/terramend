@@ -1,8 +1,8 @@
 import { dirname } from "node:path";
 import * as core from "@actions/core";
 import arg from "arg";
-import { main } from "../main.ts";
-import { acquireInstallationToken, revokeInstallationToken } from "../utils/token.ts";
+import { main } from "#app/main";
+import { acquireInstallationToken, revokeInstallationToken } from "#app/utils/token";
 
 // GitHub Actions runs the action entry point with the node24 binary specified
 // in action.yml, but doesn't add that binary's directory to PATH. Without this,

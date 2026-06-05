@@ -3,10 +3,10 @@ import type { AgentResult, TestRunnerOptions, ValidationCheck } from "../utils.t
 import { defineFixture } from "../utils.ts";
 
 /**
- * MCP merge test - validates repo-level MCP servers merge correctly with lintel.
+ * MCP merge test - validates repo-level MCP servers merge correctly with terramend.
  *
- * Uses GITHUB_REPOSITORY=lintel/test-repo-mcp whose robin-mcp reads a secret
- * from /tmp/lintel-mcp-secret/secret.txt (outside the repo) and exposes it
+ * Uses GITHUB_REPOSITORY=terramend/test-repo-mcp whose robin-mcp reads a secret
+ * from /tmp/terramend-mcp-secret/secret.txt (outside the repo) and exposes it
  * via get_test_value. The runner writes the secret
  * there via repoSetup before the agent starts. Runs with shell disabled.
  */
@@ -37,12 +37,12 @@ export const test: TestRunnerOptions = {
   fixture,
   validator,
   env: {
-    GITHUB_REPOSITORY: "lintel/test-repo-mcp",
-    LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1",
-    LINTEL_MCP_SECRET: secret,
+    GITHUB_REPOSITORY: "terramend/test-repo-mcp",
+    TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
+    TERRAMEND_MCP_SECRET: secret,
   },
   repoSetup:
-    'mkdir -p /tmp/lintel-mcp-secret && printf "%s" "$LINTEL_MCP_SECRET" > /tmp/lintel-mcp-secret/secret.txt',
+    'mkdir -p /tmp/terramend-mcp-secret && printf "%s" "$TERRAMEND_MCP_SECRET" > /tmp/terramend-mcp-secret/secret.txt',
   // any MCP-layer change can affect repo-MCP merging; agents own MCP wiring.
   coverage: ["action/mcp/**", "action/agents/{claude,opencode,opencode_v2}.ts"],
 };

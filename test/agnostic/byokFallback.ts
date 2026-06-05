@@ -62,7 +62,7 @@ export const test: TestRunnerOptions = {
     // absent, so we have to pin one. any BYOK alias works; we pick
     // a cheap non-Anthropic model so the test doesn't burn opus
     // credits if the fallback ever regresses.
-    LINTEL_MODEL: "moonshotai/kimi-k2",
+    TERRAMEND_MODEL: "moonshotai/kimi-k2",
   },
   tags: ["agnostic"],
   coverage: [

@@ -1,10 +1,10 @@
-import type { ToolState } from "../toolState.ts";
-import { getApiUrl } from "./apiUrl.ts";
-import { buildLintelFooter } from "./buildLintelFooter.ts";
-import { log } from "./cli.ts";
-import { createOctokit, parseRepoContext } from "./github.ts";
-import { updateProgressComment } from "./progressComment.ts";
-import { getGitHubInstallationToken } from "./token.ts";
+import type { ToolState } from "#app/toolState";
+import { getApiUrl } from "#app/utils/apiUrl";
+import { buildTerramendFooter } from "#app/utils/buildTerramendFooter";
+import { log } from "#app/utils/cli";
+import { createOctokit, parseRepoContext } from "#app/utils/github";
+import { updateProgressComment } from "#app/utils/progressComment";
+import { getGitHubInstallationToken } from "#app/utils/token";
 
 interface ReportErrorParams {
   toolState: ToolState;
@@ -38,7 +38,7 @@ export async function reportErrorToComment(ctx: ReportErrorParams): Promise<void
     );
   }
 
-  const footer = buildLintelFooter({
+  const footer = buildTerramendFooter({
     triggeredBy: true,
     workflowRun: runId ? { owner: repoContext.owner, repo: repoContext.name, runId } : undefined,
     customParts,

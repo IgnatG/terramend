@@ -1,6 +1,6 @@
-import { $ } from "../utils/shell.ts";
-import { log } from "../utils/cli.ts";
-import type { ToolContext } from "./server.ts";
+import { $ } from "#app/utils/shell";
+import { log } from "#app/utils/cli";
+import type { ToolContext } from "#app/mcp/server";
 
 /**
  * Remediation guardrails — hard, code-level limits that back the Remediate

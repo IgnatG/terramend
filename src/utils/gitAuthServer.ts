@@ -18,7 +18,7 @@ import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 type CodeState = "active" | "revoked";
 
@@ -50,7 +50,7 @@ function revokeGitHubToken(token: string): void {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
-      "User-Agent": "lintel",
+      "User-Agent": "terramend",
     },
   }).then(
     (r) => log.info(`token revocation response: ${r.status}`),

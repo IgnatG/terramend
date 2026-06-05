@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 // github image hosts that appear in issue/PR/review/comment markdown.
 //  - github.com/user-attachments/assets/... and github.com/<owner>/<repo>/assets/...

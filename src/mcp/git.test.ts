@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyPushError } from "./git.ts";
+import { classifyPushError } from "#app/mcp/git";
 
 // re-export the normalizeUrl function for testing
 // note: in a real scenario, we'd export this from git.ts or move to a shared utils file

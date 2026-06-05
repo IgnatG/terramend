@@ -1,4 +1,4 @@
-# lintel GHA-like test container.
+# terramend GHA-like test container.
 #
 # baked once at image build time, used by `pnpm docker`. all runtime cost
 # (apt-get, useradd, sudoers wiring) is paid here so each `docker` invocation

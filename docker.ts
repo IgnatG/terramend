@@ -1,4 +1,4 @@
-// run any node script inside the lintel local docker container that
+// run any node script inside the terramend local docker container that
 // mocks the GHA `ubuntu-24.04` runner environment. NOT a real GitHub
 // Actions runner — for the real thing, see `.github/workflows/*.yml`
 // and `action/commands/gha.ts` (the action's GHA entry point).
@@ -12,8 +12,8 @@
 //
 // the action's two main entrypoints default to the host (fast iteration).
 // `:docker` suffix wraps this script:
-//   pnpm play [args…]               # host (this is the fast default)
-//   pnpm play:docker [args…]        # === pnpm docker play.ts [args…]
+//   pnpm dev:run [args…]               # host (this is the fast default)
+//   pnpm docker dev-run.ts [args…]        # === pnpm docker dev-run.ts [args…]
 //   pnpm runtest [filters…]         # host
 //   pnpm runtest:docker [filters…]  # === pnpm docker test/run.ts [filters…]
 //
@@ -77,8 +77,8 @@ const HOST_ONLY_VARS = new Set([
   "ITERM_PROFILE",
   "ITERM_SESSION_ID",
   // outer-CI workflow-run identifiers — when the test suite runs inside
-  // lintel/app's CI, these refer to lintel/app's run, NOT the test repo
-  // the harness is acting against (e.g. lintel/test-repo). Anything inside
+  // terramend/app's CI, these refer to terramend/app's run, NOT the test repo
+  // the harness is acting against (e.g. terramend/test-repo). Anything inside
   // the action that uses them as keys to look up state on the test repo (most
   // notably `resolveRun()`'s `actions.listJobsForWorkflowRun(...)` call) will
   // 404. Filtering them here means the action sees them as undefined and
@@ -156,15 +156,15 @@ function showHelp(): void {
        pnpm docker --clean
        pnpm docker --doctor
 
-Run a node script inside the lintel local docker container that mocks
+Run a node script inside the terramend local docker container that mocks
 the GHA ubuntu-24.04 runner toolset (gh, jq, python3, sudo, +
 build-essential / wget / xz / file). Host env passes through verbatim.
 The host is reachable from inside the container at host.docker.internal
 (useful for scripts that hit your local dev server).
 
 The action's two main entrypoints have host (fast) and docker variants:
-  pnpm play [args…]               # host — the fast default
-  pnpm play:docker [args…]        # === pnpm docker play.ts [args…]
+  pnpm dev:run [args…]               # host — the fast default
+  pnpm docker dev-run.ts [args…]        # === pnpm docker dev-run.ts [args…]
   pnpm runtest [filters…]         # host
   pnpm runtest:docker [filters…]  # === pnpm docker test/run.ts [filters…]
 
@@ -176,7 +176,7 @@ Options:
                useful when an apt mirror or base image changed.
   --shell      drop into an interactive bash inside the container.
                requires a TTY.
-  --clean      prune orphaned lintel-docker:* images and node_modules
+  --clean      prune orphaned terramend-docker:* images and node_modules
                volumes whose hash doesn't match the current Dockerfile.
   --doctor     print version info for tools inside the container (node,
                pnpm, gh, jq, git, python3, ssh, …). useful for diagnosing
@@ -189,8 +189,8 @@ Pass-through:
   passes \`--build\` to test/run.ts, not to docker.
 
 Examples:
-  pnpm docker play.ts
-  pnpm docker play.ts --raw '{"prompt":"hi"}'
+  pnpm docker dev-run.ts
+  pnpm docker dev-run.ts --raw '{"prompt":"hi"}'
   pnpm docker test/run.ts smoke
   pnpm docker --shell
   pnpm docker --build              # build image, then exit
@@ -224,15 +224,15 @@ function imageRefFor(ctx: { dockerfile: string; entrypoint: string }): ImageRef 
     .digest("hex")
     .slice(0, 12);
   return {
-    tag: `lintel-docker:${hash}`,
+    tag: `terramend-docker:${hash}`,
     // version the volume by image hash so a stale node_modules cache from
     // an old image (e.g. different node major) can't poison a new image.
-    volumeName: `lintel-docker-node-modules-${hash}`,
+    volumeName: `terramend-docker-node-modules-${hash}`,
   };
 }
 
 /**
- * remove lintel-docker:* images and lintel-docker-node-modules-* volumes
+ * remove terramend-docker:* images and terramend-docker-node-modules-* volumes
  * whose hash doesn't match the current Dockerfile + entrypoint. each
  * Dockerfile/entrypoint edit creates a fresh hash and orphans the prior
  * pair; without periodic cleanup these accumulate (~600MB image + ~200MB
@@ -244,7 +244,7 @@ function cleanOrphans(currentRef: ImageRef): void {
   });
   const images = (imgList.stdout ?? "")
     .split("\n")
-    .filter((s) => s.startsWith("lintel-docker:") && s !== currentRef.tag);
+    .filter((s) => s.startsWith("terramend-docker:") && s !== currentRef.tag);
   if (images.length > 0) {
     process.stderr.write(`» removing ${images.length} orphan image(s): ${images.join(", ")}\n`);
     spawnSync("docker", ["image", "rm", "-f", ...images], { stdio: "inherit" });
@@ -252,7 +252,7 @@ function cleanOrphans(currentRef: ImageRef): void {
   const volList = spawnSync("docker", ["volume", "ls", "-q"], { encoding: "utf8" });
   const volumes = (volList.stdout ?? "")
     .split("\n")
-    .filter((s) => s.startsWith("lintel-docker-node-modules-") && s !== currentRef.volumeName);
+    .filter((s) => s.startsWith("terramend-docker-node-modules-") && s !== currentRef.volumeName);
   if (volumes.length > 0) {
     process.stderr.write(`» removing ${volumes.length} orphan volume(s): ${volumes.join(", ")}\n`);
     spawnSync("docker", ["volume", "rm", ...volumes], { stdio: "inherit" });
@@ -378,7 +378,7 @@ function initVolumeOwnership(ctx: { ref: ImageRef; uid: number; gid: number }): 
 type EnvParts = { envFile: string; multiLineFlags: string[] };
 
 function buildEnvParts(env: NodeJS.ProcessEnv): EnvParts {
-  const dir = join(tmpdir(), "lintel-docker");
+  const dir = join(tmpdir(), "terramend-docker");
   mkdirSync(dir, { recursive: true });
   const envFile = join(dir, `env-${process.pid}-${Date.now()}.list`);
   const lines: string[] = [];

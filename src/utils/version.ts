@@ -1,5 +1,5 @@
 import semver from "semver";
-import packageJson from "../../package.json" with { type: "json" };
+import packageJson from "#package.json" with { type: "json" };
 
 export function getDevDependencyVersion(name: keyof typeof packageJson.devDependencies): string {
   const version = packageJson.devDependencies[name];

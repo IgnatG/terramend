@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { postProcessRangeDiff } from "./rangeDiff.ts";
+import { postProcessRangeDiff } from "#app/utils/rangeDiff";
 
 describe("postProcessRangeDiff", () => {
   it("returns null for identical patches", () => {

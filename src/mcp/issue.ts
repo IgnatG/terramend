@@ -1,9 +1,9 @@
 import { type } from "arktype";
-import { log } from "../utils/cli.ts";
-import { fixDoubleEscapedString } from "../utils/fixDoubleEscapedString.ts";
-import { patchWorkflowRunFields } from "../utils/patchWorkflowRunFields.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { log } from "#app/utils/cli";
+import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
+import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const Issue = type({
   title: type.string.describe("the title of the issue"),

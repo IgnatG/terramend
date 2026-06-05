@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resolveCliModel } from "../models.ts";
-import { FREE_FALLBACK_SLUG, selectFallbackModelIfNeeded } from "./byokFallback.ts";
+import { resolveCliModel } from "#app/models";
+import { FREE_FALLBACK_SLUG, selectFallbackModelIfNeeded } from "#app/utils/byokFallback";
 
 describe("FREE_FALLBACK_SLUG", () => {
   it("resolves in the curated catalog", () => {

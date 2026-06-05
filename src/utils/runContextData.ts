@@ -1,9 +1,9 @@
 import * as core from "@actions/core";
 import type { Octokit } from "@octokit/rest";
-import packageJson from "../../package.json" with { type: "json" };
-import { log } from "./cli.ts";
-import { type OctokitWithPlugins, parseRepoContext } from "./github.ts";
-import { type AccountPlan, fetchRunContext, type RepoSettings } from "./runContext.ts";
+import packageJson from "#package.json" with { type: "json" };
+import { log } from "#app/utils/cli";
+import { type OctokitWithPlugins, parseRepoContext } from "#app/utils/github";
+import { type AccountPlan, fetchRunContext, type RepoSettings } from "#app/utils/runContext";
 
 export interface RunContextData {
   repo: {
@@ -30,13 +30,13 @@ interface ResolveRunContextDataParams {
 export async function resolveRunContextData(
   params: ResolveRunContextDataParams
 ): Promise<RunContextData> {
-  log.info(`» running Lintel v${packageJson.version}...`);
+  log.info(`» running Terramend v${packageJson.version}...`);
 
   const repoContext = parseRepoContext();
 
   let oidcToken: string | undefined;
   try {
-    oidcToken = await core.getIDToken("lintel-api");
+    oidcToken = await core.getIDToken("terramend-api");
   } catch {
     // OIDC not available (local dev, non-actions environment, fork PRs)
   }

@@ -1,6 +1,6 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Tool } from "fastmcp";
-import type { ToolContext } from "./server.ts";
+import type { ToolContext } from "#app/mcp/server";
 
 // ── gemini schema sanitizer ────────────────────────────────────────────────────
 //

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { normalizeEnv, sanitizeSecret } from "./normalizeEnv.ts";
+import { normalizeEnv, sanitizeSecret } from "#app/utils/normalizeEnv";
 
 /**
  * These tests pin the load-bearing invariants of secret sanitisation:

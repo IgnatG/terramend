@@ -1,8 +1,8 @@
-import { getModelProvider, modelAliases, providers, resolveDisplayAlias } from "../models.ts";
+import { getModelProvider, modelAliases, providers, resolveDisplayAlias } from "#app/models";
 
-export const LINTEL_DIVIDER = "<!-- LINTEL_DIVIDER_DO_NOT_REMOVE_PLZ -->";
+export const TERRAMEND_DIVIDER = "<!-- TERRAMEND_DIVIDER_DO_NOT_REMOVE_PLZ -->";
 
-const FROG_LOGO = `<a href="https://lintel.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://lintel.com/logos/frog-white-full-18px.png"><img src="https://lintel.com/logos/frog-green-full-18px.png" width="9px" height="9px" style="vertical-align: middle; " alt="Lintel"></picture></a>`;
+const FROG_LOGO = `<a href="https://terramend.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://terramend.com/logos/frog-white-full-18px.png"><img src="https://terramend.com/logos/frog-green-full-18px.png" width="9px" height="9px" style="vertical-align: middle; " alt="Terramend"></picture></a>`;
 
 export interface WorkflowRunFooterInfo {
   owner: string;
@@ -12,8 +12,8 @@ export interface WorkflowRunFooterInfo {
   jobId?: string | undefined;
 }
 
-export interface BuildLintelFooterParams {
-  /** add "via Lintel" link */
+export interface BuildTerramendFooterParams {
+  /** add "via Terramend" link */
   triggeredBy?: boolean;
   /** add "View workflow run" link */
   workflowRun?: WorkflowRunFooterInfo | undefined;
@@ -61,11 +61,11 @@ function formatModelLabel(params: { model: string; fallbackFrom?: string | undef
 }
 
 /**
- * build a lintel footer with configurable parts
+ * build a terramend footer with configurable parts
  * always includes: frog logo at start and X link at end
  * order: action links (customParts) > workflow run > model > attribution > reference links
  */
-export function buildLintelFooter(params: BuildLintelFooterParams): string {
+export function buildTerramendFooter(params: BuildTerramendFooterParams): string {
   const parts: string[] = [];
 
   if (params.customParts) {
@@ -81,7 +81,7 @@ export function buildLintelFooter(params: BuildLintelFooterParams): string {
   }
 
   if (params.triggeredBy) {
-    parts.push("via [Lintel](https://lintel.com)");
+    parts.push("via [Terramend](https://terramend.com)");
   }
 
   if (params.model) {
@@ -90,16 +90,16 @@ export function buildLintelFooter(params: BuildLintelFooterParams): string {
     );
   }
 
-  const allParts = [...parts, "[𝕏](https://x.com/lintelai)"];
+  const allParts = [...parts, "[𝕏](https://x.com/terramendai)"];
 
-  return `\n\n${LINTEL_DIVIDER}\n<sup>${FROG_LOGO}&nbsp;&nbsp;｜ ${allParts.join(" ｜ ")}</sup>`;
+  return `\n\n${TERRAMEND_DIVIDER}\n<sup>${FROG_LOGO}&nbsp;&nbsp;｜ ${allParts.join(" ｜ ")}</sup>`;
 }
 
 /**
- * strip any existing lintel footer from a comment body
+ * strip any existing terramend footer from a comment body
  */
 export function stripExistingFooter(body: string): string {
-  const dividerIndex = body.indexOf(LINTEL_DIVIDER);
+  const dividerIndex = body.indexOf(TERRAMEND_DIVIDER);
   if (dividerIndex === -1) {
     return body;
   }

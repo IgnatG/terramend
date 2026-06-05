@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isValidTimeString, parseTimeString, resolveTimeoutMs } from "./time.ts";
+import { isValidTimeString, parseTimeString, resolveTimeoutMs } from "#app/utils/time";
 
 describe("parseTimeString", () => {
   it.each([

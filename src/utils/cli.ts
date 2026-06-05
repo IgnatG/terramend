@@ -12,7 +12,7 @@ export {
   formatUsageSummary,
   log,
   writeSummary,
-} from "./log.ts";
+} from "#app/utils/log";
 
 /**
  * Finds a CLI executable path by checking if it's installed globally

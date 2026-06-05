@@ -1,11 +1,11 @@
 <!-- markdownlint-disable MD013 MD033 MD060 -->
 
-# Lintel — Terraform Remediator adaptation map (forked from Pullfrog)
+# Terramend — Terraform Remediator adaptation map (forked from Pullfrog)
 
-> **What this is.** A code-grounded, end-to-end map of how **Lintel** was built by forking the
+> **What this is.** A code-grounded, end-to-end map of how **Terramend** was built by forking the
 > MIT-licensed [Pullfrog](https://github.com/pullfrog/pullfrog) agent runtime into a **standalone
 > Terraform best-practices Remediator / Generator**. "Pullfrog" below refers to the upstream base we
-> inherited from; the product itself is now Lintel (AGPL-3.0; the upstream MIT notice is preserved in
+> inherited from; the product itself is now Terramend (AGPL-3.0; the upstream MIT notice is preserved in
 > `NOTICE`). Every change references the actual file it touches.
 >
 > **Scope decision (2026-06-04).** The Remediator does the work **on its own** — it does
@@ -29,10 +29,17 @@
 > base branch is found).
 >
 > **Licence + name:** relicensed to **AGPL-3.0-or-later** (`LICENSE` + `NOTICE` preserving the upstream
-> Pullfrog MIT notice); product renamed **Pullfrog → Lintel** across the codebase (MCP namespace,
-> env-var prefix `LINTEL_*`, package name, command, branding). `pnpm typecheck` + `pnpm build` pass;
+> Pullfrog MIT notice); product renamed **Pullfrog → Terramend** across the codebase (MCP namespace,
+> env-var prefix `TERRAMEND_*`, package name, command, branding). `pnpm typecheck` + `pnpm build` pass;
 > the full test suite passes except 5 pre-existing Windows-environment failures (POSIX signals,
 > `/bin/bash`, Unix file modes, case-insensitive env, nested-clone path) unrelated to these changes.
+>
+> **Layout + imports (2026-06-05):** all source lives under `src/` (config/tooling stays at root).
+> Internal imports use the node-native **`#app/*` subpath alias** (package.json `imports` →
+> `./src/*.ts`, extensionless), not tsconfig `paths` — the action runs TS source directly via node, so a
+> bundler-only alias would break at runtime. `#app/*` resolves across node-runtime, tsc, esbuild, and
+> vitest. Removed Pullfrog leftovers irrelevant to Terramend: `get-installation-token/`, the upstream-sync
+> /publish/token-test workflows, and the `git-archaeology` skill.
 
 ---
 

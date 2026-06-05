@@ -1,5 +1,5 @@
-import { getApiUrl } from "./apiUrl.ts";
-import { log } from "./cli.ts";
+import { getApiUrl } from "#app/utils/apiUrl";
+import { log } from "#app/utils/cli";
 
 type ApiFetchOptions = {
   path: string;
@@ -10,7 +10,7 @@ type ApiFetchOptions = {
 };
 
 /**
- * fetch wrapper for hitting the Lintel API with Vercel deployment protection bypass.
+ * fetch wrapper for hitting the Terramend API with Vercel deployment protection bypass.
  *
  * adds the bypass secret as BOTH a query parameter and a header for maximum reliability.
  * the server-side forwarding code uses query params, and the Vercel docs say both work,

@@ -16,11 +16,11 @@
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, unlinkSync } from "node:fs";
-import { log } from "./cli.ts";
-import type { GitAuthServer } from "./gitAuthServer.ts";
-import { filterEnv } from "./secrets.ts";
-import { $ } from "./shell.ts";
-import { spawn } from "./subprocess.ts";
+import { log } from "#app/utils/cli";
+import type { GitAuthServer } from "#app/utils/gitAuthServer";
+import { filterEnv } from "#app/utils/secrets";
+import { $ } from "#app/utils/shell";
+import { spawn } from "#app/utils/subprocess";
 
 type SafeGitSubcommand = "fetch" | "push";
 

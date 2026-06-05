@@ -1,5 +1,5 @@
-import type { Agent } from "../agents/index.ts";
-import { agents } from "../agents/index.ts";
+import type { Agent } from "#app/agents/index";
+import { agents } from "#app/agents/index";
 import {
   BEDROCK_MODEL_ID_ENV,
   getModelProvider,
@@ -8,9 +8,9 @@ import {
   resolveCliModel,
   resolveDisplayAlias,
   VERTEX_MODEL_ID_ENV,
-} from "../models.ts";
-import { log } from "./cli.ts";
-import { VERTEX_SERVICE_ACCOUNT_JSON_ENV } from "./vertex.ts";
+} from "#app/models";
+import { log } from "#app/utils/cli";
+import { VERTEX_SERVICE_ACCOUNT_JSON_ENV } from "#app/utils/vertex";
 
 function hasEnvVar(name: string): boolean {
   const val = process.env[name];
@@ -35,9 +35,9 @@ function hasVertexAuth(): boolean {
 /**
  * resolve a single slug to its CLI-ready model string. routing aliases
  * (e.g. `bedrock/byok`) defer to their backing env var instead of the
- * sentinel stored in `resolve`. shared between LINTEL_MODEL override
+ * sentinel stored in `resolve`. shared between TERRAMEND_MODEL override
  * and repo-config slug resolution so both paths get the same routing
- * semantics — without this helper, `LINTEL_MODEL=bedrock/byok` would
+ * semantics — without this helper, `TERRAMEND_MODEL=bedrock/byok` would
  * leak the literal sentinel string `"bedrock"` downstream.
  */
 function resolveSlug(slug: string): string | undefined {
@@ -48,7 +48,7 @@ function resolveSlug(slug: string): string | undefined {
       throw new Error(
         `${BEDROCK_MODEL_ID_ENV} env var is required when the model is set to "${slug}". ` +
           `set it to an AWS Bedrock model ID from the Bedrock console. ` +
-          `see https://docs.lintel.com/bedrock for setup.`
+          `see https://docs.terramend.com/bedrock for setup.`
       );
     }
     return bedrockId;
@@ -59,7 +59,7 @@ function resolveSlug(slug: string): string | undefined {
       throw new Error(
         `${VERTEX_MODEL_ID_ENV} env var is required when the model is set to "${slug}". ` +
           `set it to a Google Vertex AI model ID from Model Garden. ` +
-          `see https://docs.lintel.com/vertex for setup.`
+          `see https://docs.terramend.com/vertex for setup.`
       );
     }
     return vertexId;
@@ -71,17 +71,17 @@ function resolveSlug(slug: string): string | undefined {
  * resolve the effective model for this run.
  *
  * priority:
- *   1. LINTEL_MODEL env var — resolved through the alias registry first,
+ *   1. TERRAMEND_MODEL env var — resolved through the alias registry first,
  *      so values like "anthropic/claude-opus" become "anthropic/claude-opus-4-7".
  *      raw specifiers (e.g. "anthropic/claude-opus-4-6") pass through unchanged.
  *      always wins — bypasses Bedrock routing entirely. to test a different
- *      Bedrock model, change `BEDROCK_MODEL_ID`, not `LINTEL_MODEL`.
+ *      Bedrock model, change `BEDROCK_MODEL_ID`, not `TERRAMEND_MODEL`.
  *   2. slug from repo config / payload → alias registry. routing slugs
  *      (e.g. `bedrock/byok`) defer to a separate env var (`BEDROCK_MODEL_ID`).
  *   3. undefined — agent will auto-select.
  */
 export function resolveModel(ctx: { slug?: string | undefined }): string | undefined {
-  const envModel = process.env.LINTEL_MODEL?.trim();
+  const envModel = process.env.TERRAMEND_MODEL?.trim();
   if (envModel) {
     return resolveSlug(envModel) ?? envModel;
   }
@@ -99,12 +99,12 @@ export function resolveModel(ctx: { slug?: string | undefined }): string | undef
 
 export function resolveAgent(ctx: { model?: string | undefined }): Agent {
   // 1. explicit env var override (escape hatch)
-  const envAgent = process.env.LINTEL_AGENT?.trim();
+  const envAgent = process.env.TERRAMEND_AGENT?.trim();
   if (envAgent) {
     if (envAgent in agents) {
       return agents[envAgent as keyof typeof agents];
     }
-    log.warning(`» unknown LINTEL_AGENT="${envAgent}" — falling through to auto-select`);
+    log.warning(`» unknown TERRAMEND_AGENT="${envAgent}" — falling through to auto-select`);
   }
 
   // 2. Bedrock routing: when BEDROCK_MODEL_ID is the resolved model, route

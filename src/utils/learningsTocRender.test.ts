@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildLearningsSection, renderLearningsToc } from "./instructions.ts";
-import type { LearningsHeading } from "./runContext.ts";
+import { buildLearningsSection, renderLearningsToc } from "#app/utils/instructions";
+import type { LearningsHeading } from "#app/utils/runContext";
 
 const h = (depth: 1 | 2 | 3 | 4 | 5 | 6, title: string, startLine: number, endLine: number) => ({
   depth,
@@ -71,11 +71,11 @@ describe("buildLearningsSection", () => {
 
   it("renders the no-headings affordance when the body has no structure", () => {
     const out = buildLearningsSection({
-      filePath: "/tmp/run-1/lintel-learnings.md",
+      filePath: "/tmp/run-1/terramend-learnings.md",
       headings: [],
     });
     expect(out).toContain("************* LEARNINGS *************");
-    expect(out).toContain("/tmp/run-1/lintel-learnings.md");
+    expect(out).toContain("/tmp/run-1/terramend-learnings.md");
     expect(out).toContain("no headings yet");
     expect(out).toContain("structure it with");
     // does not include a TOC list when there are no headings
@@ -84,7 +84,7 @@ describe("buildLearningsSection", () => {
 
   it("intro phrasing does not assert prior runs — works for fresh empty repos too", () => {
     const out = buildLearningsSection({
-      filePath: "/tmp/run-1/lintel-learnings.md",
+      filePath: "/tmp/run-1/terramend-learnings.md",
       headings: [],
     });
     // load-bearing: fresh repos have zero previous runs. the prior copy
@@ -95,11 +95,11 @@ describe("buildLearningsSection", () => {
 
   it("renders the TOC inline with the file path and heading guidance", () => {
     const out = buildLearningsSection({
-      filePath: "/tmp/run-1/lintel-learnings.md",
+      filePath: "/tmp/run-1/terramend-learnings.md",
       headings: [h(2, "Build & test", 1, 18), h(2, "Architecture", 19, 60)],
     });
     expect(out).toContain("************* LEARNINGS *************");
-    expect(out).toContain("/tmp/run-1/lintel-learnings.md");
+    expect(out).toContain("/tmp/run-1/terramend-learnings.md");
     expect(out).toContain("- Build & test (L1-L18)");
     expect(out).toContain("- Architecture (L19-L60)");
     expect(out).toContain("Each range starts at the section heading line");

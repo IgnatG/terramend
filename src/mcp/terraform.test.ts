@@ -6,7 +6,7 @@ import {
   parseTflintOutput,
   parseTfsecOutput,
   parseValidateOutput,
-} from "./terraform.ts";
+} from "#app/mcp/terraform";
 
 describe("parseFmtOutput", () => {
   it("emits one low-severity style concern per unformatted file", () => {

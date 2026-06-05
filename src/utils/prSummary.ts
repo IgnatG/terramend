@@ -1,9 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { ToolContext } from "../mcp/server.ts";
-import { apiFetch } from "./apiFetch.ts";
-import { log } from "./cli.ts";
-import { patchWorkflowRunFields } from "./patchWorkflowRunFields.ts";
+import type { ToolContext } from "#app/mcp/server";
+import { apiFetch } from "#app/utils/apiFetch";
+import { log } from "#app/utils/cli";
+import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
 
 /**
  * The PR-level summary snapshot is a markdown file the agent edits in place
@@ -22,7 +22,7 @@ import { patchWorkflowRunFields } from "./patchWorkflowRunFields.ts";
  * range-diffs cleanly across runs because the section headings are stable.
  */
 
-export const SUMMARY_FILE_NAME = "lintel-summary.md";
+export const SUMMARY_FILE_NAME = "terramend-summary.md";
 
 /**
  * minimal seed for first-run PRs. just a header + a one-line note about

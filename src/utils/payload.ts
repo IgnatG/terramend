@@ -1,11 +1,11 @@
 import { isAbsolute, resolve } from "node:path";
 import * as core from "@actions/core";
 import { type } from "arktype";
-import type { AuthorPermission, PayloadEvent } from "../external.ts";
-import packageJson from "../../package.json" with { type: "json" };
-import { log } from "./cli.ts";
-import type { RepoSettings } from "./runContext.ts";
-import { validateCompatibility } from "./versioning.ts";
+import type { AuthorPermission, PayloadEvent } from "#app/external";
+import packageJson from "#package.json" with { type: "json" };
+import { log } from "#app/utils/cli";
+import type { RepoSettings } from "#app/utils/runContext";
+import { validateCompatibility } from "#app/utils/versioning";
 
 // tool permission enum types for inputs
 const ShellPermissionInput = type.enumerated("disabled", "restricted", "enabled");
@@ -15,7 +15,7 @@ const PushPermissionInput = type.enumerated("disabled", "restricted", "enabled")
 // note: permissions are intentionally NOT included here to prevent injection attacks
 // permissions are derived from event.authorPermission instead
 export const JsonPayload = type({
-  "~lintel": "true",
+  "~terramend": "true",
   version: "string",
   "model?": "string | undefined",
   prompt: "string",
@@ -87,8 +87,8 @@ export function resolvePromptInput(): ResolvedPromptInput {
     return prompt;
   }
 
-  if (!parsed || typeof parsed !== "object" || !("~lintel" in parsed)) {
-    // if it doesn't look like a lintel payload, return the plain text prompt
+  if (!parsed || typeof parsed !== "object" || !("~terramend" in parsed)) {
+    // if it doesn't look like a terramend payload, return the plain text prompt
     return prompt;
   }
 
@@ -144,9 +144,9 @@ function parseAllowedPaths(raw: string | undefined): string[] | undefined {
   return globs.length > 0 ? globs : undefined;
 }
 
-const isLintel = (actor: string | null | undefined): boolean => {
+const isTerramend = (actor: string | null | undefined): boolean => {
   actor = actor?.replace("[bot]", "");
-  return !!actor && (actor === "lintel" || actor === "linteldev");
+  return !!actor && (actor === "terramend" || actor === "terramenddev");
 };
 
 export function resolvePayload(
@@ -191,14 +191,14 @@ export function resolvePayload(
   // build payload - precedence: inputs > repoSettings > fallbacks
   // note: modes are NOT in payload - they come from repoSettings in main()
   return {
-    "~lintel": true as const,
+    "~terramend": true as const,
     version: jsonPayload?.version ?? packageJson.version,
     model,
     prompt,
     triggerer:
       jsonPayload?.triggerer ??
       // it's not a common use case but GITHUB_ACTOR can be a user when the workflow is manually triggered by a user through GitHub Actions UI
-      (!isLintel(process.env.GITHUB_ACTOR) ? process.env.GITHUB_ACTOR : undefined),
+      (!isTerramend(process.env.GITHUB_ACTOR) ? process.env.GITHUB_ACTOR : undefined),
     eventInstructions: jsonPayload?.eventInstructions,
     previousRunsNote: jsonPayload?.previousRunsNote,
     event,

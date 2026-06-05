@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildLintelFooter } from "./buildLintelFooter.ts";
+import { buildTerramendFooter } from "#app/utils/buildTerramendFooter";
 
-describe("buildLintelFooter — fallbackFrom annotation", () => {
+describe("buildTerramendFooter — fallbackFrom annotation", () => {
   it("renders the provider display name when fallbackFrom is set", () => {
-    const footer = buildLintelFooter({
+    const footer = buildTerramendFooter({
       model: "opencode/big-pickle",
       fallbackFrom: "anthropic/claude-opus",
     });
@@ -13,7 +13,7 @@ describe("buildLintelFooter — fallbackFrom annotation", () => {
   });
 
   it("works for OpenAI's display name too", () => {
-    const footer = buildLintelFooter({
+    const footer = buildTerramendFooter({
       model: "opencode/big-pickle",
       fallbackFrom: "openai/gpt",
     });
@@ -21,7 +21,7 @@ describe("buildLintelFooter — fallbackFrom annotation", () => {
   });
 
   it("falls back to the raw provider key when the slug provider is unknown to the catalog", () => {
-    const footer = buildLintelFooter({
+    const footer = buildTerramendFooter({
       model: "opencode/big-pickle",
       fallbackFrom: "some-unknown/model",
     });
@@ -29,7 +29,7 @@ describe("buildLintelFooter — fallbackFrom annotation", () => {
   });
 
   it("omits the annotation when fallbackFrom is not set", () => {
-    const footer = buildLintelFooter({
+    const footer = buildTerramendFooter({
       model: "anthropic/claude-opus",
     });
     expect(footer).toContain("Using `Claude Opus`");

@@ -1,9 +1,9 @@
-import type { AgentResult } from "../agents/shared.ts";
-import type { MainResult } from "../main.ts";
-import { reportProgress } from "../mcp/comment.ts";
-import type { ToolContext } from "../mcp/server.ts";
-import { log } from "./cli.ts";
-import { reportErrorToComment } from "./errorReport.ts";
+import type { AgentResult } from "#app/agents/shared";
+import type { MainResult } from "#app/main";
+import { reportProgress } from "#app/mcp/comment";
+import type { ToolContext } from "#app/mcp/server";
+import { log } from "#app/utils/cli";
+import { reportErrorToComment } from "#app/utils/errorReport";
 
 export interface HandleAgentResultParams {
   result: AgentResult;

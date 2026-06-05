@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentResult, TestRunnerOptions, ValidationCheck } from "../utils.ts";
 import { defineFixture, getAgentOutput } from "../utils.ts";
 
-const skillName = "lintel-skill-check";
+const skillName = "terramend-skill-check";
 const token = randomUUID();
 
 const fixture = defineFixture(
@@ -25,7 +25,7 @@ function validator(result: AgentResult): ValidationCheck[] {
   const tokenMatches = result.structuredOutput === token;
 
   const agentOutput = getAgentOutput(result);
-  const skillInvoked = /skill\(\{[^)]*"name":"lintel-skill-check"/.test(agentOutput);
+  const skillInvoked = /skill\(\{[^)]*"name":"terramend-skill-check"/.test(agentOutput);
 
   return [
     { name: "set_output", passed: setOutputCalled },
@@ -41,8 +41,8 @@ export const test: TestRunnerOptions = {
   agents: ["opencode"],
   repoSetup,
   env: {
-    LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1",
-    LINTEL_MODEL: "anthropic/claude-sonnet-4-6",
+    TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
+    TERRAMEND_MODEL: "anthropic/claude-sonnet-4-6",
   },
   coverage: [
     "action/agents/opencode.ts",

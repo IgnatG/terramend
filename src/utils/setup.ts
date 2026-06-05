@@ -2,12 +2,12 @@ import { execFileSync, execSync } from "node:child_process";
 import { mkdtempSync, readdirSync, realpathSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ShellPermission } from "../external.ts";
-import type { ToolState } from "../toolState.ts";
-import { log } from "./cli.ts";
-import type { OctokitWithPlugins } from "./github.ts";
-import { isInsideDocker } from "./globals.ts";
-import { $ } from "./shell.ts";
+import type { ShellPermission } from "#app/external";
+import type { ToolState } from "#app/toolState";
+import { log } from "#app/utils/cli";
+import type { OctokitWithPlugins } from "#app/utils/github";
+import { isInsideDocker } from "#app/utils/globals";
+import { $ } from "#app/utils/shell";
 
 export interface SetupOptions {
   tempDir: string;
@@ -17,8 +17,8 @@ export interface SetupOptions {
  * Create a shared temp directory for the action
  */
 export function createTempDirectory(): string {
-  const sharedTempDir = mkdtempSync(join(tmpdir(), "lintel-"));
-  process.env.LINTEL_TEMP_DIR = sharedTempDir;
+  const sharedTempDir = mkdtempSync(join(tmpdir(), "terramend-"));
+  process.env.TERRAMEND_TEMP_DIR = sharedTempDir;
   log.info(`» created temp dir at ${sharedTempDir}`);
   return sharedTempDir;
 }
@@ -29,7 +29,7 @@ export function createTempDirectory(): string {
  * can grep:
  *   - `_runner_file_commands/set_output_*` for `core.setOutput('token', ghs_…)`
  *     calls made by earlier composite-action steps (e.g.
- *     lintel/lintel/get-installation-token);
+ *     terramend/terramend/get-installation-token);
  *   - `<uuid>.sh` rendered step scripts whose `run: |` body embeds
  *     `${{ steps.token.outputs.token }}` literally (GHA expands BEFORE writing);
  *   - `git-credentials-*.config` written by `actions/checkout@v6` for the
@@ -42,9 +42,9 @@ export function createTempDirectory(): string {
  * for OUR step — `$GITHUB_OUTPUT`, `$GITHUB_ENV`, `$GITHUB_PATH`,
  * `$GITHUB_STATE`, `$GITHUB_STEP_SUMMARY`. those are read by the runner
  * AFTER we exit (or by our own `post:` hook), and wiping them would break
- * lintel's `result` output, `post:` state handoff, and job summary.
+ * terramend's `result` output, `post:` state handoff, and job summary.
  *
- * silent no-op when `$RUNNER_TEMP` is unset (local dev, `pnpm play`).
+ * silent no-op when `$RUNNER_TEMP` is unset (local dev, `pnpm dev:run`).
  * per-file errors are tolerated — the runner may delete files between
  * our readdir and our unlink.
  */
@@ -252,11 +252,11 @@ export async function setupGit(params: SetupGitParams): Promise<void> {
       !currentEmail || currentEmail === "github-actions[bot]@users.noreply.github.com";
 
     if (shouldSetDefaults) {
-      execSync('git config --local user.email "226033991+lintel[bot]@users.noreply.github.com"', {
+      execSync('git config --local user.email "226033991+terramend[bot]@users.noreply.github.com"', {
         cwd: repoDir,
         stdio: "pipe",
       });
-      execSync('git config --local user.name "lintel[bot]"', {
+      execSync('git config --local user.name "terramend[bot]"', {
         cwd: repoDir,
         stdio: "pipe",
       });

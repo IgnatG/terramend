@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { type EnvMode, resolveEnv } from "./secrets.ts";
+import { type EnvMode, resolveEnv } from "#app/utils/secrets";
 
 interface ShellOptions {
   cwd?: string;

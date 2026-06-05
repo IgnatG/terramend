@@ -2,10 +2,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { detect } from "package-manager-detector";
 import { resolveCommand } from "package-manager-detector/commands";
-import { log } from "../utils/cli.ts";
-import { ensurePackageManager, resolvePackageManagerSpec } from "../utils/packageManager.ts";
-import { spawn } from "../utils/subprocess.ts";
-import type { NodePackageManager, NodePrepResult, PrepDefinition, PrepOptions } from "./types.ts";
+import { log } from "#app/utils/cli";
+import { ensurePackageManager, resolvePackageManagerSpec } from "#app/utils/packageManager";
+import { spawn } from "#app/utils/subprocess";
+import type { NodePackageManager, NodePrepResult, PrepDefinition, PrepOptions } from "#app/prep/types";
 
 async function isCommandAvailable(command: string): Promise<boolean> {
   const result = await spawn({

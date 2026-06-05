@@ -23,16 +23,16 @@
  */
 
 import * as core from "@actions/core";
-import type { AgentResult } from "../agents/shared.ts";
-import { deleteProgressComment } from "../mcp/comment.ts";
-import type { ToolContext } from "../mcp/server.ts";
-import type { ToolState } from "../toolState.ts";
-import { formatUsageSummary, log, writeSummary } from "./cli.ts";
-import { reportErrorToComment } from "./errorReport.ts";
-import { persistLearnings } from "./learnings.ts";
-import { persistSummary } from "./prSummary.ts";
-import { postReviewCleanup } from "./reviewCleanup.ts";
-import { type RenderedRunError, renderRunError } from "./runErrorRenderer.ts";
+import type { AgentResult } from "#app/agents/shared";
+import { deleteProgressComment } from "#app/mcp/comment";
+import type { ToolContext } from "#app/mcp/server";
+import type { ToolState } from "#app/toolState";
+import { formatUsageSummary, log, writeSummary } from "#app/utils/cli";
+import { reportErrorToComment } from "#app/utils/errorReport";
+import { persistLearnings } from "#app/utils/learnings";
+import { persistSummary } from "#app/utils/prSummary";
+import { postReviewCleanup } from "#app/utils/reviewCleanup";
+import { type RenderedRunError, renderRunError } from "#app/utils/runErrorRenderer";
 
 /**
  * Best-effort cleanup shared by both run-end paths:
@@ -85,7 +85,7 @@ export async function finalizeSuccessRun(input: {
   // outer catch path (BillingError reclassify → hang → BYOK billing →
   // api-key → generic), so a harness-returned `{success: false}` lands an
   // actionable error block in the job summary alongside the matching body
-  // in the progress comment. hang and generic get the `### ❌ Lintel
+  // in the progress comment. hang and generic get the `### ❌ Terramend
   // failed` H3 banner; BillingError, BYOK billing, and api-key render
   // their own provider-specific framing (no banner). renders once; reused
   // for both surfaces below.
@@ -148,7 +148,7 @@ export async function finalizeSuccessRun(input: {
   }
 
   if (input.toolState.output) {
-    log.info(`::lintel-output::${Buffer.from(input.toolState.output).toString("base64")}`);
+    log.info(`::terramend-output::${Buffer.from(input.toolState.output).toString("base64")}`);
     core.setOutput("result", input.toolState.output);
   }
 }

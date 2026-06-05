@@ -3,14 +3,14 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { regex } from "arkregex";
 import { type } from "arktype";
-import type { StoredPushDest } from "../toolState.ts";
-import { log } from "../utils/cli.ts";
-import { $git, $gitFetchWithDeepen } from "../utils/gitAuth.ts";
-import { executeLifecycleHook, type LifecycleHookFailure } from "../utils/lifecycle.ts";
-import { $ } from "../utils/shell.ts";
-import { enforceRemediationPaths } from "./guardrails.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import type { StoredPushDest } from "#app/toolState";
+import { log } from "#app/utils/cli";
+import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
+import { executeLifecycleHook, type LifecycleHookFailure } from "#app/utils/lifecycle";
+import { $ } from "#app/utils/shell";
+import { enforceRemediationPaths } from "#app/mcp/guardrails";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 type PushDestination = {
   remoteName: string;
@@ -534,7 +534,7 @@ const OVERFLOW_PREVIEW_MAX_CHARS = 5_000;
  * unmerged commits, or null if the call is safe. silently ignores args that
  * aren't refs (paths, pathspecs), three-dot ranges (those are merge-base
  * diffs, the correct shape), and any call passing `--merge-base` (git's own
- * shorthand for a merge-base diff, also safe). see [run 26545933188](https://github.com/lintel/app/actions/runs/26545933188)
+ * shorthand for a merge-base diff, also safe). see [run 26545933188](https://github.com/terramend/app/actions/runs/26545933188)
  * for the failure mode this guards against. */
 function detectSymmetricDiffTrap(
   args: string[]
@@ -602,8 +602,8 @@ function spillGitOutput(params: {
   output: string;
   lineCount: number;
 }): { output: string; outputPath: string } {
-  const tempDir = process.env.LINTEL_TEMP_DIR;
-  if (!tempDir) throw new Error("LINTEL_TEMP_DIR not set");
+  const tempDir = process.env.TERRAMEND_TEMP_DIR;
+  if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR not set");
   const outputPath = join(tempDir, `git-${params.command}-${randomUUID().slice(0, 8)}.txt`);
   writeFileSync(outputPath, params.output);
   const previewByLines = params.output.split("\n").slice(0, OVERFLOW_PREVIEW_LINES).join("\n");

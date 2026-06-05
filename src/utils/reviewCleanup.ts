@@ -1,7 +1,7 @@
-import type { WriteablePayload } from "../external.ts";
-import { reportReviewNodeId } from "../mcp/review.ts";
-import type { ToolContext } from "../mcp/server.ts";
-import { log } from "./cli.ts";
+import type { WriteablePayload } from "#app/external";
+import { reportReviewNodeId } from "#app/mcp/review";
+import type { ToolContext } from "#app/mcp/server";
+import { log } from "#app/utils/cli";
 
 const RE_REVIEW_PREAMBLE =
   "Incrementally re-review the new commits on this pull request. Use the IncrementalReview mode.";
@@ -77,7 +77,7 @@ async function dispatchFollowUpReReview(ctx: ToolContext, reviewedSha: string): 
   }
 
   const payload: WriteablePayload = {
-    "~lintel": true,
+    "~terramend": true,
     version: ctx.payload.version,
     model: ctx.payload.model,
     prompt: "",
@@ -96,11 +96,11 @@ async function dispatchFollowUpReReview(ctx: ToolContext, reviewedSha: string): 
 
 /**
  * derive the running workflow's filename from `GITHUB_WORKFLOW_REF`, which has the form
- * `<owner>/<repo>/.github/workflows/<filename>@<ref>` (e.g. `.../lintel.yaml@refs/heads/main`).
- * falls back to `lintel.yml` if the env var is missing or malformed (shouldn't happen in CI).
+ * `<owner>/<repo>/.github/workflows/<filename>@<ref>` (e.g. `.../terramend.yaml@refs/heads/main`).
+ * falls back to `terramend.yml` if the env var is missing or malformed (shouldn't happen in CI).
  */
 function getCurrentWorkflowFilename(): string {
   const ref = process.env.GITHUB_WORKFLOW_REF ?? "";
   const match = ref.match(/\/([^/]+)@/);
-  return match?.[1] ?? "lintel.yml";
+  return match?.[1] ?? "terramend.yml";
 }

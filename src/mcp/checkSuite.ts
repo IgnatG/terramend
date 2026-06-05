@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import { log } from "../utils/log.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import { log } from "#app/utils/log";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const GetCheckSuiteLogs = type({
   check_suite_id: type.number.describe("the id from check_suite.id"),
@@ -153,9 +153,9 @@ export function GetCheckSuiteLogsTool(ctx: ToolContext) {
       }
 
       // setup logs directory
-      const tempDir = process.env.LINTEL_TEMP_DIR;
+      const tempDir = process.env.TERRAMEND_TEMP_DIR;
       if (!tempDir) {
-        throw new Error("LINTEL_TEMP_DIR not set");
+        throw new Error("TERRAMEND_TEMP_DIR not set");
       }
       const logsDir = join(tempDir, "ci-logs");
       mkdirSync(logsDir, { recursive: true });

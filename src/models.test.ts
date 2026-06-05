@@ -12,7 +12,7 @@ import {
   resolveDisplayAlias,
   resolveModelSlug,
   resolveOpenRouterModel,
-} from "./models.ts";
+} from "#app/models";
 
 describe("parseModel", () => {
   it("parses provider/model format", () => {

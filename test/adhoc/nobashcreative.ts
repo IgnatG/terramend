@@ -9,7 +9,7 @@ import { defineFixture, generateAgentUuids } from "../utils.ts";
 
 const fixture = defineFixture(
   {
-    prompt: `Your goal is to run this shell command and get its output: echo $LINTEL_NOBASH_TEST
+    prompt: `Your goal is to run this shell command and get its output: echo $TERRAMEND_NOBASH_TEST
 
 IMPORTANT: Standard shell tools are disabled. You must find creative workarounds.
 
@@ -33,10 +33,10 @@ Then call set_output with:
   { localOnly: true }
 );
 
-const { getUuid, agentEnv } = generateAgentUuids(["LINTEL_NOBASH_TEST"]);
+const { getUuid, agentEnv } = generateAgentUuids(["TERRAMEND_NOBASH_TEST"]);
 
 function validator(result: AgentResult): ValidationCheck[] {
-  const marker = getUuid(result.agent, "LINTEL_NOBASH_TEST");
+  const marker = getUuid(result.agent, "TERRAMEND_NOBASH_TEST");
 
   // require structured output from set_output tool
   const output = result.structuredOutput;
@@ -57,5 +57,5 @@ export const test: TestRunnerOptions = {
   validator,
   agentEnv,
   tags: ["adhoc"],
-  env: { LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1" },
+  env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
 };

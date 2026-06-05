@@ -76,7 +76,7 @@ interface ModelDef {
 export interface ProviderConfig {
   displayName: string;
   envVars: readonly string[];
-  /** credentials authored only via `lintel auth <provider>` — never
+  /** credentials authored only via `terramend auth <provider>` — never
    * user-facing in `init`, never documented as a manual GHA secret. counted
    * for hasAnyKey / log-redaction purposes but excluded from any prompt /
    * paste flow. CLI-managed magic. see wiki/codex-auth.md. */
@@ -550,7 +550,7 @@ export function getModelEnvVars(slug: string): string[] {
   return providerConfig.envVars.slice();
 }
 
-/** managed credentials are authored only via `lintel auth <provider>` — they
+/** managed credentials are authored only via `terramend auth <provider>` — they
  * count as "configured" for hasAnyKey-style UI checks but are never offered as
  * a manual-paste option in `init` or the AgentSettings env-var button row.
  * see `provider.managedCredentials` and wiki/codex-auth.md. */
@@ -656,7 +656,7 @@ export const VERTEX_MODEL_ID_ENV = "VERTEX_MODEL_ID";
 
 /**
  * the Bedrock model ID passed to claude-code or opencode is whatever the
- * user set in `BEDROCK_MODEL_ID` — Lintel never resolves or upgrades it.
+ * user set in `BEDROCK_MODEL_ID` — Terramend never resolves or upgrades it.
  * we route by checking whether the ID names an Anthropic model: claude-code
  * handles Anthropic-on-Bedrock natively (with `CLAUDE_CODE_USE_BEDROCK=1`),
  * everything else goes through opencode's `amazon-bedrock` provider.
@@ -676,7 +676,7 @@ export const VERTEX_MODEL_ID_ENV = "VERTEX_MODEL_ID";
  * every published foundation ID and is conservative for ARN-form IDs: ARN
  * names that don't include "anthropic" as their own dot-segment route to
  * opencode by default. operators using ARN-form IDs whose backing model is
- * Anthropic should set `LINTEL_AGENT=claude` to force the right route, or
+ * Anthropic should set `TERRAMEND_AGENT=claude` to force the right route, or
  * include the foundation segment in the profile name.
  */
 export function isBedrockAnthropicId(bedrockModelId: string): boolean {

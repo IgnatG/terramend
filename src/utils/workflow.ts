@@ -1,5 +1,5 @@
-import { log } from "./cli.ts";
-import type { OctokitWithPlugins } from "./github.ts";
+import { log } from "#app/utils/cli";
+import type { OctokitWithPlugins } from "#app/utils/github";
 
 interface ResolveRunParams {
   octokit: OctokitWithPlugins;

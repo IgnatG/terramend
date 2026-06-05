@@ -31,7 +31,7 @@ export const test: TestRunnerOptions = {
   name: "smoke",
   fixture,
   validator,
-  env: { LINTEL_DISABLE_SECURITY_INSTRUCTIONS: "1" },
+  env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   // canary: any agent harness change runs the smoke. shared MCP set_output
   // surface is also captured.
   coverage: ["action/agents/{claude,opencode,opencode_v2}.ts", "action/mcp/output.ts"],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveSubagentModels } from "./subagentModels.ts";
+import { deriveSubagentModels } from "#app/agents/subagentModels";
 
 describe("deriveSubagentModels", () => {
   it("returns no override when orchestrator is undefined", () => {

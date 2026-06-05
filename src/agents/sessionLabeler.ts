@@ -5,7 +5,7 @@
  * with its own `sessionID` (or `session_id`) tag on the NDJSON event stream.
  *
  * Without per-session prefixing, parallel subagent tool_use / tool_result /
- * text events appear as a single interleaved stream tagged with `[Lintel]`,
+ * text events appear as a single interleaved stream tagged with `[Terramend]`,
  * making it impossible for a human reading the logs to attribute work to a
  * specific lens.
  *

@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import { log } from "./cli.ts";
+import { log } from "#app/utils/cli";
 
 export type RetryOptions = {
   maxAttempts?: number;

@@ -1,6 +1,6 @@
 import { type } from "arktype";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export const GetIssueEvents = type({
   issue_number: type.number.describe("The issue number to get events for"),

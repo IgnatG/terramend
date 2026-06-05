@@ -5,8 +5,8 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import * as core from "@actions/core";
 import { table } from "table";
-import { type AgentUsage, formatCostUsd } from "../agents/shared.ts";
-import { isGitHubActions, isInsideDocker } from "./globals.ts";
+import { type AgentUsage, formatCostUsd } from "#app/agents/shared";
+import { isGitHubActions, isInsideDocker } from "#app/utils/globals";
 
 // --- log prefix via AsyncLocalStorage ---
 

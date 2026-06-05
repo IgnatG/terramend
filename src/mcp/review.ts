@@ -1,21 +1,21 @@
 import type { RestEndpointMethodTypes } from "@octokit/rest";
 import { type } from "arktype";
-import { formatMcpToolRef } from "../external.ts";
-import type { CommentableLines } from "../toolState.ts";
-import { getApiUrl } from "../utils/apiUrl.ts";
-import { buildLintelFooter } from "../utils/buildLintelFooter.ts";
-import { log } from "../utils/cli.ts";
+import { formatMcpToolRef } from "#app/external";
+import type { CommentableLines } from "#app/toolState";
+import { getApiUrl } from "#app/utils/apiUrl";
+import { buildTerramendFooter } from "#app/utils/buildTerramendFooter";
+import { log } from "#app/utils/cli";
 import {
   countLinesInRanges,
   getDiffCoverageBreakdown,
   renderDiffCoverageBreakdown,
-} from "../utils/diffCoverage.ts";
-import { fixDoubleEscapedString } from "../utils/fixDoubleEscapedString.ts";
-import { patchWorkflowRunFields } from "../utils/patchWorkflowRunFields.ts";
-import { retry } from "../utils/retry.ts";
-import { deleteProgressComment } from "./comment.ts";
-import type { ToolContext } from "./server.ts";
-import { execute, tool } from "./shared.ts";
+} from "#app/utils/diffCoverage";
+import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
+import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
+import { retry } from "#app/utils/retry";
+import { deleteProgressComment } from "#app/mcp/comment";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 
 export type { CommentableLines };
 
@@ -865,7 +865,7 @@ async function createAndSubmitWithFooter(
       }
     }
 
-    const footer = buildLintelFooter({
+    const footer = buildTerramendFooter({
       workflowRun: ctx.runId
         ? { owner: ctx.repo.owner, repo: ctx.repo.name, runId: ctx.runId, jobId: ctx.jobId }
         : undefined,

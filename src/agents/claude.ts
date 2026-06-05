@@ -16,40 +16,40 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
-import { lintelMcpName } from "../external.ts";
+import { terramendMcpName } from "#app/external";
 import {
   BEDROCK_MODEL_ID_ENV,
   isBedrockAnthropicId,
   isVertexAnthropicId,
   VERTEX_MODEL_ID_ENV,
-} from "../models.ts";
+} from "#app/models";
 
-import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "../utils/activity.ts";
-import { formatJsonValue, log } from "../utils/cli.ts";
-import { installFromNpmTarball } from "../utils/install.ts";
-import { findProviderErrorMatch } from "../utils/providerErrors.ts";
-import { addSkill, installBundledSkills } from "../utils/skills.ts";
+import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "#app/utils/activity";
+import { formatJsonValue, log } from "#app/utils/cli";
+import { installFromNpmTarball } from "#app/utils/install";
+import { findProviderErrorMatch } from "#app/utils/providerErrors";
+import { addSkill, installBundledSkills } from "#app/utils/skills";
 import {
   DEFAULT_MAX_RETAINED_BYTES,
   SPAWN_ACTIVITY_TIMEOUT_CODE,
   SpawnTimeoutError,
   spawn,
   TailBuffer,
-} from "../utils/subprocess.ts";
-import { ThinkingTimer } from "../utils/timer.ts";
-import type { TodoTracker } from "../utils/todoTracking.ts";
-import { getDevDependencyVersion } from "../utils/version.ts";
-import { applyClaudeVertexEnv } from "../utils/vertex.ts";
+} from "#app/utils/subprocess";
+import { ThinkingTimer } from "#app/utils/timer";
+import type { TodoTracker } from "#app/utils/todoTracking";
+import { getDevDependencyVersion } from "#app/utils/version";
+import { applyClaudeVertexEnv } from "#app/utils/vertex";
 import {
   buildClaudePretoolGateSettings,
   CLAUDE_PRETOOL_GATE_FILENAME,
   CLAUDE_PRETOOL_GATE_SOURCE,
-} from "./claudePretoolGate.ts";
-import { startGateServer } from "./gateServer.ts";
-import { GIT_NATIVE_READ_DENY_CLAUDE, GIT_NATIVE_WRITE_DENY_CLAUDE } from "./nativeFsDenies.ts";
-import { finalizeAgentResult } from "./postRun.ts";
-import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "./reviewer.ts";
-import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "./sessionLabeler.ts";
+} from "#app/agents/claudePretoolGate";
+import { startGateServer } from "#app/agents/gateServer";
+import { GIT_NATIVE_READ_DENY_CLAUDE, GIT_NATIVE_WRITE_DENY_CLAUDE } from "#app/agents/nativeFsDenies";
+import { finalizeAgentResult } from "#app/agents/postRun";
+import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
+import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "#app/agents/sessionLabeler";
 import {
   type AgentResult,
   type AgentRunContext,
@@ -57,7 +57,7 @@ import {
   agent,
   logTokenTable,
   MAX_STDERR_LINES,
-} from "./shared.ts";
+} from "#app/agents/shared";
 
 async function installClaudeCli(): Promise<string> {
   return await installFromNpmTarball({
@@ -73,7 +73,7 @@ async function installClaudeCli(): Promise<string> {
 
 /**
  * Native claude-code tools that execute arbitrary shell/code and therefore
- * bypass Lintel's security boundary (the restricted MCP `shell` tool with a
+ * bypass Terramend's security boundary (the restricted MCP `shell` tool with a
  * filtered, secret-free env). These run inside the agent process with full env,
  * so leaving any of them enabled defeats both `shell: "disabled"` AND the
  * env-filtering that the MCP shell relies on even when shell is enabled.
@@ -102,7 +102,7 @@ function writeMcpConfig(ctx: AgentRunContext): string {
     configPath,
     JSON.stringify({
       mcpServers: {
-        [lintelMcpName]: { type: "http", url: ctx.mcpServerUrl },
+        [terramendMcpName]: { type: "http", url: ctx.mcpServerUrl },
       },
     })
   );
@@ -117,7 +117,7 @@ function writeMcpConfig(ctx: AgentRunContext): string {
  * action/agents/claudePretoolGate.ts for the contract.
  *
  * Two paths register the gate:
- *   1. flag settings (`--settings <path>`) — covers non-CI runs (`pnpm play`,
+ *   1. flag settings (`--settings <path>`) — covers non-CI runs (`pnpm dev:run`,
  *      local dev) where `installManagedSettings` is a no-op.
  *   2. managed settings (/etc/claude-code/managed-settings.json) — covers CI,
  *      where `allowManagedHooksOnly: true` filters flag-settings hooks. The
@@ -130,7 +130,7 @@ function writePretoolGateAssets(ctx: AgentRunContext): {
   const scriptPath = join(ctx.tmpdir, CLAUDE_PRETOOL_GATE_FILENAME);
   writeFileSync(scriptPath, CLAUDE_PRETOOL_GATE_SOURCE);
   chmodSync(scriptPath, 0o755);
-  const settingsPath = join(ctx.tmpdir, "lintel-claude-settings.json");
+  const settingsPath = join(ctx.tmpdir, "terramend-claude-settings.json");
   writeFileSync(settingsPath, JSON.stringify(buildClaudePretoolGateSettings(scriptPath)));
   return { scriptPath, settingsPath };
 }
@@ -877,7 +877,7 @@ const MANAGED_SETTINGS_PATH = `${MANAGED_SETTINGS_DIR}/managed-settings.json`;
  * hook curls it on every stop; an absent value disables the hook (e.g.
  * non-CI local dev paths that don't install managed settings either).
  */
-const STOP_HOOK_GATE_URL_ENV = "LINTEL_GATE_URL";
+const STOP_HOOK_GATE_URL_ENV = "TERRAMEND_GATE_URL";
 
 /**
  * managed Stop hook. swaps the old `--resume <sessionId>` follow-up
@@ -1061,7 +1061,7 @@ export const claude = agent({
     // managed Stop hook that curls a sidecar gate server. see
     // `buildStopHookScript` for the cost rationale (PR #792 audit) and
     // `gateServer.ts` for the decision policy.
-    const stopHookPath = join(ctx.tmpdir, "lintel-stop-hook.sh");
+    const stopHookPath = join(ctx.tmpdir, "terramend-stop-hook.sh");
     writeFileSync(stopHookPath, buildStopHookScript(), { mode: 0o755 });
 
     installManagedSettings({ ctx, stopHookPath, pretoolGateScriptPath: pretoolGate.scriptPath });
@@ -1097,7 +1097,7 @@ export const claude = agent({
     // AWS_REGION are already in process.env from the workflow's `env:` block.
     // see https://docs.claude.com/en/docs/claude-code/amazon-bedrock.
     //
-    // we only force CLAUDE_CODE_USE_BEDROCK=1 when this is a Lintel-routed
+    // we only force CLAUDE_CODE_USE_BEDROCK=1 when this is a Terramend-routed
     // bedrock run; if the user has set the env var manually for some other
     // reason (e.g. always-Bedrock org policy), `...process.env` already
     // carries it through and we don't disturb it.
@@ -1109,7 +1109,7 @@ export const claude = agent({
     // the bundled cli.js — `let H=process.env.PWD; if(H && H !== Y7() && ...)
     // j.set(H, {path: H, source: "session"})`). Inheriting harness PWD via
     // `...process.env` ends up adding the wrong dir to the agent's allowed
-    // working set under `pnpm runtest` / `pnpm play`, which silently confuses
+    // working set under `pnpm runtest` / `pnpm dev:run`, which silently confuses
     // path-relative tools.
     const env: Record<string, string | undefined> = {
       ...process.env,
@@ -1135,7 +1135,7 @@ export const claude = agent({
     }
 
     log.info(`» effort: ${effort}`);
-    log.debug(`» starting Lintel (Claude Code): ${cliPath} ${baseArgs.join(" ")}`);
+    log.debug(`» starting Terramend (Claude Code): ${cliPath} ${baseArgs.join(" ")}`);
     log.debug(`» working directory: ${repoDir}`);
 
     // gate server lives only as long as the claude subprocess does. the
@@ -1144,7 +1144,7 @@ export const claude = agent({
     await using gateServer = await startGateServer(ctx);
 
     const result = await runClaude({
-      label: "Lintel",
+      label: "Terramend",
       cmd: cliPath,
       cwd: repoDir,
       env: { ...env, [STOP_HOOK_GATE_URL_ENV]: gateServer.url },
