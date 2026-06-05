@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type Concern,
+  groupConcerns,
   parseCheckovOutput,
   parseFmtOutput,
   parseTflintOutput,
@@ -163,6 +164,17 @@ describe("parseValidateOutput", () => {
     });
     expect(parseValidateOutput(sample)).toEqual([]);
   });
+
+  it("drops environmental plugin-load errors (Bug 3 — not a best-practice defect)", () => {
+    // after `terraform init`, a crashed/absent provider plugin surfaces as an
+    // error diagnostic; it must not become a false-positive correctness concern.
+    const sample = JSON.stringify({
+      diagnostics: [
+        { severity: "error", summary: "Failed to load plugin schemas", detail: "plugin did not respond" },
+      ],
+    });
+    expect(parseValidateOutput(sample)).toEqual([]);
+  });
 });
 
 describe("concern ids", () => {
@@ -190,5 +202,86 @@ describe("concern ids", () => {
         })
       )[0];
     expect(mk(2).id).not.toBe(mk(3).id);
+  });
+});
+
+describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
+  const tfsecFile = (filename: string, cwd: string): string =>
+    parseTfsecOutput(
+      JSON.stringify({
+        results: [{ long_id: "r", severity: "high", location: { filename, start_line: 5 } }],
+      }),
+      cwd
+    )[0].location.file;
+
+  it("rewrites an absolute scanner path to repo-relative posix", () => {
+    expect(tfsecFile("/repo/sub/main.tf", "/repo/sub")).toBe("main.tf");
+    expect(tfsecFile("D:\\repo\\sub\\net\\vpc.tf", "D:\\repo\\sub")).toBe("net/vpc.tf");
+  });
+
+  it("strips checkov's leading-slash path", () => {
+    const file = parseCheckovOutput(
+      JSON.stringify({
+        results: { failed_checks: [{ check_id: "CKV_X", file_path: "/main.tf", file_line_range: [5] }] },
+      }),
+      "/repo"
+    )[0].location.file;
+    expect(file).toBe("main.tf");
+  });
+
+  it("yields the SAME concern id regardless of the machine's absolute prefix", () => {
+    // the core Bug 1 regression: a Linux CI runner and a Windows dev box reported
+    // the same logical file under different absolute paths and got different ids.
+    const ci = parseTfsecOutput(
+      JSON.stringify({
+        results: [
+          { long_id: "r", severity: "high", location: { filename: "/home/runner/work/repo/main.tf", start_line: 5 } },
+        ],
+      }),
+      "/home/runner/work/repo"
+    )[0];
+    const dev = parseTfsecOutput(
+      JSON.stringify({
+        results: [
+          { long_id: "r", severity: "high", location: { filename: "D:\\Users\\dev\\repo\\main.tf", start_line: 5 } },
+        ],
+      }),
+      "D:\\Users\\dev\\repo"
+    )[0];
+    expect(ci.location.file).toBe("main.tf");
+    expect(dev.location.file).toBe("main.tf");
+    expect(ci.id).toBe(dev.id);
+  });
+});
+
+describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
+  const concern = (file: string, severity: Concern["severity"], rule_id: string): Concern => ({
+    id: `${rule_id}|${file}`,
+    source: "tfsec",
+    rule_id,
+    severity,
+    category: "security",
+    evidence: "x",
+    location: { file, line: 1 },
+    remediation_hint: null,
+  });
+
+  it("groups by file, ranks groups by max severity, and collects ids + rules", () => {
+    const groups = groupConcerns([
+      concern("main.tf", "low", "tflint:a"),
+      concern("main.tf", "high", "tfsec:b"),
+      concern("vpc.tf", "medium", "tfsec:c"),
+    ]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ file: "main.tf", severity: "high", concern_count: 2 });
+    expect(groups[1]).toMatchObject({ file: "vpc.tf", severity: "medium", concern_count: 1 });
+    expect(groups[0].rule_ids).toEqual(["tflint:a", "tfsec:b"]);
+    expect(groups[0].concern_ids).toHaveLength(2);
+  });
+
+  it("gives a stable group id for the same file (idempotent branch key)", () => {
+    const a = groupConcerns([concern("main.tf", "low", "x")])[0];
+    const b = groupConcerns([concern("main.tf", "high", "y")])[0];
+    expect(a.id).toBe(b.id);
   });
 });

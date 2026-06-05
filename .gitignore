@@ -48,3 +48,7 @@ dist
 
 .pnpm-store/
 
+# Terraform working artifacts (the scanner runs `terraform init` for validate)
+**/.terraform/
+**/.terraform.lock.hcl
+

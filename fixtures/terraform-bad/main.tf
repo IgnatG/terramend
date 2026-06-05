@@ -1,10 +1,11 @@
 # Deliberately non-best-practice Terraform for dogfooding the Remediator.
 # Expected concerns: unencrypted + public S3 bucket (tfsec/checkov), an unused
-# variable (tflint), and non-canonical formatting (terraform fmt).
+# variable + missing required_providers (tflint), and non-canonical formatting
+# (terraform fmt — note the over-indented `bucket` and misaligned `=` below).
 
 resource "aws_s3_bucket" "data" {
-  bucket = "example-remediator-fixture"
-  acl    = "public-read"
+    bucket = "example-remediator-fixture"
+  acl   = "public-read"
 }
 
 variable "unused" {
