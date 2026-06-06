@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
 import { log } from "#app/utils/cli";
@@ -23,12 +23,14 @@ import { execute, tool } from "#app/mcp/shared";
 export interface Concern {
   /** stable content id: sha1(source|rule_id|file|line). idempotency key for branch/PR naming. */
   id: string;
-  /** producing tool */
-  source: "terraform-fmt" | "terraform-validate" | "tflint" | "trivy" | "checkov";
+  /** producing tool. `reviewer` marks a concern loaded from a terraform-reviewer
+   * findings.json whose original tool isn't one Terramend re-runs (tfsec / infracost
+   * / llm) — its provenance lives in `rule_id`. */
+  source: "terraform-fmt" | "terraform-validate" | "tflint" | "trivy" | "checkov" | "reviewer";
   /** original namespaced rule, e.g. "trivy:AVD-AWS-0088" */
   rule_id: string;
   severity: Severity;
-  category: "security" | "style" | "correctness";
+  category: "security" | "style" | "correctness" | "cost";
   /** the scanner message — what is wrong */
   evidence: string;
   location: { file: string; line: number | null };
@@ -410,7 +412,11 @@ export function parseCheckovOutput(stdout: string, cwd = ""): Concern[] {
   for (const block of blocks) {
     for (const check of block.results?.failed_checks ?? []) {
       const file = toRepoRelative(check.file_path, cwd);
-      const line = check.file_line_range?.[0] ?? null;
+      // checkov emits 0 for "no specific line"; normalize to null (matching the
+      // trivy parser and the reviewer's findings.json) so the content id is
+      // stable and a reviewer-loaded checkov concern re-verifies ✗→✓.
+      const startLine = check.file_line_range?.[0];
+      const line = typeof startLine === "number" && startLine > 0 ? startLine : null;
       const rule = check.check_id ?? "issue";
       concerns.push({
         id: concernId("checkov", rule, file, line),
@@ -442,6 +448,12 @@ interface CheckovOutput {
 
 // --- the tools ------------------------------------------------------------
 
+/** true when a path is a Terraform source file Terramend may remediate. */
+function isTerraformFile(file: string): boolean {
+  const f = file.toLowerCase();
+  return f.endsWith(".tf") || f.endsWith(".tfvars");
+}
+
 /**
  * Terramend is Terraform-only. A concern in a non-`.tf`/`.tfvars` file can never
  * be remediated (the `allowed_paths` push guardrail blocks it) and is pure noise,
@@ -450,8 +462,7 @@ interface CheckovOutput {
  * catch-all backstop; `scanCheckov` also scopes itself with `--framework terraform`.
  */
 export function isTerraformConcern(c: Concern): boolean {
-  const f = c.location.file.toLowerCase();
-  return f.endsWith(".tf") || f.endsWith(".tfvars");
+  return isTerraformFile(c.location.file);
 }
 
 function dedupe(concerns: Concern[]): Concern[] {
@@ -874,6 +885,181 @@ export function InfracostDiffTool(ctx: ToolContext) {
               note: "Baseline cost unavailable (no base ref or unpriced) — reporting current monthly cost only.",
             }
           : {}),
+      };
+    }),
+  });
+}
+
+// --- reviewer findings (read_findings) ------------------------------------
+
+/**
+ * The subset of a terraform-reviewer (Assessor) `findings.json` finding that
+ * Terramend consumes. The reviewer's contract is a deliberate SUPERSET of the
+ * Concern model (same content-id formula, same severity enum) — see
+ * ../terraform-reviewer/schemas/findings.schema.json. Extra fields
+ * (lens/standard/control_id/confidence/state) are ignored except `state`.
+ */
+interface ReviewerFinding {
+  category?: string;
+  source?: string;
+  rule_id?: string;
+  /** verified (deterministic) | evidence (confirm manually) | human_only (out of scope). */
+  state?: string;
+  severity?: string;
+  evidence?: string;
+  location?: { file?: string; line?: number | null };
+  remediation_hint?: string | null;
+}
+
+interface ReviewerFindingsReport {
+  schema_version?: string;
+  findings?: ReviewerFinding[] | null;
+}
+
+/**
+ * Map a reviewer `source` to a Concern source. The scanners Terramend also runs
+ * (checkov / tflint / trivy / terraform-fmt / terraform-validate) keep their
+ * name, so re-running them reproduces the identical content id — those concerns
+ * are ✗→✓ verifiable. Everything else (tfsec — whose rule ids differ from
+ * trivy's — plus infracost, llm, …) collapses to `reviewer`: the original tool
+ * stays visible in `rule_id`, but Terramend can't reproduce the id, so
+ * `terraform_verify_remediation` will honestly report it unresolved.
+ *
+ * NB: trivy ✗→✓ verifiability assumes the reviewer's trivy `rule_id` equals
+ * Terramend's (both `trivy:<AVDID>`). That holds today (the reviewer's SARIF
+ * `ruleId` is the AVD id); if a future Trivy diverges SARIF ruleId from the
+ * JSON AVDID, trivy-source findings would stop matching on re-scan.
+ */
+function mapReviewerSource(source: string | undefined): Concern["source"] {
+  switch (source) {
+    case "checkov":
+    case "tflint":
+    case "trivy":
+    case "terraform-fmt":
+    case "terraform-validate":
+      return source;
+    default:
+      return "reviewer";
+  }
+}
+
+function mapReviewerCategory(category: string | undefined): Concern["category"] {
+  switch (category) {
+    case "security":
+      return "security";
+    case "style":
+      return "style";
+    case "cost":
+      return "cost";
+    default:
+      return "correctness";
+  }
+}
+
+/**
+ * Map a reviewer `findings.json` body into Concern[]. Drops `human_only`
+ * findings (out of scope — not auto-remediable). Paths are normalized to
+ * repo-relative POSIX (same as the scanners) so ids and grouping stay portable.
+ */
+export function parseReviewerFindings(json: string, cwd = ""): Concern[] {
+  const parsed = JSON.parse(json || "{}") as ReviewerFindingsReport;
+  const out: Concern[] = [];
+  for (const f of parsed.findings ?? []) {
+    if (f.state === "human_only") continue;
+    const file = toRepoRelative(f.location?.file, cwd);
+    // Skip findings that don't point at a Terraform file — they aren't per-file
+    // remediable. In particular the reviewer's infracost/cost findings are keyed
+    // to a project *directory* (not a `.tf`), so they land here; cost is surfaced
+    // during remediation by `infracost_diff` (E1), not by editing a directory.
+    if (!isTerraformFile(file)) continue;
+    const line = f.location?.line ?? null;
+    const source = mapReviewerSource(f.source);
+    const ruleId = f.rule_id || "finding";
+    // Terramend's own parsers store `rule_id` namespaced (`${source}:${rule}`)
+    // but hash only the bare rule into the content id. Strip a matching
+    // `${source}:` prefix so a checkov/tflint/trivy/fmt finding from the reviewer
+    // reproduces the SAME id Terramend's own scan would — keeping it ✗→✓
+    // verifiable. `reviewer`-source findings keep the full rule_id in the hash
+    // (they aren't reproducible anyway). Both namespaced and bare inputs work.
+    const bareRule =
+      source !== "reviewer" && ruleId.startsWith(`${source}:`)
+        ? ruleId.slice(source.length + 1)
+        : ruleId;
+    out.push({
+      id: concernId(source, bareRule, file, line),
+      source,
+      rule_id: ruleId,
+      severity: lowerSeverity(f.severity),
+      category: mapReviewerCategory(f.category),
+      evidence: f.evidence || ruleId,
+      location: { file, line },
+      remediation_hint: f.remediation_hint ?? null,
+    });
+  }
+  return out;
+}
+
+export const ReadFindingsParams = type({
+  "path?": type.string.describe(
+    "path to the Assessor's findings.json. Defaults to $TERRAMEND_FINDINGS_PATH, then ./findings.json in the workspace."
+  ),
+  "severity_threshold?": type("'critical' | 'high' | 'medium' | 'low' | 'info'").describe(
+    "minimum severity to report (default: the run's configured threshold, else low)."
+  ),
+});
+
+export function ReadFindingsTool(ctx: ToolContext) {
+  return tool({
+    name: "read_findings",
+    description:
+      "Load best-practice concerns from a terraform-reviewer (Assessor) findings.json INSTEAD of running " +
+      "the scanners. Returns the SAME { concerns, groups, summary } shape as terraform_scan, so Remediate " +
+      "consumes it identically. `human_only` findings and non-Terraform files are dropped. Concerns from " +
+      "checkov / tflint / terraform-fmt re-verify deterministically (✗→✓); findings exclusive to the reviewer " +
+      "(tfsec / infracost / llm) carry source `reviewer` and can't be reproduced by Terramend's scanners, so " +
+      "terraform_verify_remediation will report them unresolved — rely on terraform_validate + your explanation " +
+      "for those. Returns `found: false` (never an error) when no findings.json is present.",
+    parameters: ReadFindingsParams,
+    execute: execute(async ({ path, severity_threshold }) => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      const findingsPath = path || process.env.TERRAMEND_FINDINGS_PATH || join(cwd, "findings.json");
+      let raw: string;
+      try {
+        raw = readFileSync(findingsPath, "utf8");
+      } catch {
+        return {
+          found: false,
+          reason: `no findings.json at ${findingsPath} (set the path arg or $TERRAMEND_FINDINGS_PATH)`,
+          concerns: [],
+          groups: [],
+        };
+      }
+      let parsed: Concern[];
+      try {
+        parsed = parseReviewerFindings(raw, cwd);
+      } catch {
+        return { found: false, reason: `could not parse findings.json at ${findingsPath}`, concerns: [], groups: [] };
+      }
+
+      const configured = ctx.payload.severityThreshold as Severity | undefined;
+      const threshold: Severity = severity_threshold ?? configured ?? "low";
+      const minRank = SEVERITY_RANK[threshold];
+
+      const all = sortConcerns(dedupe(parsed))
+        .filter(isTerraformConcern)
+        .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
+      const groups = groupConcerns(all);
+      const by_severity: Record<string, number> = {};
+      for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
+
+      log.info(`» read_findings: ${all.length} concern(s) ≥ ${threshold} from ${findingsPath}`);
+
+      return {
+        found: true,
+        source_file: findingsPath,
+        summary: { total: all.length, groups: groups.length, by_severity },
+        groups,
+        concerns: all,
       };
     }),
   });

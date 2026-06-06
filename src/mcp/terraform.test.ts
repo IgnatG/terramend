@@ -8,6 +8,7 @@ import {
   parseCheckovOutput,
   parseFmtOutput,
   parseInfracostBreakdown,
+  parseReviewerFindings,
   parseTflintOutput,
   parseTrivyOutput,
   parseValidateOutput,
@@ -139,6 +140,13 @@ describe("parseCheckovOutput", () => {
       results: { failed_checks: [{ check_id: "CKV_X", file_path: "a.tf" }] },
     });
     expect(parseCheckovOutput(noSev)[0].severity).toBe("medium");
+  });
+
+  it("normalizes a 0 start line to null (matches the reviewer, so the id is stable)", () => {
+    const zeroLine = JSON.stringify({
+      results: { failed_checks: [{ check_id: "CKV_X", file_path: "a.tf", file_line_range: [0, 0] }] },
+    });
+    expect(parseCheckovOutput(zeroLine)[0].location.line).toBeNull();
   });
 });
 
@@ -339,6 +347,116 @@ describe("computeRemediationVerdict (C2 — tamper-proof ✗→✓)", () => {
       resolved: [],
       remaining: [],
     });
+  });
+});
+
+describe("parseReviewerFindings", () => {
+  const finding = (over: Record<string, unknown> = {}) => ({
+    category: "security",
+    source: "checkov",
+    rule_id: "checkov:CKV_AWS_18",
+    state: "verified",
+    severity: "high",
+    evidence: "S3 bucket has no access logging",
+    location: { file: "main.tf", line: 5 },
+    remediation_hint: "enable access logging",
+    ...over,
+  });
+  const report = (findings: unknown[]) => JSON.stringify({ schema_version: "1.0", findings });
+
+  it("maps a finding to a Concern, keeping the namespaced rule_id", () => {
+    const [c] = parseReviewerFindings(report([finding()]));
+    expect(c).toMatchObject({
+      source: "checkov",
+      rule_id: "checkov:CKV_AWS_18",
+      severity: "high",
+      category: "security",
+      evidence: "S3 bucket has no access logging",
+      location: { file: "main.tf", line: 5 },
+      remediation_hint: "enable access logging",
+    });
+  });
+
+  it("reproduces the SAME content id Terramend's own checkov scan produces (✗→✓ verifiable)", () => {
+    // a reviewer checkov finding and Terramend's own checkov output for the same
+    // rule/file/line must hash to the same id, or verify can never confirm it.
+    const [reviewer] = parseReviewerFindings(report([finding()]));
+    const [own] = parseCheckovOutput(
+      JSON.stringify({
+        results: {
+          failed_checks: [
+            {
+              check_id: "CKV_AWS_18",
+              check_name: "S3 bucket has no access logging",
+              file_path: "/main.tf",
+              file_line_range: [5, 7],
+            },
+          ],
+        },
+      })
+    );
+    expect(reviewer.id).toBe(own.id);
+  });
+
+  it("maps the same id whether the reviewer rule_id is namespaced or bare", () => {
+    const [namespaced] = parseReviewerFindings(report([finding({ rule_id: "checkov:CKV_AWS_18" })]));
+    const [bare] = parseReviewerFindings(report([finding({ rule_id: "CKV_AWS_18" })]));
+    expect(namespaced.id).toBe(bare.id);
+  });
+
+  it("collapses reviewer-exclusive sources (tfsec/infracost/llm) to `reviewer`", () => {
+    expect(parseReviewerFindings(report([finding({ source: "tfsec", rule_id: "tfsec:AWS017" })]))[0].source).toBe(
+      "reviewer"
+    );
+    expect(parseReviewerFindings(report([finding({ source: "llm" })]))[0].source).toBe("reviewer");
+  });
+
+  it("keeps known scanners (trivy/tflint) as themselves", () => {
+    expect(parseReviewerFindings(report([finding({ source: "trivy", rule_id: "trivy:AVD-AWS-0088" })]))[0].source).toBe(
+      "trivy"
+    );
+    expect(parseReviewerFindings(report([finding({ source: "tflint", rule_id: "tflint:foo" })]))[0].source).toBe(
+      "tflint"
+    );
+  });
+
+  it("drops human_only findings (out of scope — not auto-remediable)", () => {
+    const concerns = parseReviewerFindings(
+      report([finding(), finding({ state: "human_only", rule_id: "checkov:CKV_AWS_99" })])
+    );
+    expect(concerns).toHaveLength(1);
+    expect(concerns[0].rule_id).toBe("checkov:CKV_AWS_18");
+  });
+
+  it("maps the cost category and defaults unknown categories to correctness", () => {
+    expect(parseReviewerFindings(report([finding({ category: "cost", source: "infracost" })]))[0].category).toBe("cost");
+    expect(parseReviewerFindings(report([finding({ category: "weird" })]))[0].category).toBe("correctness");
+  });
+
+  it("drops findings not keyed to a Terraform file (e.g. infracost cost findings on a directory)", () => {
+    const concerns = parseReviewerFindings(
+      report([
+        finding({
+          category: "cost",
+          source: "infracost",
+          rule_id: "infracost:monthly-delta",
+          location: { file: "infra/", line: null },
+        }),
+        finding(),
+      ])
+    );
+    expect(concerns).toHaveLength(1);
+    expect(concerns[0].location.file).toBe("main.tf");
+  });
+
+  it("normalizes absolute scanner paths to repo-relative POSIX", () => {
+    const [c] = parseReviewerFindings(report([finding({ location: { file: "/repo/main.tf", line: 1 } })]), "/repo");
+    expect(c.location.file).toBe("main.tf");
+  });
+
+  it("returns nothing for an empty or findings-less report", () => {
+    expect(parseReviewerFindings("")).toEqual([]);
+    expect(parseReviewerFindings(JSON.stringify({ schema_version: "1.0" }))).toEqual([]);
   });
 });
 

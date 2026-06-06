@@ -61,6 +61,7 @@ export const Inputs = type({
   "severity_threshold?": type.string.or("undefined"),
   "max_prs?": type.string.or("undefined"),
   "allowed_paths?": type.string.or("undefined"),
+  "base_branch?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -112,6 +113,7 @@ function resolveNonPromptInputs() {
     severity_threshold: core.getInput("severity_threshold") || undefined,
     max_prs: core.getInput("max_prs") || undefined,
     allowed_paths: core.getInput("allowed_paths") || undefined,
+    base_branch: core.getInput("base_branch") || undefined,
   });
 }
 
@@ -166,6 +168,13 @@ function parseAllowedPaths(raw: string | undefined): string[] | undefined {
     .map((g) => g.trim())
     .filter(Boolean);
   return globs.length > 0 ? globs : undefined;
+}
+
+/** parse the base_branch override; trims and strips a leading `refs/heads/`,
+ * undefined when unset (downstream resolves the run-start branch / default). */
+export function parseBaseBranch(raw: string | undefined): string | undefined {
+  const v = raw?.trim().replace(/^refs\/heads\//, "");
+  return v || undefined;
 }
 
 const isTerramend = (actor: string | null | undefined): boolean => {
@@ -246,6 +255,9 @@ export function resolvePayload(
     severityThreshold: parseSeverityThreshold(inputs.severity_threshold),
     maxPrs: parseMaxPrs(inputs.max_prs),
     allowedPaths: parseAllowedPaths(inputs.allowed_paths),
+    // explicit base-branch override; when unset the effective base is resolved
+    // at PR time (run-start branch → repo default) — see resolveBaseBranch.
+    baseBranch: parseBaseBranch(inputs.base_branch),
   };
 }
 

@@ -3,18 +3,23 @@ import { log } from "#app/utils/cli";
 import type { ToolContext } from "#app/mcp/server";
 
 /**
- * Remediation guardrails — hard, code-level limits that back the Remediate
- * mode's prompt rules. They only engage when the run selected the **Remediate**
- * mode, so every other mode (Build, Fix, Review, …) is completely unaffected.
+ * Terraform-write guardrails — hard, code-level limits that back the prompt
+ * rules of the modes that write Terraform and open PRs (**Remediate** and
+ * **GenerateTerraform**). They only engage for those modes, so every other mode
+ * (Build, Fix, Review, …) is completely unaffected.
  */
 
 export const REMEDIATE_MODE = "Remediate";
+export const GENERATE_MODE = "GenerateTerraform";
 
-/** default paths the Remediate mode may modify: Terraform sources only. */
+/** default paths these modes may modify/create: Terraform sources only. */
 export const DEFAULT_ALLOWED_PATHS = ["**/*.tf", "**/*.tfvars"] as const;
 
-function isRemediating(ctx: ToolContext): boolean {
-  return ctx.toolState.selectedMode === REMEDIATE_MODE;
+/** modes whose pushes/PRs are bounded by these guardrails. */
+const GUARDED_MODES: ReadonlySet<string> = new Set([REMEDIATE_MODE, GENERATE_MODE]);
+
+function isGuardedMode(ctx: ToolContext): boolean {
+  return ctx.toolState.selectedMode !== undefined && GUARDED_MODES.has(ctx.toolState.selectedMode);
 }
 
 export function resolveAllowedPaths(ctx: ToolContext): string[] {
@@ -98,12 +103,12 @@ function changedFilesSinceRunStart(ctx: ToolContext): string[] {
  * through.
  */
 export function enforceRemediationPaths(ctx: ToolContext): void {
-  if (!isRemediating(ctx)) return;
+  if (!isGuardedMode(ctx)) return;
 
   const base = runStartSha(ctx);
   if (!base) {
     throw new Error(
-      "push blocked (Remediate guardrail): could not establish the run-start commit to verify the change is limited to Terraform files. " +
+      "push blocked (Terraform-only guardrail): could not establish the run-start commit to verify the change is limited to Terraform files. " +
         "Ensure the run started from a clean checkout."
     );
   }
@@ -113,12 +118,12 @@ export function enforceRemediationPaths(ctx: ToolContext): void {
   const violations = changed.filter((f) => !isPathAllowed(f, allowed));
   if (violations.length > 0) {
     throw new Error(
-      `push blocked (Remediate guardrail): this run modified files outside the allowed paths [${allowed.join(", ")}]. ` +
-        `A remediation PR must only touch Terraform files. Revert these and re-apply the fix to the Terraform only:\n` +
+      `push blocked (Terraform-only guardrail): this run changed files outside the allowed paths [${allowed.join(", ")}]. ` +
+        `This mode must only touch Terraform files. Revert these and keep the change to Terraform only:\n` +
         violations.map((v) => `  - ${v}`).join("\n")
     );
   }
-  log.info(`» remediation path guardrail ok (${changed.length} file(s), all within [${allowed.join(", ")}])`);
+  log.info(`» Terraform-only path guardrail ok (${changed.length} file(s), all within [${allowed.join(", ")}])`);
 }
 
 /** maximum remediation PRs a single run may open (default 1). */
@@ -132,19 +137,19 @@ export function resolveMaxPrs(ctx: ToolContext): number {
  * PRs instead of fanning out.
  */
 export function assertUnderPrCap(ctx: ToolContext): void {
-  if (!isRemediating(ctx)) return;
+  if (!isGuardedMode(ctx)) return;
   const cap = resolveMaxPrs(ctx);
   const opened = ctx.toolState.remediationPrsOpened ?? 0;
   if (opened >= cap) {
     throw new Error(
-      `PR limit reached (Remediate guardrail): this run is configured to open at most ${cap} remediation PR(s) and has already opened ${opened}. ` +
-        `Stop here and report the remaining concerns for a future run.`
+      `PR limit reached (Terraform-only guardrail): this run is configured to open at most ${cap} PR(s) and has already opened ${opened}. ` +
+        `Stop here and report the remaining work for a future run.`
     );
   }
 }
 
-/** record that a remediation PR was opened (after create_pull_request succeeds). */
+/** record that a guarded-mode PR was opened (after create_pull_request succeeds). */
 export function recordRemediationPrOpened(ctx: ToolContext): void {
-  if (!isRemediating(ctx)) return;
+  if (!isGuardedMode(ctx)) return;
   ctx.toolState.remediationPrsOpened = (ctx.toolState.remediationPrsOpened ?? 0) + 1;
 }

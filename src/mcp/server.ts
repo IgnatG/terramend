@@ -43,6 +43,7 @@ import { SelectModeTool } from "#app/mcp/selectMode";
 import { addTools } from "#app/mcp/shared";
 import {
   InfracostDiffTool,
+  ReadFindingsTool,
   TerraformScanTool,
   TerraformValidateTool,
   TerraformVerifyRemediationTool,
@@ -148,6 +149,7 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     TerraformValidateTool(ctx),
     TerraformVerifyRemediationTool(ctx),
     InfracostDiffTool(ctx),
+    ReadFindingsTool(ctx),
   ];
 
   const isStandalone = ctx.payload.event.trigger === "unknown";

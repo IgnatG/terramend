@@ -1,5 +1,5 @@
 import { BUILTIN_MODE_NAMES } from "#app/modes";
-import { Inputs, JsonPayload, parseMode } from "#app/utils/payload";
+import { Inputs, JsonPayload, parseBaseBranch, parseMode } from "#app/utils/payload";
 
 describe("Inputs schema", () => {
   it("only prompt is required", () => {
@@ -47,6 +47,11 @@ describe("parseMode", () => {
     expect(parseMode("remediate")).toBe("Remediate");
     expect(parseMode("  REMEDIATE  ")).toBe("Remediate");
     expect(parseMode("Build")).toBe("Build");
+    expect(parseMode("generateterraform")).toBe("GenerateTerraform");
+  });
+
+  it("exposes the GenerateTerraform mode as a pinnable built-in", () => {
+    expect(BUILTIN_MODE_NAMES).toContain("GenerateTerraform");
   });
 
   it("every built-in mode name round-trips through itself", () => {
@@ -58,6 +63,24 @@ describe("parseMode", () => {
 
   it("falls back to undefined (agent auto-selects) for an unknown mode", () => {
     expect(parseMode("definitely-not-a-mode")).toBeUndefined();
+  });
+});
+
+describe("parseBaseBranch", () => {
+  it("returns undefined for unset/empty input", () => {
+    expect(parseBaseBranch(undefined)).toBeUndefined();
+    expect(parseBaseBranch("")).toBeUndefined();
+    expect(parseBaseBranch("   ")).toBeUndefined();
+  });
+
+  it("trims and returns a plain branch name", () => {
+    expect(parseBaseBranch("main")).toBe("main");
+    expect(parseBaseBranch("  release/1.2  ")).toBe("release/1.2");
+  });
+
+  it("strips a leading refs/heads/", () => {
+    expect(parseBaseBranch("refs/heads/main")).toBe("main");
+    expect(parseBaseBranch("refs/heads/release/1.2")).toBe("release/1.2");
   });
 });
 

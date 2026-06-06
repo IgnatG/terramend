@@ -11,11 +11,29 @@ import { execute, tool } from "#app/mcp/shared";
 export const PullRequest = type({
   title: type.string.describe("the title of the pull request"),
   body: type.string.describe("the body content of the pull request"),
-  base: type.string.describe("the base branch to merge into (e.g., 'main')"),
+  "base?": type.string.describe(
+    "the base branch to merge into (e.g. 'main'). Omit to use the run's resolved base branch: the `base_branch` input, else the branch this run started on, else the repository default branch."
+  ),
   "draft?": type.boolean.describe(
     "if true, create the pull request as a draft. use when the user explicitly asks for a draft PR."
   ),
 });
+
+/**
+ * Deterministically resolve the branch a PR targets, so the base is never left
+ * to the agent's guess (which made remediation PRs land against an arbitrary
+ * branch). Precedence: the explicit `base_branch` input → the branch this run
+ * started on (`initialHead`, captured at setup before any branch is created) →
+ * the repository default branch. The remediation/generation branch is created
+ * from this same ref, so the PR diff is exactly the change.
+ */
+export function resolveBaseBranch(ctx: ToolContext): string {
+  const override = ctx.payload.baseBranch;
+  if (override) return override;
+  const head = ctx.toolState.initialHead;
+  if (head?.kind === "branch") return head.name;
+  return ctx.repo.data.default_branch || "main";
+}
 
 function buildPrBodyWithFooter(ctx: ToolContext, body: string): string {
   const footer = buildTerramendFooter({
@@ -70,7 +88,8 @@ export function CreatePullRequestTool(ctx: ToolContext) {
       assertUnderPrCap(ctx);
 
       const currentBranch = $("git", ["rev-parse", "--abbrev-ref", "HEAD"], { log: false });
-      log.debug(`Current branch: ${currentBranch}`);
+      const base = params.base ?? resolveBaseBranch(ctx);
+      log.debug(`Current branch: ${currentBranch}; PR base: ${base}`);
 
       const bodyWithFooter = buildPrBodyWithFooter(ctx, params.body);
 
@@ -80,7 +99,7 @@ export function CreatePullRequestTool(ctx: ToolContext) {
         title: params.title,
         body: bodyWithFooter,
         head: currentBranch,
-        base: params.base,
+        base,
         draft: params.draft ?? false,
       });
       log.info(`» created pull request #${result.data.number} (id ${result.data.id})`);

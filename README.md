@@ -110,6 +110,7 @@ jobs:
 | `severity_threshold` | `low` | Minimum concern severity to act on: `critical` / `high` / `medium` / `low` / `info`. |
 | `max_prs` | `1` | Maximum remediation PRs opened per run. |
 | `allowed_paths` | `**/*.tf,**/*.tfvars` | Comma-separated globs the agent may modify. |
+| `base_branch` | (run branch) | Branch the PR targets and is branched from. Defaults to the branch the run was triggered on, else the repository's default branch. Set it to pin a specific base regardless of where the run is dispatched. |
 
 Standard agent inputs (`prompt`, `model`, `timeout`, `push`, `shell`, `token`, `output_schema`) are
 also available.

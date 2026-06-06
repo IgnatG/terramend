@@ -592,21 +592,55 @@ ${PR_SUMMARY_FORMAT}`,
 
 2. **scan**: call \`${t("terraform_scan")}\` to get the best-practice \`concerns\` plus \`groups\` — one group per file, each with a stable \`id\`, its \`file\`, the group \`severity\` (highest in the file), the distinct \`rule_ids\`, and the \`concern_ids\` it covers. If it reports zero concerns, call \`${t("report_progress")}\` with "Terraform already follows best practice — nothing to remediate." and **stop**.
 
+   *Alternative concern source:* if the Assessor (terraform-reviewer) has already produced a \`findings.json\` for this repo (one exists in the workspace, or \`$TERRAMEND_FINDINGS_PATH\` is set), call \`${t("read_findings")}\` instead — it returns the **same** \`{concerns, groups}\` shape from those findings, so the rest of this checklist is unchanged. Default to \`${t("terraform_scan")}\`; only use \`${t("read_findings")}\` when such a file is present (it returns \`found: false\` otherwise). Note that reviewer-exclusive findings (source \`reviewer\`) can't be re-verified by Terramend's scanners — see the prove-it step.
+
 3. **pick scope**: act on **one group per PR** (a group is all of one file's concerns — different scanners flag the same defect under different rules, so fixing per-file avoids a flood of near-duplicate PRs). Take the **highest-severity group first**. Unless the task explicitly asks for more, open **at most one PR this run**. Skip groups whose severity is only \`info\` unless asked. Use the \`terraform-best-practices\` skill for how to read each concern and apply the *minimal* fix.
 
 4. **for the chosen group**:
+   - **base branch**: this run's base branch is resolved deterministically — \`${t("create_pull_request")}\` targets the \`base_branch\` input if set, else the branch this run started on, else the repository default branch (so a run dispatched on \`X\` opens its PR against \`X\`). You do not choose it; just **omit** the \`base\` argument when opening the PR (below) and it is filled in.
    - **idempotency**: the remediation branch is \`remediate/<group-id>\`. Before doing anything, check whether that branch or an open PR for it already exists (\`${t("git")}\` / \`${t("get_pull_request")}\`). If one exists, update it rather than opening a duplicate.
-   - **branch**: create \`remediate/<group-id>\` from the default branch via \`${t("git")}\`.
+   - **branch**: create \`remediate/<group-id>\` from the **current HEAD** (the checkout that was just scanned) via \`${t("git")}\` (\`git checkout -b remediate/<group-id>\`). Do NOT switch to a different base first — branching from the scanned checkout keeps the PR diff to exactly your fix.
    - **fix**: edit only the group's \`file\`, using your native file tools. Resolve **every** concern in the group (they are all in that one file). **Only touch \`*.tf\` / \`*.tfvars\` files.** Make the smallest changes that clear the concerns — do NOT reformat or refactor unrelated code (see *SYSTEM* surgical-change rules). Prefer the house module catalogue when one is configured.
    - **validate**: call \`${t("terraform_validate")}\`. If it does not pass, fix what it reports or abandon this group — **never open a PR whose validate did not pass**.
    - **commit + push**: \`git add\` only the file you changed, commit with a message naming the file and the key rules (e.g. \`fix(tf): harden main.tf — S3 encryption + block public access\`), then \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
-   - **open PR**: \`${t("create_pull_request")}\` with a body that cites the group's \`file\`, its \`rule_ids\`, the \`evidence\`, and what the fixes do in plain English.
+   - **open PR**: \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above) with a body that cites the group's \`file\`, its \`rule_ids\`, the \`evidence\`, and what the fixes do in plain English.
    - **prove it (✗→✓)**: call \`${t("terraform_verify_remediation")}\` with the group's \`concern_ids\`. It re-runs the scanners and returns the authoritative \`resolved\` / \`remaining\` sets and a \`verified\` flag — this is the proof, do NOT eyeball a scan or self-report. Then \`${t("update_pull_request_body")}\` to add a "Validation" section built **from that result**: one \`✗ → ✓ <rule_id> resolved\` line per id in \`resolved\`, and list every id in \`remaining\` honestly as still-open. Never mark a concern ✓ unless the tool returned it in \`resolved\`.
    - **cost impact (optional)**: call \`${t("infracost_diff")}\` to estimate the monthly cost change the fix introduces. It auto-skips (returns \`ran: false\`) when \`INFRACOST_API_KEY\` or the infracost CLI is absent — in that case add nothing. When it returns \`ran: true\`, add a one-line **Cost impact** note to the PR body from its result: e.g. \`💰 Cost impact: +$12.40/mo\` for an increase, \`-$3.10/mo\` for a decrease, \`no change\` when \`monthly_delta\` is 0, or \`~$X/mo (baseline unavailable)\` when \`monthly_delta\` is null. Flag a meaningful increase so a security fix isn't silently trading budget.
 
 5. **guardrails** (always): one scoped PR per group, never a mega-PR spanning multiple files; **never auto-merge** and always leave the PR for human review; never modify files outside \`*.tf\` / \`*.tfvars\`.
 
 6. **finalize**: call \`${t("report_progress")}\` once with a summary — which file/group was fixed, the PR link, and the ✗→✓ result (or the exact tool error if push/PR creation failed).`,
+    },
+    {
+      name: "GenerateTerraform",
+      description:
+        "Generate new Terraform from a plain-English requirement (or a description of desired infrastructure) so it starts best-practice: secure defaults, pinned versions, parameterised, validated, and opened as one reviewable PR.",
+      prompt: `### Checklist
+
+1. **task list**: create your task list for this run as your first action.
+
+2. **understand the requirement**: read the prompt / issue body and restate, in your task list, exactly what infrastructure is being asked for (provider, resources, environment, constraints). If something that materially changes the Terraform is ambiguous (region, sizing, public vs private, naming), make the **most secure, conventional** choice and record the assumption for the PR body — do NOT invent unrequested resources or scope-creep.
+
+3. **branch**: create \`terramend/generate-<short-slug>\` from the **current HEAD** via \`${t("git")}\` (\`git checkout -b terramend/generate-<short-slug>\`; slug from the requirement, e.g. \`terramend/generate-s3-static-site\`). The PR's base branch is resolved deterministically by \`${t("create_pull_request")}\` (the \`base_branch\` input, else the branch this run started on, else the repository default branch) — you do not choose it; just omit the \`base\` argument when opening the PR.
+
+4. **generate (best practice from the first line)**: write the Terraform with your native file tools, guided by the \`terraform-best-practices\` skill. Requirements:
+   - **Only create \`*.tf\` / \`*.tfvars\` files** (a code-level guardrail blocks the push otherwise). Split conventionally — \`main.tf\` (resources), \`variables.tf\`, \`outputs.tf\`, \`versions.tf\` (pin \`required_version\` + \`required_providers\` with version constraints). Match the repo's existing layout when one exists.
+   - **Secure by default, not as an afterthought**: encryption at rest and in transit, block public access, least-privilege IAM (no wildcard actions/resources), IMDSv2, private networking, logging/versioning where supported. No \`0.0.0.0/0\` to admin/database ports. No plaintext secrets.
+   - **Parameterise**: expose environment-specific / likely-to-change values as typed \`variable\`s with \`description\`s and safe defaults; use \`locals\` for derived values. Never hardcode magic values.
+   - **Prefer modules**: use a well-maintained registry / house module (pinned) over hand-rolled resources when one cleanly fits.
+   - **Tag** resources consistently where the provider supports it.
+
+5. **validate (must pass before any PR)**: call \`${t("terraform_validate")}\` (fmt + validate + tflint). Fix whatever it reports — **never open a PR whose validate did not pass.**
+
+6. **self-scan (the generated code must itself be clean)**: call \`${t("terraform_scan")}\`. Generated Terraform is meant to START best-practice, so the scan should report zero concerns in the files you wrote. If it surfaces any, fix them and re-scan until clean — or, if a concern is a deliberate, justified exception, call it out explicitly in the PR body. Do not ship generated code that trips the scanners.
+
+7. **cost (optional)**: call \`${t("infracost_diff")}\` to estimate the monthly cost of what you're creating. It auto-skips when \`INFRACOST_API_KEY\` / the infracost CLI is absent. When it returns \`ran: true\`, add a one-line **💰 Cost impact** note to the PR body (for new infra the \`monthly_delta\` is the full cost of the addition).
+
+8. **finalize**:
+   - confirm a clean working tree (only your new \`*.tf\`/\`*.tfvars\` files), then push via \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
+   - open a PR via \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above) whose body states the requirement, what was generated, the key best-practice choices (security defaults, parameters, modules, pinned versions), any assumptions made, that \`terraform_validate\` passed and \`terraform_scan\` is clean, plus the cost note if available.
+   - **never auto-merge** — leave the PR for human review.
+   - call \`${t("report_progress")}\` once with the PR link (or the exact tool error if push/PR creation failed).`,
     },
     {
       name: "Task",
