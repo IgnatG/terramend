@@ -4,6 +4,7 @@ import {
   computeCostDelta,
   computeRemediationVerdict,
   groupConcerns,
+  isTerraformConcern,
   parseCheckovOutput,
   parseFmtOutput,
   parseInfracostBreakdown,
@@ -338,6 +339,33 @@ describe("computeRemediationVerdict (C2 — tamper-proof ✗→✓)", () => {
       resolved: [],
       remaining: [],
     });
+  });
+});
+
+describe("isTerraformConcern", () => {
+  const at = (file: string): Concern => ({
+    id: "x",
+    source: "checkov",
+    rule_id: "checkov:CKV_X",
+    severity: "high",
+    category: "security",
+    evidence: "e",
+    location: { file, line: 1 },
+    remediation_hint: null,
+  });
+
+  it("keeps .tf and .tfvars concerns", () => {
+    expect(isTerraformConcern(at("main.tf"))).toBe(true);
+    expect(isTerraformConcern(at("modules/net/vpc.tf"))).toBe(true);
+    expect(isTerraformConcern(at("envs/prod.tfvars"))).toBe(true);
+    expect(isTerraformConcern(at("MAIN.TF"))).toBe(true);
+  });
+
+  it("drops non-Terraform concerns (checkov github_actions, trivy dockerfile)", () => {
+    expect(isTerraformConcern(at(".github/workflows/ci.yml"))).toBe(false);
+    expect(isTerraformConcern(at("Dockerfile"))).toBe(false);
+    expect(isTerraformConcern(at("k8s/deployment.yaml"))).toBe(false);
+    expect(isTerraformConcern(at("(unknown)"))).toBe(false);
   });
 });
 

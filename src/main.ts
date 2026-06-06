@@ -30,6 +30,7 @@ import { onExitSignal } from "#app/utils/exitHandler";
 import { resolveGit, setGitAuthServer } from "#app/utils/gitAuth";
 import { startGitAuthServer } from "#app/utils/gitAuthServer";
 import { createOctokit, writeGitHubUsageSummaryToFile } from "#app/utils/github";
+import { isBackendConfigured } from "#app/utils/apiUrl";
 import { resolveInstructions } from "#app/utils/instructions";
 import { persistLearnings, seedLearningsFile } from "#app/utils/learnings";
 import { describeSetupFailure, executeLifecycleHook } from "#app/utils/lifecycle";
@@ -357,41 +358,46 @@ export async function main(): Promise<MainResult> {
     log.info(`» MCP server started at ${mcpHttpServer.url}`);
     timer.checkpoint("mcpServer");
 
-    // seed the rolling repo-level learnings tmpfile for every run. the
-    // agent reads the file at startup (path is surfaced in the LEARNINGS
-    // section of the prompt) and may edit it during the post-run
-    // reflection turn. persistLearnings reads it back at end-of-run and
-    // PATCHes any changes to Repo.learnings, byte-trim equality against
-    // the seed gates the API call. always-seed (vs gated): learnings are
-    // universal — any run can produce them, and gating just hides the
-    // affordance.
+    // seed the rolling repo-level learnings tmpfile. the agent reads the file
+    // at startup (path is surfaced in the LEARNINGS section of the prompt) and
+    // may edit it during the post-run reflection turn. persistLearnings reads
+    // it back at end-of-run and PATCHes any changes to Repo.learnings.
     //
-    // wrapped in best-effort try/catch: this block runs unconditionally,
-    // and an unwrapped filesystem failure (ENOSPC, EACCES, hostile sandbox)
-    // would unwind into the outer main() catch and flip an otherwise-
-    // successful run to "❌ Terramend failed" before the agent even starts.
-    // on failure toolState.learningsFilePath stays unset, and downstream
-    // consumers (`persistLearnings`, agent harnesses, `resolveInstructions`)
-    // all treat undefined as "no learnings affordance this run".
-    try {
-      const learningsPath = await seedLearningsFile({
-        tmpdir,
-        current: runContext.repoSettings.learnings,
-      });
-      toolState.learningsFilePath = learningsPath;
-      // file on disk is the verbatim DB body, so the seed used for
-      // change-detection is just `current ?? ""` (trimmed). persistLearnings
-      // byte-compares against the trimmed read-back to skip no-op PATCHes.
-      toolState.learningsSeed = (runContext.repoSettings.learnings ?? "").trim();
-      log.info(
-        `» learnings seeded at ${learningsPath} (existing=${runContext.repoSettings.learnings ? "yes" : "no"})`
-      );
-      const ctxForExit = toolContext;
-      onExitSignal(() => persistLearnings(ctxForExit));
-    } catch (err) {
-      log.warning(
-        `» learnings seed failed: ${err instanceof Error ? err.message : String(err)} — continuing without learnings file`
-      );
+    // gated on a configured backend: learnings only have somewhere to persist
+    // when a real backend is wired (hosted SaaS / local dev). in a standalone
+    // BYOK run there is no store, so seeding the file would only provoke the
+    // post-run reflection turn (an extra billed LLM turn) to edit a file whose
+    // changes get dropped — and persistLearnings would then PATCH the default
+    // marketing host and warn on its 404. leaving learningsFilePath unset makes
+    // every downstream consumer (`persistLearnings`, agent harnesses,
+    // `resolveInstructions`) treat this as "no learnings affordance this run".
+    //
+    // wrapped in best-effort try/catch: an unwrapped filesystem failure
+    // (ENOSPC, EACCES, hostile sandbox) would unwind into the outer main()
+    // catch and flip an otherwise-successful run to "❌ Terramend failed".
+    if (isBackendConfigured()) {
+      try {
+        const learningsPath = await seedLearningsFile({
+          tmpdir,
+          current: runContext.repoSettings.learnings,
+        });
+        toolState.learningsFilePath = learningsPath;
+        // file on disk is the verbatim DB body, so the seed used for
+        // change-detection is just `current ?? ""` (trimmed). persistLearnings
+        // byte-compares against the trimmed read-back to skip no-op PATCHes.
+        toolState.learningsSeed = (runContext.repoSettings.learnings ?? "").trim();
+        log.info(
+          `» learnings seeded at ${learningsPath} (existing=${runContext.repoSettings.learnings ? "yes" : "no"})`
+        );
+        const ctxForExit = toolContext;
+        onExitSignal(() => persistLearnings(ctxForExit));
+      } catch (err) {
+        log.warning(
+          `» learnings seed failed: ${err instanceof Error ? err.message : String(err)} — continuing without learnings file`
+        );
+      }
+    } else {
+      log.debug("no backend configured (API_URL unset) — skipping learnings seed + reflection turn");
     }
 
     // seed the rolling PR summary tmpfile when the dispatcher requested it.

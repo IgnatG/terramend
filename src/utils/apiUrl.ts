@@ -25,3 +25,17 @@ export function getApiUrl(): string {
   log.debug(`resolved API_URL: ${raw}`);
   return raw;
 }
+
+/**
+ * Whether a real Terramend backend is configured.
+ *
+ * Standalone BYOK runs (the OSS default) leave `API_URL` unset — `getApiUrl`
+ * then falls back to the marketing host, which serves no API. The dormant
+ * open-core persistence seams (repo learnings, run-field PATCHes) must no-op
+ * in that case rather than POST into the void and surface the host's 404 as a
+ * CI warning. A real backend — the hosted SaaS, or local dev with
+ * `API_URL=http://localhost:3000` — sets `API_URL` explicitly.
+ */
+export function isBackendConfigured(): boolean {
+  return Boolean(process.env.API_URL);
+}

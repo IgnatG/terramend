@@ -388,7 +388,12 @@ interface TrivyResult {
 // --- checkov --------------------------------------------------------------
 
 function scanCheckov(cwd: string): ScannerOutcome {
-  const r = run("checkov", ["-d", ".", "-o", "json", "--compact", "--quiet"], cwd);
+  // `--framework terraform` keeps checkov to Terraform only. By default checkov
+  // also scans github_actions / dockerfile / secrets / kubernetes / etc., which
+  // surfaces concerns in files Terramend can never remediate (the path guardrail
+  // blocks anything outside *.tf/*.tfvars) — pure noise. Terramend is
+  // Terraform-only, so we scope the scanner to match.
+  const r = run("checkov", ["-d", ".", "--framework", "terraform", "-o", "json", "--compact", "--quiet"], cwd);
   if (r.missing) return skipped("checkov", "checkov not installed");
   try {
     return { source: "checkov", ran: true, concerns: parseCheckovOutput(r.stdout, cwd) };
@@ -436,6 +441,18 @@ interface CheckovOutput {
 }
 
 // --- the tools ------------------------------------------------------------
+
+/**
+ * Terramend is Terraform-only. A concern in a non-`.tf`/`.tfvars` file can never
+ * be remediated (the `allowed_paths` push guardrail blocks it) and is pure noise,
+ * so any scanner that also inspects other IaC — checkov's github_actions, trivy's
+ * dockerfile/kubernetes — gets filtered down to Terraform here. This is the
+ * catch-all backstop; `scanCheckov` also scopes itself with `--framework terraform`.
+ */
+export function isTerraformConcern(c: Concern): boolean {
+  const f = c.location.file.toLowerCase();
+  return f.endsWith(".tf") || f.endsWith(".tfvars");
+}
 
 function dedupe(concerns: Concern[]): Concern[] {
   const seen = new Set<string>();
@@ -705,6 +722,7 @@ export function TerraformScanTool(ctx: ToolContext) {
           : changed.has(c.location.file.replace(/\\/g, "/").replace(/^\.\//, ""));
 
       const all = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
+        .filter(isTerraformConcern)
         .filter(inScope)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
 

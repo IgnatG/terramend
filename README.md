@@ -18,7 +18,7 @@ branch (✗ → ✓). It never auto-merges; a human always reviews.
 
 1. **Scans** the Terraform in the workspace with deterministic check tools — `terraform fmt`,
    `terraform validate`, [tflint](https://github.com/terraform-linters/tflint),
-   [tfsec](https://github.com/aquasecurity/tfsec), and [Checkov](https://www.checkov.io/). Each
+   [Trivy](https://github.com/aquasecurity/trivy), and [Checkov](https://www.checkov.io/). Each
    finding is normalised into a **concern** with a stable, content-derived `id`, a severity, the
    producing rule, the file/line, and a remediation hint.
 2. **Fixes** the highest-severity concern with the minimal, correct change, guided by a built-in
@@ -38,7 +38,7 @@ The model only *applies* fixes; the **tools decide** what's wrong. The finding s
 
 | MCP tool | What it does |
 |----------|--------------|
-| `terraform_scan` | Runs fmt / validate / tflint / tfsec / checkov over the workspace → a severity-ranked list of concerns. Supports `scan_scope: full \| diff` and a `severity_threshold`. Scanners that aren't installed are reported as *skipped* — they never fail the scan. |
+| `terraform_scan` | Runs fmt / validate / tflint / trivy / checkov over the workspace → a severity-ranked list of concerns. Only Terraform files (`*.tf`/`*.tfvars`) are reported; checkov runs with `--framework terraform`. Supports `scan_scope: full \| diff` and a `severity_threshold`. Scanners that aren't installed are reported as *skipped* — they never fail the scan. |
 | `terraform_validate` | Fast pre-PR gate (fmt + validate + tflint over the workspace). |
 
 These run alongside Terramend's git/GitHub tools (checkout, branch, commit, push, open PR, comment).
@@ -61,7 +61,7 @@ Terramend's remediation runs are bounded by **code-level** guardrails (not just 
 ## Usage
 
 Add a workflow that runs Terramend on your Terraform repository. The scanner toolchain
-(`terraform`, `tflint`, `tfsec`, `checkov`) must be on the runner's `PATH` — Terramend shells out to
+(`terraform`, `tflint`, `trivy`, `checkov`) must be on the runner's `PATH` — Terramend shells out to
 them and degrades gracefully (reporting them *skipped*) when one is absent.
 
 ```yaml
@@ -84,9 +84,8 @@ jobs:
       # install the Terraform best-practice toolchain
       - uses: hashicorp/setup-terraform@v3
       - uses: terraform-linters/setup-tflint@v4
-      - run: |
-          curl -fsSL https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
-          pipx install checkov
+      - uses: aquasecurity/setup-trivy@v0.3.1
+      - run: pipx install checkov
 
       - name: Run Terramend
         uses: <your-org>/terramend@v0

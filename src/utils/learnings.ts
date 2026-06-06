@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ToolContext } from "#app/mcp/server";
 import { apiFetch } from "#app/utils/apiFetch";
+import { isBackendConfigured } from "#app/utils/apiUrl";
 import { log } from "#app/utils/cli";
 import { MAX_LEARNINGS_LENGTH, truncateAtLineBoundary } from "#app/utils/learningsTruncate";
 
@@ -90,6 +91,13 @@ export async function persistLearnings(ctx: ToolContext): Promise<void> {
   if (!filePath) return;
   if (ctx.toolState.learningsPersistAttempted) return;
   ctx.toolState.learningsPersistAttempted = true;
+  // dormant open-core seam: with no backend configured (standalone BYOK), there
+  // is nowhere to persist repo learnings — no-op silently instead of PATCHing
+  // the default marketing host and warning on its 404.
+  if (!isBackendConfigured()) {
+    log.debug("no backend configured (API_URL unset) — skipping learnings persist");
+    return;
+  }
   const current = await readLearningsFile(filePath);
   if (current === null) {
     log.debug(`learnings tmpfile missing or unreadable at ${filePath} — skipping persist`);
