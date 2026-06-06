@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
+  collectCloudCredentials,
   type Concern,
   computeCostDelta,
   computeRemediationVerdict,
@@ -9,6 +10,7 @@ import {
   parseFmtOutput,
   parseInfracostBreakdown,
   parseReviewerFindings,
+  parseTerraformPlanJson,
   parseTflintOutput,
   parseTrivyOutput,
   parseValidateOutput,
@@ -484,6 +486,92 @@ describe("isTerraformConcern", () => {
     expect(isTerraformConcern(at("Dockerfile"))).toBe(false);
     expect(isTerraformConcern(at("k8s/deployment.yaml"))).toBe(false);
     expect(isTerraformConcern(at("(unknown)"))).toBe(false);
+  });
+});
+
+describe("collectCloudCredentials", () => {
+  const touched = [
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_GENERATIVE_AI_API_KEY",
+    "GEMINI_API_KEY",
+    "ANTHROPIC_API_KEY",
+  ];
+  const saved: Record<string, string | undefined> = {};
+  for (const k of touched) saved[k] = process.env[k];
+
+  afterEach(() => {
+    for (const k of touched) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it("passes real cloud creds to terraform but NOT LLM/provider secret keys", () => {
+    process.env.AWS_ACCESS_KEY_ID = "akia";
+    process.env.AWS_SECRET_ACCESS_KEY = "secret";
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/creds.json";
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY = "gemini-key"; // must NOT leak (Gemini LLM key)
+    process.env.GEMINI_API_KEY = "gemini-key-2"; // must NOT leak
+    process.env.ANTHROPIC_API_KEY = "anthropic-key"; // must NOT leak
+
+    const env = collectCloudCredentials();
+    expect(env.AWS_ACCESS_KEY_ID).toBe("akia");
+    expect(env.AWS_SECRET_ACCESS_KEY).toBe("secret");
+    expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBe("/creds.json");
+    expect(env.GOOGLE_GENERATIVE_AI_API_KEY).toBeUndefined();
+    expect(env.GEMINI_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+});
+
+describe("parseTerraformPlanJson", () => {
+  const lines = (...objs: unknown[]) => objs.map((o) => JSON.stringify(o)).join("\n");
+
+  it("reads add/change/destroy from change_summary", () => {
+    const out = lines(
+      { "@level": "info", type: "version" },
+      { type: "change_summary", changes: { add: 2, change: 1, remove: 0, operation: "plan" } }
+    );
+    const s = parseTerraformPlanJson(out);
+    expect(s).toMatchObject({ add: 2, change: 1, destroy: 0, hasDestroyOrReplace: false });
+    expect(s.destructive).toEqual([]);
+  });
+
+  it("collects deleted and replaced resources as destructive", () => {
+    const out = lines(
+      { type: "planned_change", change: { action: "create", resource: { addr: "aws_s3_bucket.a" } } },
+      { type: "planned_change", change: { action: "delete", resource: { addr: "aws_db_instance.db" } } },
+      { type: "planned_change", change: { action: "replace", resource: { addr: "aws_instance.web" } } },
+      { type: "change_summary", changes: { add: 1, change: 0, remove: 2 } }
+    );
+    const s = parseTerraformPlanJson(out);
+    expect(s.destroy).toBe(2);
+    expect(s.hasDestroyOrReplace).toBe(true);
+    expect(s.destructive).toEqual([
+      { address: "aws_db_instance.db", action: "delete" },
+      { address: "aws_instance.web", action: "replace" },
+    ]);
+  });
+
+  it("treats *-then-delete forms as destructive", () => {
+    const out = lines({
+      type: "planned_change",
+      change: { action: "create-then-delete", resource: { addr: "aws_instance.web" } },
+    });
+    expect(parseTerraformPlanJson(out).hasDestroyOrReplace).toBe(true);
+  });
+
+  it("ignores non-JSON / non-plan lines and tolerates empty output", () => {
+    expect(parseTerraformPlanJson("not json\n\nProviders required...\n")).toEqual({
+      add: 0,
+      change: 0,
+      destroy: 0,
+      destructive: [],
+      hasDestroyOrReplace: false,
+    });
+    expect(parseTerraformPlanJson("")).toMatchObject({ add: 0, hasDestroyOrReplace: false });
   });
 });
 

@@ -999,6 +999,164 @@ export function parseReviewerFindings(json: string, cwd = ""): Concern[] {
   return out;
 }
 
+// --- terraform plan (the safety gate) -------------------------------------
+
+export interface PlanSummary {
+  /** resources to add / change / destroy, from the plan's change_summary. */
+  add: number;
+  change: number;
+  destroy: number;
+  /** resources that would be deleted or replaced — the destructive set. */
+  destructive: { address: string; action: string }[];
+  hasDestroyOrReplace: boolean;
+}
+
+/**
+ * Parse `terraform plan -json` (newline-delimited JSON). `change_summary` gives
+ * the add/change/destroy totals; each `planned_change` whose action deletes or
+ * replaces a resource is collected as destructive (the high-risk set a reviewer
+ * must scrutinise). Non-JSON / non-plan lines are ignored, so a noisy stream
+ * (provider logs, diagnostics) parses cleanly.
+ */
+export function parseTerraformPlanJson(stdout: string): PlanSummary {
+  let add = 0;
+  let change = 0;
+  let destroy = 0;
+  const destructive: { address: string; action: string }[] = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    let msg: {
+      type?: string;
+      changes?: { add?: number; change?: number; remove?: number };
+      change?: { action?: string; resource?: { addr?: string; resource?: string } };
+    };
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (msg.type === "change_summary" && msg.changes) {
+      add = Number(msg.changes.add) || 0;
+      change = Number(msg.changes.change) || 0;
+      destroy = Number(msg.changes.remove) || 0;
+    } else if (msg.type === "planned_change" && msg.change) {
+      const action = String(msg.change.action ?? "");
+      // "delete", "replace", and the "*-then-delete" / "delete-then-*" forms.
+      if (action.includes("delete") || action === "replace") {
+        const address = msg.change.resource?.addr || msg.change.resource?.resource || "(unknown)";
+        destructive.push({ address, action });
+      }
+    }
+  }
+  return { add, change, destroy, destructive, hasDestroyOrReplace: destructive.length > 0 };
+}
+
+// env vars that signal a cloud provider credential is present — terraform plan
+// needs live provider/backend access, so we only attempt it when one is set.
+const CLOUD_CRED_SIGNALS = [
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_PROFILE",
+  "AWS_ROLE_ARN",
+  "AWS_WEB_IDENTITY_TOKEN_FILE",
+  "ARM_CLIENT_ID",
+  "ARM_USE_OIDC",
+  "AZURE_CLIENT_ID",
+  "GOOGLE_CREDENTIALS",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_OAUTH_ACCESS_TOKEN",
+] as const;
+
+function hasCloudCredentials(): boolean {
+  return CLOUD_CRED_SIGNALS.some((k) => !!process.env[k]);
+}
+
+// env vars terraform/providers legitimately consume, re-admitted past the
+// secret-stripping `run()` env for the plan invocation. PREFIXES are only ones
+// that can't collide with an LLM/secret key — NB the bare `GOOGLE_` prefix is
+// deliberately NOT used (it would re-admit the Gemini key
+// `GOOGLE_GENERATIVE_AI_API_KEY`); GCP creds are matched by exact NAME instead.
+const CLOUD_CRED_PREFIXES = ["AWS_", "ARM_", "AZURE_", "GCLOUD_", "GOOGLE_CLOUD_", "TF_VAR_", "TF_TOKEN_", "TF_CLI_"];
+const CLOUD_CRED_NAMES = new Set([
+  "GOOGLE_CREDENTIALS",
+  "GOOGLE_APPLICATION_CREDENTIALS",
+  "GOOGLE_CLOUD_KEYFILE_JSON",
+  "GOOGLE_OAUTH_ACCESS_TOKEN",
+  "GOOGLE_PROJECT",
+  "GOOGLE_REGION",
+  "GOOGLE_ZONE",
+  "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT",
+]);
+
+export function collectCloudCredentials(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v === undefined) continue;
+    if (CLOUD_CRED_PREFIXES.some((p) => k.startsWith(p)) || CLOUD_CRED_NAMES.has(k)) env[k] = v;
+  }
+  return env;
+}
+
+export const TerraformPlanParams = type({});
+
+export function TerraformPlanTool(ctx: ToolContext) {
+  return tool({
+    name: "terraform_plan",
+    description:
+      "Run `terraform plan` and report the planned change summary (resources to add / change / destroy) " +
+      "plus any resource that would be DESTROYED or REPLACED. Opt-in and degrades green — it auto-skips " +
+      "(returns `ran: false`, never fails the run) when no cloud credentials are detected, terraform is " +
+      "not installed, or init/plan can't complete (plan needs live provider/backend access). Call it after " +
+      "a fix to attach the real-world effect to the PR and surface destructive changes for human review.",
+    parameters: TerraformPlanParams,
+    execute: execute(async () => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      if (!hasCloudCredentials()) {
+        return {
+          ran: false,
+          skipped_reason:
+            "no cloud credentials detected — terraform plan needs provider/backend access; skipped (add AWS/Azure/GCP creds or an OIDC role to enable it)",
+        };
+      }
+      const creds = collectCloudCredentials();
+      const init = run("terraform", ["init", "-input=false", "-no-color"], cwd, creds);
+      if (init.missing) return { ran: false, skipped_reason: "terraform not installed" };
+      if (init.status !== 0) {
+        return {
+          ran: false,
+          skipped_reason: `terraform init failed — plan skipped: ${init.stderr.trim().slice(0, 300) || "unknown error"}`,
+        };
+      }
+      const plan = run(
+        "terraform",
+        ["plan", "-input=false", "-no-color", "-lock=false", "-json"],
+        cwd,
+        creds
+      );
+      if (plan.status !== 0) {
+        return {
+          ran: false,
+          skipped_reason: `terraform plan failed — skipped: ${plan.stderr.trim().slice(0, 300) || "unknown error"}`,
+        };
+      }
+      const summary = parseTerraformPlanJson(plan.stdout);
+      log.info(
+        `» terraform_plan: +${summary.add} ~${summary.change} -${summary.destroy}` +
+          (summary.hasDestroyOrReplace ? ` (DESTRUCTIVE: ${summary.destructive.length})` : "")
+      );
+      return {
+        ran: true,
+        to_add: summary.add,
+        to_change: summary.change,
+        to_destroy: summary.destroy,
+        has_destroy_or_replace: summary.hasDestroyOrReplace,
+        destructive: summary.destructive,
+      };
+    }),
+  });
+}
+
 export const ReadFindingsParams = type({
   "path?": type.string.describe(
     "path to the Assessor's findings.json. Defaults to $TERRAMEND_FINDINGS_PATH, then ./findings.json in the workspace."

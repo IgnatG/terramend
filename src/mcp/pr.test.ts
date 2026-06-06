@@ -1,44 +1,47 @@
 import { describe, expect, it } from "vitest";
 import type { ToolContext } from "#app/mcp/server";
-import { resolveBaseBranch } from "#app/mcp/pr";
+import { pickBaseBranch, resolveBaseBranch } from "#app/mcp/pr";
 
-describe("resolveBaseBranch (deterministic PR base)", () => {
-  const ctx = (over: {
-    baseBranch?: string;
-    initialHead?: ToolContext["toolState"]["initialHead"];
-    defaultBranch?: string;
-  }): ToolContext =>
+describe("pickBaseBranch (deterministic base: declared → default → main → master → main)", () => {
+  it("an explicit declaration always wins", () => {
+    expect(
+      pickBaseBranch({ declared: "release", defaultBranch: "main", mainExists: true, masterExists: true })
+    ).toBe("release");
+  });
+
+  it("uses the repository default branch when nothing is declared", () => {
+    expect(pickBaseBranch({ defaultBranch: "master", mainExists: true, masterExists: true })).toBe("master");
+  });
+
+  it("prefers main when neither a declaration nor a default branch is known", () => {
+    expect(pickBaseBranch({ mainExists: true, masterExists: true })).toBe("main");
+  });
+
+  it("falls back to master when main does not exist", () => {
+    expect(pickBaseBranch({ mainExists: false, masterExists: true })).toBe("master");
+  });
+
+  it("ultimately defaults to main", () => {
+    expect(pickBaseBranch({ mainExists: false, masterExists: false })).toBe("main");
+  });
+});
+
+describe("resolveBaseBranch (ctx wiring; git not probed when a declaration or default exists)", () => {
+  const ctx = (over: { baseBranch?: string; defaultBranch?: string }): ToolContext =>
     ({
       payload: { baseBranch: over.baseBranch },
-      toolState: { initialHead: over.initialHead },
       repo: { data: { default_branch: over.defaultBranch } },
     }) as unknown as ToolContext;
 
   it("prefers the explicit base_branch override", () => {
-    expect(
-      resolveBaseBranch(
-        ctx({ baseBranch: "release", initialHead: { kind: "branch", name: "pr-1" }, defaultBranch: "main" })
-      )
-    ).toBe("release");
+    expect(resolveBaseBranch(ctx({ baseBranch: "release", defaultBranch: "main" }))).toBe("release");
   });
 
-  it("falls back to the branch the run started on", () => {
-    expect(resolveBaseBranch(ctx({ initialHead: { kind: "branch", name: "pr-1" }, defaultBranch: "main" }))).toBe(
-      "pr-1"
-    );
+  it("trims the override", () => {
+    expect(resolveBaseBranch(ctx({ baseBranch: "  release  ", defaultBranch: "main" }))).toBe("release");
   });
 
-  it("falls back to the default branch when the run started detached", () => {
-    expect(resolveBaseBranch(ctx({ initialHead: { kind: "detached", sha: "abc123" }, defaultBranch: "main" }))).toBe(
-      "main"
-    );
-  });
-
-  it("falls back to the default branch when there is no captured initial head", () => {
-    expect(resolveBaseBranch(ctx({ defaultBranch: "trunk" }))).toBe("trunk");
-  });
-
-  it("ultimately defaults to main", () => {
-    expect(resolveBaseBranch(ctx({}))).toBe("main");
+  it("uses the repository default branch when no override is set", () => {
+    expect(resolveBaseBranch(ctx({ defaultBranch: "master" }))).toBe("master");
   });
 });

@@ -40,7 +40,7 @@ inputs:
     description: "Terraform remediation: comma-separated globs the agent may modify. Default: **/*.tf,**/*.tfvars."
     required: false
   base_branch:
-    description: "Branch the remediation/generation PR targets (and is branched from). Default: the branch this run was triggered on, else the repository's default branch. Set this to pin a specific base (e.g. 'main') regardless of where the run is dispatched."
+    description: "Branch the remediation/generation PR targets. Default: the repository's default branch (main, or master). Set this to pin a specific base (e.g. a release branch) regardless of where the run is dispatched."
     required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
