@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   type Concern,
+  computeCostDelta,
   computeRemediationVerdict,
   groupConcerns,
   parseCheckovOutput,
   parseFmtOutput,
+  parseInfracostBreakdown,
   parseTflintOutput,
   parseTrivyOutput,
   parseValidateOutput,
@@ -336,5 +338,74 @@ describe("computeRemediationVerdict (C2 — tamper-proof ✗→✓)", () => {
       resolved: [],
       remaining: [],
     });
+  });
+});
+
+describe("parseInfracostBreakdown", () => {
+  it("parses the decimal-string totalMonthlyCost and currency", () => {
+    const json = JSON.stringify({ currency: "USD", totalMonthlyCost: "123.45" });
+    expect(parseInfracostBreakdown(json)).toEqual({ totalMonthlyCost: 123.45, currency: "USD" });
+  });
+
+  it("accepts a numeric totalMonthlyCost and a non-USD currency", () => {
+    const json = JSON.stringify({ currency: "GBP", totalMonthlyCost: 10 });
+    expect(parseInfracostBreakdown(json)).toEqual({ totalMonthlyCost: 10, currency: "GBP" });
+  });
+
+  it("yields null cost (not 0) when nothing is priced, defaulting currency to USD", () => {
+    expect(parseInfracostBreakdown(JSON.stringify({}))).toEqual({
+      totalMonthlyCost: null,
+      currency: "USD",
+    });
+    expect(parseInfracostBreakdown(JSON.stringify({ totalMonthlyCost: null }))).toEqual({
+      totalMonthlyCost: null,
+      currency: "USD",
+    });
+  });
+
+  it("treats empty output as no breakdown", () => {
+    expect(parseInfracostBreakdown("")).toEqual({ totalMonthlyCost: null, currency: "USD" });
+  });
+});
+
+describe("computeCostDelta", () => {
+  it("reports an increase, rounded to cents", () => {
+    expect(
+      computeCostDelta({ totalMonthlyCost: 100, currency: "USD" }, { totalMonthlyCost: 112.405, currency: "USD" })
+    ).toEqual({
+      currency: "USD",
+      baselineMonthly: 100,
+      currentMonthly: 112.405,
+      deltaMonthly: 12.41,
+      direction: "increase",
+    });
+  });
+
+  it("reports a decrease", () => {
+    const d = computeCostDelta({ totalMonthlyCost: 50, currency: "USD" }, { totalMonthlyCost: 40, currency: "USD" });
+    expect(d.deltaMonthly).toBe(-10);
+    expect(d.direction).toBe("decrease");
+  });
+
+  it("reports no-change when costs are equal", () => {
+    const d = computeCostDelta({ totalMonthlyCost: 7, currency: "USD" }, { totalMonthlyCost: 7, currency: "USD" });
+    expect(d.deltaMonthly).toBe(0);
+    expect(d.direction).toBe("no-change");
+  });
+
+  it("is unknown when there is no baseline", () => {
+    expect(computeCostDelta(null, { totalMonthlyCost: 30, currency: "USD" })).toEqual({
+      currency: "USD",
+      baselineMonthly: null,
+      currentMonthly: 30,
+      deltaMonthly: null,
+      direction: "unknown",
+    });
+  });
+
+  it("is unknown when either side is unpriced, and falls back to the baseline currency", () => {
+    expect(
+      computeCostDelta({ totalMonthlyCost: 5, currency: "GBP" }, { totalMonthlyCost: null, currency: "" })
+    ).toMatchObject({ currency: "GBP", deltaMonthly: null, direction: "unknown" });
   });
 });

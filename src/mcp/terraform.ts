@@ -18,7 +18,7 @@ import { execute, tool } from "#app/mcp/shared";
  * add `lens` / `standard` / `control_id` / `state` on top. Keeping the shape a
  * subset means a future reviewer integration (read_findings) can emit the same
  * Concern[] with no change to the modes or the rest of the tools — only the
- * SOURCE of concerns swaps. See ARCHITECTURE.md "The spine".
+ * SOURCE of concerns swaps.
  */
 export interface Concern {
   /** stable content id: sha1(source|rule_id|file|line). idempotency key for branch/PR naming. */
@@ -84,14 +84,19 @@ type RunResult = { status: number; stdout: string; stderr: string; missing: bool
  * issues, so a non-zero status is normal, not an error. `missing` is set when
  * the binary isn't on PATH (ENOENT) — the scanner then degrades to "skipped"
  * rather than failing the run (plan §9.2: a tool being absent must not block).
+ *
+ * `extraEnv` opts a specific command back into a needed credential: the scanners
+ * run with a restricted env that strips every `*_KEY`/secret, but infracost
+ * legitimately needs its `INFRACOST_API_KEY`. resolveEnv(object) merges the
+ * restricted base with the explicit vars, so only the named keys get through.
  */
-function run(cmd: string, args: string[], cwd: string): RunResult {
+function run(cmd: string, args: string[], cwd: string, extraEnv?: Record<string, string>): RunResult {
   const result = spawnSync(cmd, args, {
     cwd,
     encoding: "utf-8",
     // restricted env: keeps PATH/HOME, strips secrets so a scanner (or a tflint
-    // plugin) can't exfiltrate credentials.
-    env: resolveEnv("restricted") as NodeJS.ProcessEnv,
+    // plugin) can't exfiltrate credentials. `extraEnv` re-admits only the named vars.
+    env: resolveEnv(extraEnv ?? "restricted") as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
   });
@@ -570,6 +575,89 @@ export function computeRemediationVerdict(
   return { verified: remaining.length === 0, resolved, remaining };
 }
 
+// --- infracost (cost lens) ------------------------------------------------
+
+export interface CostBreakdown {
+  /** total estimated monthly cost, or null when no resources are priced. */
+  totalMonthlyCost: number | null;
+  currency: string;
+}
+
+/**
+ * Parse `infracost breakdown --format json`. The top-level `totalMonthlyCost`
+ * is a decimal string (absent / null when a project has no priced resources);
+ * `currency` defaults to USD. A missing/unparseable cost becomes null so the
+ * caller reports "unpriced" rather than a misleading $0.00.
+ */
+export function parseInfracostBreakdown(stdout: string): CostBreakdown {
+  const parsed = JSON.parse(stdout || "{}") as {
+    totalMonthlyCost?: string | number | null;
+    currency?: string;
+  };
+  const raw = parsed.totalMonthlyCost;
+  const num = typeof raw === "number" ? raw : raw != null ? Number.parseFloat(raw) : Number.NaN;
+  return {
+    totalMonthlyCost: Number.isFinite(num) ? num : null,
+    currency: parsed.currency || "USD",
+  };
+}
+
+export interface CostDelta {
+  currency: string;
+  baselineMonthly: number | null;
+  currentMonthly: number | null;
+  /** current − baseline, rounded to cents; null when either side is unknown. */
+  deltaMonthly: number | null;
+  direction: "increase" | "decrease" | "no-change" | "unknown";
+}
+
+/** Pure cost-delta computation: current (post-fix) vs the base-branch baseline. */
+export function computeCostDelta(baseline: CostBreakdown | null, current: CostBreakdown): CostDelta {
+  const currency = current.currency || baseline?.currency || "USD";
+  const baselineMonthly = baseline?.totalMonthlyCost ?? null;
+  const currentMonthly = current.totalMonthlyCost;
+  if (baselineMonthly === null || currentMonthly === null) {
+    return { currency, baselineMonthly, currentMonthly, deltaMonthly: null, direction: "unknown" };
+  }
+  const deltaMonthly = Math.round((currentMonthly - baselineMonthly) * 100) / 100;
+  const direction = deltaMonthly > 0 ? "increase" : deltaMonthly < 0 ? "decrease" : "no-change";
+  return { currency, baselineMonthly, currentMonthly, deltaMonthly, direction };
+}
+
+function runInfracostBreakdown(scanCwd: string, key: string): RunResult {
+  return run("infracost", ["breakdown", "--path", ".", "--format", "json", "--no-color"], scanCwd, {
+    INFRACOST_API_KEY: key,
+  });
+}
+
+/**
+ * Cost of the base-branch version of the same Terraform, computed in a detached
+ * git worktree so the current (fixed) checkout is never disturbed. Best-effort:
+ * any failure (no base ref, worktree add fails, infracost errors) returns null
+ * and the caller falls back to reporting current cost only.
+ */
+function infracostBaseline(cwd: string, key: string, tmpdir: string): CostBreakdown | null {
+  const baseRef = resolveBaseRef(cwd);
+  if (!baseRef) return null;
+  const prefixResult = run("git", ["rev-parse", "--show-prefix"], cwd);
+  const prefix = prefixResult.status === 0 ? prefixResult.stdout.trim() : "";
+  const worktree = join(tmpdir, `infracost-base-${process.pid}`);
+  // clear any stale worktree from an earlier call in this process before re-adding.
+  run("git", ["worktree", "remove", "--force", worktree], cwd);
+  const add = run("git", ["worktree", "add", "--detach", worktree, baseRef], cwd);
+  if (add.status !== 0) return null;
+  try {
+    const scanCwd = prefix ? join(worktree, prefix) : worktree;
+    const r = runInfracostBreakdown(scanCwd, key);
+    if (r.missing || r.status !== 0) return null;
+    return parseInfracostBreakdown(r.stdout);
+  } catch {
+    return null;
+  } finally {
+    run("git", ["worktree", "remove", "--force", worktree], cwd);
+  }
+}
+
 export const TerraformScanParams = type({
   "scan_scope?": type("'full' | 'diff'").describe(
     "'full' (default) scans the whole workspace; 'diff' limits concerns to Terraform files changed vs the base branch."
@@ -710,6 +798,64 @@ export function TerraformVerifyRemediationTool(ctx: ToolContext) {
         resolved: verdict.resolved,
         remaining: verdict.remaining,
         scanners_ran: ran,
+      };
+    }),
+  });
+}
+
+export const InfracostDiffParams = type({});
+
+export function InfracostDiffTool(ctx: ToolContext) {
+  return tool({
+    name: "infracost_diff",
+    description:
+      "Estimate the monthly cost impact of the remediation. Runs Infracost on the current (fixed) " +
+      "Terraform and, when the base branch is resolvable, on the base version too — returning the " +
+      "monthly cost delta so a security fix that meaningfully raises spend can be flagged rather than " +
+      "merged blindly. Auto-skips (never fails) when INFRACOST_API_KEY is unset or the infracost CLI " +
+      "is absent — cost analysis is opt-in. Call it after the fix is committed and, when it returns " +
+      "`ran: true`, fold a one-line cost note into the PR body.",
+    parameters: InfracostDiffParams,
+    execute: execute(async () => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      const key = process.env.INFRACOST_API_KEY || undefined;
+      if (!key) {
+        return { ran: false, skipped_reason: "INFRACOST_API_KEY not set — cost analysis is opt-in" };
+      }
+      const cur = runInfracostBreakdown(cwd, key);
+      if (cur.missing) return { ran: false, skipped_reason: "infracost not installed" };
+      if (cur.status !== 0) {
+        return {
+          ran: false,
+          skipped_reason: `infracost breakdown failed: ${cur.stderr.trim().slice(0, 300) || "unknown error"}`,
+        };
+      }
+      let current: CostBreakdown;
+      try {
+        current = parseInfracostBreakdown(cur.stdout);
+      } catch {
+        return { ran: false, skipped_reason: "could not parse infracost json output" };
+      }
+      const baseline = infracostBaseline(cwd, key, ctx.tmpdir);
+      const delta = computeCostDelta(baseline, current);
+      log.info(
+        `» infracost_diff: current ${delta.currentMonthly ?? "?"} ${delta.currency}/mo` +
+          (delta.deltaMonthly !== null
+            ? `, delta ${delta.deltaMonthly >= 0 ? "+" : ""}${delta.deltaMonthly}`
+            : " (no baseline)")
+      );
+      return {
+        ran: true,
+        currency: delta.currency,
+        current_monthly_cost: delta.currentMonthly,
+        baseline_monthly_cost: delta.baselineMonthly,
+        monthly_delta: delta.deltaMonthly,
+        direction: delta.direction,
+        ...(delta.deltaMonthly === null
+          ? {
+              note: "Baseline cost unavailable (no base ref or unpriced) — reporting current monthly cost only.",
+            }
+          : {}),
       };
     }),
   });

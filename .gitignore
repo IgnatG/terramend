@@ -16,7 +16,13 @@ node_modules
 
 # Coverage directory used by testing tools
 coverage
+
+# Internal/private design docs — kept local, never published (OSS repo is public)
+ARCHITECTURE.md
+ROADMAP.md
 DELIVERY-PLAN.md
+REMEDIATOR-ADAPTATION.md
+
 # Visual Studio Code configuration
 .vscode/
 

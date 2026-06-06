@@ -130,8 +130,3 @@ Terramend is licensed under the **GNU Affero General Public License v3.0 or late
 see [`LICENSE`](LICENSE). It is a derivative of the MIT-licensed
 [Pullfrog](https://github.com/pullfrog/pullfrog) agent runtime; that upstream notice is preserved in
 [`NOTICE`](NOTICE) as the MIT licence requires.
-
-## Design
-
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the end-to-end architecture, the internal concern
-model, and how the fork was adapted from Pullfrog.

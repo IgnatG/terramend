@@ -4,9 +4,8 @@ import type { ToolContext } from "#app/mcp/server";
 
 /**
  * Remediation guardrails — hard, code-level limits that back the Remediate
- * mode's prompt rules (see ARCHITECTURE.md "Guardrails"). They only engage when
- * the run selected the **Remediate** mode, so every other mode (Build, Fix,
- * Review, …) is completely unaffected.
+ * mode's prompt rules. They only engage when the run selected the **Remediate**
+ * mode, so every other mode (Build, Fix, Review, …) is completely unaffected.
  */
 
 export const REMEDIATE_MODE = "Remediate";
