@@ -2,8 +2,6 @@ import { getModelProvider, modelAliases, providers, resolveDisplayAlias } from "
 
 export const TERRAMEND_DIVIDER = "<!-- TERRAMEND_DIVIDER_DO_NOT_REMOVE_PLZ -->";
 
-const FROG_LOGO = `<a href="https://terramend.com"><picture><source media="(prefers-color-scheme: dark)" srcset="https://terramend.com/logos/frog-white-full-18px.png"><img src="https://terramend.com/logos/frog-green-full-18px.png" width="9px" height="9px" style="vertical-align: middle; " alt="Terramend"></picture></a>`;
-
 export interface WorkflowRunFooterInfo {
   owner: string;
   repo: string;
@@ -62,8 +60,7 @@ function formatModelLabel(params: { model: string; fallbackFrom?: string | undef
 
 /**
  * build a terramend footer with configurable parts
- * always includes: frog logo at start and X link at end
- * order: action links (customParts) > workflow run > model > attribution > reference links
+ * order: action links (customParts) > workflow run > model > attribution
  */
 export function buildTerramendFooter(params: BuildTerramendFooterParams): string {
   const parts: string[] = [];
@@ -81,7 +78,7 @@ export function buildTerramendFooter(params: BuildTerramendFooterParams): string
   }
 
   if (params.triggeredBy) {
-    parts.push("via [Terramend](https://terramend.com)");
+    parts.push("via Terramend");
   }
 
   if (params.model) {
@@ -90,9 +87,7 @@ export function buildTerramendFooter(params: BuildTerramendFooterParams): string
     );
   }
 
-  const allParts = [...parts, "[𝕏](https://x.com/terramendai)"];
-
-  return `\n\n${TERRAMEND_DIVIDER}\n<sup>${FROG_LOGO}&nbsp;&nbsp;｜ ${allParts.join(" ｜ ")}</sup>`;
+  return `\n\n${TERRAMEND_DIVIDER}\n<sup>${parts.join(" ｜ ")}</sup>`;
 }
 
 /**

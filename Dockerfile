@@ -53,7 +53,7 @@ RUN mkdir -p /etc/apt/keyrings \
 # Terraform best-practice toolchain — the scanners the Remediator's
 # `terraform_scan` / `terraform_validate` tools shell out to. Mirrors what a
 # consumer CI would install on the runner; baked in here so local dogfooding
-# and tests have terraform/tflint/tfsec/checkov on PATH. The tools degrade
+# and tests have terraform/tflint/trivy/checkov on PATH. The tools degrade
 # gracefully (reported "skipped") when absent, so this block is only required
 # for the local/dogfood path, not for the action to load.
 RUN ARCH="$(dpkg --print-architecture)" \
@@ -62,8 +62,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && unzip -q /tmp/terraform.zip -d /usr/local/bin \
     && rm /tmp/terraform.zip \
     && curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash \
-    && curl -fsSL "https://github.com/aquasecurity/tfsec/releases/latest/download/tfsec-linux-${ARCH}" -o /usr/local/bin/tfsec \
-    && chmod +x /usr/local/bin/tfsec \
+    && curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin \
     && apt-get update -qq \
     && apt-get install -qq -y --no-install-recommends python3-pip \
     && pip3 install --no-cache-dir --break-system-packages checkov \

@@ -1,9 +1,7 @@
 import { basename } from "node:path";
 import arg from "arg";
 import pc from "picocolors";
-import { runCli as runAuthCli } from "#app/commands/auth";
 import { runCli as runGhaCli } from "#app/commands/gha";
-import { runCli as runInitCli } from "#app/commands/init";
 
 const VERSION = process.env.CLI_VERSION ?? "0.0.0";
 const bin = basename(process.argv[1] || "");
@@ -13,8 +11,7 @@ const rawArgs = process.argv.slice(2);
 function printMainUsage(stream: typeof console.log): void {
   stream(`usage: ${PROG} <command>\n`);
   stream("commands:");
-  stream("  init        set up terramend on the current repository");
-  stream("  auth        manage provider credentials for the current repository");
+  stream("  gha         run the github action runtime flow (used by action.yml)");
   stream("");
   stream("global options:");
   stream("  -h, --help      show help");
@@ -69,26 +66,8 @@ async function run(): Promise<void> {
     process.exit(0);
   }
 
-  if (command === "init") {
-    await runInitCli({
-      args: commandArgs,
-      prog: PROG,
-      showHelp: globalParsed["--help"] === true,
-    });
-    return;
-  }
-
   if (command === "gha") {
     await runGhaCli({
-      args: commandArgs,
-      prog: PROG,
-      showHelp: globalParsed["--help"] === true,
-    });
-    return;
-  }
-
-  if (command === "auth") {
-    await runAuthCli({
       args: commandArgs,
       prog: PROG,
       showHelp: globalParsed["--help"] === true,

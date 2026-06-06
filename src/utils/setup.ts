@@ -126,9 +126,15 @@ export function setupTestRepo(options: SetupOptions): void {
   if (process.env.CI || isInsideDocker) {
     const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
     if (!token) {
-      throw new Error("GITHUB_TOKEN or GH_TOKEN is required for https clone in ci or docker");
+      throw new Error(
+        "GITHUB_TOKEN or GH_TOKEN is required for https clone in ci or docker",
+      );
     }
-    $("git", ["clone", `https://x-access-token:${token}@github.com/${repo}.git`, tempDir]);
+    $("git", [
+      "clone",
+      `https://x-access-token:${token}@github.com/${repo}.git`,
+      tempDir,
+    ]);
   } else {
     $("git", ["clone", `git@github.com:${repo}.git`, tempDir]);
   }
@@ -166,12 +172,15 @@ export function removeIncludeIfEntries(repoDir: string): void {
   const env = envScopedToRepo();
   let configOutput: string;
   try {
-    configOutput = execSync("git config --local --get-regexp -z ^includeif\\.", {
-      cwd: repoDir,
-      encoding: "utf-8",
-      stdio: "pipe",
-      env,
-    });
+    configOutput = execSync(
+      "git config --local --get-regexp -z ^includeif\\.",
+      {
+        cwd: repoDir,
+        encoding: "utf-8",
+        stdio: "pipe",
+        env,
+      },
+    );
   } catch {
     log.debug("» no includeIf credential entries to remove");
     return;
@@ -196,13 +205,13 @@ export function removeIncludeIfEntries(repoDir: string): void {
       });
     } catch (error) {
       log.debug(
-        `» failed to unset ${key}: ${error instanceof Error ? error.message : String(error)}`
+        `» failed to unset ${key}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
   }
   if (seen.size > 0)
     log.info(
-      `» removed ${seen.size} includeIf credential ${seen.size === 1 ? "entry" : "entries"}`
+      `» removed ${seen.size} includeIf credential ${seen.size === 1 ? "entry" : "entries"}`,
     );
 }
 
@@ -249,13 +258,19 @@ export async function setupGit(params: SetupGitParams): Promise<void> {
     }
 
     const shouldSetDefaults =
-      !currentEmail || currentEmail === "github-actions[bot]@users.noreply.github.com";
+      !currentEmail ||
+      currentEmail === "github-actions[bot]@users.noreply.github.com";
 
     if (shouldSetDefaults) {
-      execSync('git config --local user.email "226033991+terramend[bot]@users.noreply.github.com"', {
-        cwd: repoDir,
-        stdio: "pipe",
-      });
+      // plain noreply email with no numeric account id — the upstream id
+      // resolved commits to the wrong bot account on GitHub.
+      execSync(
+        'git config --local user.email "terramend[bot]@users.noreply.github.com"',
+        {
+          cwd: repoDir,
+          stdio: "pipe",
+        },
+      );
       execSync('git config --local user.name "terramend[bot]"', {
         cwd: repoDir,
         stdio: "pipe",
@@ -279,16 +294,21 @@ export async function setupGit(params: SetupGitParams): Promise<void> {
   } catch (error) {
     // If git config fails, log warning but don't fail the action
     // This can happen if we're not in a git repo or git isn't available
-    log.info(`Failed to set git config: ${error instanceof Error ? error.message : String(error)}`);
+    log.info(
+      `Failed to set git config: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
   // 2. setup authentication
   // remove existing git auth headers that actions/checkout might have set
   try {
-    execSync("git config --local --unset-all http.https://github.com/.extraheader", {
-      cwd: repoDir,
-      stdio: "pipe",
-    });
+    execSync(
+      "git config --local --unset-all http.https://github.com/.extraheader",
+      {
+        cwd: repoDir,
+        stdio: "pipe",
+      },
+    );
     log.info("» removed existing authentication headers");
   } catch {
     log.debug("» no existing authentication headers to remove");
@@ -331,7 +351,7 @@ export async function setupGit(params: SetupGitParams): Promise<void> {
  * `git checkout --detach <sha>`) compare equal.
  */
 export function captureInitialHead(
-  repoDir: string
+  repoDir: string,
 ): { kind: "branch"; name: string } | { kind: "detached"; sha: string } {
   try {
     const name = $("git", ["symbolic-ref", "--short", "HEAD"], {
@@ -342,6 +362,9 @@ export function captureInitialHead(
   } catch {
     // detached HEAD — fall through
   }
-  const sha = $("git", ["rev-parse", "HEAD"], { cwd: repoDir, log: false }).trim();
+  const sha = $("git", ["rev-parse", "HEAD"], {
+    cwd: repoDir,
+    log: false,
+  }).trim();
   return { kind: "detached", sha };
 }

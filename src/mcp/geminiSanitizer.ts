@@ -193,7 +193,7 @@ export function sanitizeToolForGemini<T extends Tool<any, any>>(tool: T): T {
  *     the prod failure that motivated this widening.
  */
 export function isGeminiRouted(ctx: ToolContext): boolean {
-  const effective = ctx.payload.proxyModel ?? ctx.resolvedModel ?? ctx.payload.model;
+  const effective = ctx.resolvedModel ?? ctx.payload.model;
   if (!effective) return true;
   const normalized = effective.toLowerCase();
   if (normalized.includes("gemini")) return true;

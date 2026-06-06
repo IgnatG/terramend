@@ -12,6 +12,9 @@ inputs:
   model:
     description: "Model to use (e.g., anthropic/claude-opus). Overrides repo settings."
     required: false
+  mode:
+    description: "Pin the run to a specific mode (e.g. 'Remediate') instead of letting the agent choose from the prompt. Case-insensitive; unknown values fall back to agent selection. Recommended for deterministic CI."
+    required: false
   cwd:
     description: "Working directory for the agent (defaults to GITHUB_WORKSPACE)"
     required: false

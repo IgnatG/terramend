@@ -1094,7 +1094,7 @@ export const opencode = agent({
   run: async (ctx) => {
     const cliPath = await installCli();
 
-    const rawModel = ctx.payload.proxyModel ?? ctx.resolvedModel ?? autoSelectModel();
+    const rawModel = ctx.resolvedModel ?? autoSelectModel();
 
     // bedrock route: opencode's `amazon-bedrock` provider expects the model
     // string in `amazon-bedrock/<bedrock-id>` form. the bare AWS model ID

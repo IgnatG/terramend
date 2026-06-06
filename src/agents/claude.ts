@@ -1002,7 +1002,7 @@ export const claude = agent({
   run: async (ctx) => {
     const cliPath = await installClaudeCli();
 
-    const specifier = ctx.payload.proxyModel ?? ctx.resolvedModel;
+    const specifier = ctx.resolvedModel;
     // claude-code on Bedrock takes the bare AWS model ID — no provider prefix
     // to strip, since the ID is already in `provider.model` form (e.g.
     // `us.anthropic.claude-opus-4-7`). detect via the env-var sentinel: if

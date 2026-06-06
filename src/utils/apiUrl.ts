@@ -25,18 +25,3 @@ export function getApiUrl(): string {
   log.debug(`resolved API_URL: ${raw}`);
   return raw;
 }
-
-/**
- * true when the action is configured to talk to a localhost API server (i.e.
- * `pnpm dev` running on the developer's box). signals we can use dev-only
- * affordances like the `x-dev-repo` proxy-token bypass — the corresponding
- * server-side dev gates (`NODE_ENV === "development"`) ensure these paths
- * never activate against prod regardless of what the action does.
- */
-export function isLocalApiUrl(): boolean {
-  try {
-    return isLocalUrl(new URL(getApiUrl()));
-  } catch {
-    return false;
-  }
-}

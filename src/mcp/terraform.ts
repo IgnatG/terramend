@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { type } from "arktype";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
@@ -9,7 +11,7 @@ import { execute, tool } from "#app/mcp/shared";
 /**
  * Internal "concern" model — the Remediator's ground truth for "what is not
  * best practice". Produced by `terraform_scan` from the fork's own deterministic
- * Terraform check tools (fmt / validate / tflint / tfsec / checkov).
+ * Terraform check tools (fmt / validate / tflint / trivy / checkov).
  *
  * This is a deliberate SUBSET of the reviewer's `findings.schema.json` v1.0
  * (../terraform-reviewer/schemas/findings.schema.json). The reviewer's findings
@@ -22,8 +24,8 @@ export interface Concern {
   /** stable content id: sha1(source|rule_id|file|line). idempotency key for branch/PR naming. */
   id: string;
   /** producing tool */
-  source: "terraform-fmt" | "terraform-validate" | "tflint" | "tfsec" | "checkov";
-  /** original namespaced rule, e.g. "tfsec:aws-s3-enable-bucket-encryption" */
+  source: "terraform-fmt" | "terraform-validate" | "tflint" | "trivy" | "checkov";
+  /** original namespaced rule, e.g. "trivy:AVD-AWS-0088" */
   rule_id: string;
   severity: Severity;
   category: "security" | "style" | "correctness";
@@ -53,9 +55,10 @@ function concernId(source: string, ruleId: string, file: string, line: number | 
 
 /**
  * Normalize a scanner-reported path to a repo-relative POSIX path. Each scanner
- * reports the file differently — tflint gives `main.tf` (relative), tfsec an
- * absolute path (`/repo/main.tf` or `D:\repo\main.tf`), checkov a leading-slash
- * path (`/main.tf`). Left unnormalized, these leak into `location.file` AND the
+ * reports the file differently — tflint gives `main.tf` (relative), trivy a
+ * scan-dir-relative `Target`, terraform an absolute path (`/repo/main.tf` or
+ * `D:\repo\main.tf`), checkov a leading-slash path (`/main.tf`). Left
+ * unnormalized, these leak into `location.file` AND the
  * content-derived `concernId`, making the id (and the `remediate/<id>` branch)
  * machine-dependent and breaking the ✗→✓ re-scan id match across environments.
  * So normalize BEFORE building any Concern.
@@ -243,7 +246,33 @@ function tflintSeverity(s: string | undefined): Severity {
   }
 }
 
+// dirs we've already attempted `tflint --init` in, so repeated scans don't re-init.
+const tflintInitedDirs = new Set<string>();
+
+/**
+ * Install tflint's provider ruleset plugins via `tflint --init` when the dir has
+ * a `.tflint.hcl` declaring them. Core `tflint --recursive` runs only the
+ * built-in rules; the high-value provider rules (deprecated args, invalid
+ * instance types, missing-tag policies, etc.) live in the aws/azurerm/google
+ * plugins, which must be installed first. Opt-in by design — we only init when
+ * the repo ships a `.tflint.hcl`, so we don't force AWS rules onto an Azure/GCP
+ * repo. Best-effort and network-dependent: a failed init just leaves tflint
+ * running its core rules, exactly as before.
+ */
+function ensureTflintInit(cwd: string): void {
+  if (tflintInitedDirs.has(cwd)) return;
+  // mark first: a failed init won't succeed on retry within the same run, and
+  // we don't want to re-attempt the network fetch on every scanner call.
+  tflintInitedDirs.add(cwd);
+  if (!existsSync(join(cwd, ".tflint.hcl"))) return;
+  const r = run("tflint", ["--init"], cwd);
+  if (r.status !== 0 && !r.missing) {
+    log.info("» tflint --init did not complete cleanly — provider ruleset plugins may be unavailable");
+  }
+}
+
 function scanTflint(cwd: string): ScannerOutcome {
+  ensureTflintInit(cwd);
   const r = run("tflint", ["--format", "json", "--recursive"], cwd);
   if (r.missing) return skipped("tflint", "tflint not installed");
   try {
@@ -279,51 +308,76 @@ interface TflintIssue {
   range?: { filename?: string; start?: { line?: number } };
 }
 
-// --- tfsec ----------------------------------------------------------------
+// --- trivy ----------------------------------------------------------------
 
 function lowerSeverity(s: string | undefined): Severity {
   const v = (s ?? "").toLowerCase();
   return (SEVERITIES as readonly string[]).includes(v) ? (v as Severity) : "medium";
 }
 
-function scanTfsec(cwd: string): ScannerOutcome {
-  const r = run("tfsec", ["--format", "json", "--no-color", "."], cwd);
-  if (r.missing) return skipped("tfsec", "tfsec not installed");
+// tfsec was archived by Aqua and folded into Trivy; `trivy config` is its
+// maintained successor with a larger ruleset (the AVD-* checks). `--quiet`
+// keeps Trivy's progress chatter off stdout so the JSON parses cleanly.
+function scanTrivy(cwd: string): ScannerOutcome {
+  const r = run("trivy", ["config", "--format", "json", "--quiet", "."], cwd);
+  if (r.missing) return skipped("trivy", "trivy not installed");
   try {
-    return { source: "tfsec", ran: true, concerns: parseTfsecOutput(r.stdout, cwd) };
+    return { source: "trivy", ran: true, concerns: parseTrivyOutput(r.stdout, cwd) };
   } catch {
-    return skipped("tfsec", "could not parse tfsec json output");
+    return skipped("trivy", "could not parse trivy json output");
   }
 }
 
-/** parse `tfsec --format json` output into concerns. */
-export function parseTfsecOutput(stdout: string, cwd = ""): Concern[] {
-  const parsed = JSON.parse(stdout || "{}") as { results?: TfsecResult[] | null };
-  return (parsed.results ?? []).map<Concern>((res) => {
-    const file = toRepoRelative(res.location?.filename, cwd);
-    const line = res.location?.start_line ?? null;
-    const rule = res.long_id ?? res.rule_id ?? "issue";
-    return {
-      id: concernId("tfsec", rule, file, line),
-      source: "tfsec",
-      rule_id: `tfsec:${rule}`,
-      severity: lowerSeverity(res.severity),
-      category: "security",
-      evidence: res.description ?? rule,
-      location: { file, line },
-      remediation_hint: res.resolution ?? res.links?.[0] ?? null,
-    };
-  });
+/**
+ * Parse `trivy config --format json` output into concerns. Trivy nests
+ * misconfigurations under `Results[].Misconfigurations[]`, keyed to the result's
+ * `Target` file. `trivy config` reports only failures by default, but we
+ * defensively drop any `Status: "PASS"` entry so an `--include-non-failures`
+ * run can't leak passing checks into the concern set.
+ */
+export function parseTrivyOutput(stdout: string, cwd = ""): Concern[] {
+  const parsed = JSON.parse(stdout || "{}") as { Results?: TrivyResult[] | null };
+  const concerns: Concern[] = [];
+  for (const result of parsed.Results ?? []) {
+    const file = toRepoRelative(result.Target, cwd);
+    for (const m of result.Misconfigurations ?? []) {
+      if (m.Status === "PASS") continue;
+      const rule = m.AVDID || m.ID || "issue";
+      const start = m.CauseMetadata?.StartLine;
+      const line = typeof start === "number" && start > 0 ? start : null;
+      concerns.push({
+        id: concernId("trivy", rule, file, line),
+        source: "trivy",
+        rule_id: `trivy:${rule}`,
+        severity: lowerSeverity(m.Severity),
+        category: "security",
+        evidence: m.Message || m.Description || m.Title || rule,
+        location: { file, line },
+        remediation_hint: m.Resolution || m.References?.[0] || null,
+      });
+    }
+  }
+  return concerns;
 }
 
-interface TfsecResult {
-  rule_id?: string;
-  long_id?: string;
-  severity?: string;
-  description?: string;
-  resolution?: string;
-  links?: string[];
-  location?: { filename?: string; start_line?: number };
+interface TrivyMisconfiguration {
+  ID?: string;
+  AVDID?: string;
+  Title?: string;
+  Description?: string;
+  Message?: string;
+  Resolution?: string;
+  Severity?: string;
+  References?: string[];
+  Status?: string;
+  CauseMetadata?: { StartLine?: number; EndLine?: number };
+}
+
+interface TrivyResult {
+  Target?: string;
+  Class?: string;
+  Type?: string;
+  Misconfigurations?: TrivyMisconfiguration[];
 }
 
 // --- checkov --------------------------------------------------------------
@@ -399,7 +453,7 @@ function sortConcerns(concerns: Concern[]): Concern[] {
 
 /**
  * A scoped unit of work = all concerns in one file. Different scanners flag the
- * same underlying defect under different rule ids (tfsec ∩ checkov overlap
+ * same underlying defect under different rule ids (trivy ∩ checkov overlap
  * heavily on e.g. S3 buckets), so per-concern PRs would spam many PRs for one
  * bad file. Remediate acts on ONE group per PR (branch `remediate/<group.id>`),
  * fixing every concern in the file together and proving them all cleared (✗→✓).
@@ -494,7 +548,7 @@ export function TerraformScanTool(ctx: ToolContext) {
     name: "terraform_scan",
     description:
       "Scan the Terraform in the workspace against best practices using the deterministic check tools " +
-      "(terraform fmt, terraform validate, tflint, tfsec, checkov). Returns a stable, severity-ranked " +
+      "(terraform fmt, terraform validate, tflint, trivy, checkov). Returns a stable, severity-ranked " +
       "list of `concerns` — each is one best-practice issue with a content-derived `id`, the producing " +
       "`source`, `rule_id`, `severity`, the `location` (file + line), and a `remediation_hint`. Concerns " +
       "are also rolled up into `groups` (one per file): different scanners flag the same defect under " +
@@ -514,7 +568,7 @@ export function TerraformScanTool(ctx: ToolContext) {
         scanFmt(cwd),
         scanValidate(cwd),
         scanTflint(cwd),
-        scanTfsec(cwd),
+        scanTrivy(cwd),
         scanCheckov(cwd),
       ];
 

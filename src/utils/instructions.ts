@@ -194,18 +194,32 @@ The environment may be only partially provisioned, but this is often benign (e.g
 // mode selection and execution steps
 function buildProcedure(ctx: PromptContext): string {
   const t = ctx.t;
-  return `************* PROCEDURE *************
 
-You execute tasks directly using your native tools and the ${terramendMcpName} MCP server.
+  // when the workflow pins a mode (the `mode` action input), the run is
+  // deterministic: instruct the agent to select exactly that mode and skip the
+  // "choose the appropriate mode" deliberation. this is what a headless CI run
+  // wants — the mode shouldn't depend on prompt phrasing.
+  const pinnedMode = ctx.payload.mode;
+  const step1 = pinnedMode
+    ? `### Step 1: Select the pinned mode
 
-### Step 1: Select a mode
+This run is pinned to **${pinnedMode}** mode. Your FIRST action must be \`${t("select_mode")}\` with \`mode: "${pinnedMode}"\` — do not evaluate or select any other mode. This returns **your workflow** — a step-by-step playbook you must follow.
+
+**Follow the returned guidance as your primary instruction set.** Do not improvise — the guidance defines the exact steps.`
+    : `### Step 1: Select a mode
 
 Call \`${t("select_mode")}\` with the appropriate mode name. This returns **your workflow** — a step-by-step playbook you must follow.
 
 **Follow the returned guidance as your primary instruction set.** Do not improvise — the guidance defines the exact steps.
 
 Available modes:
-${ctx.modes.map((m) => `- "${m.name}": ${m.description}`).join("\n")}
+${ctx.modes.map((m) => `- "${m.name}": ${m.description}`).join("\n")}`;
+
+  return `************* PROCEDURE *************
+
+You execute tasks directly using your native tools and the ${terramendMcpName} MCP server.
+
+${step1}
 
 ### Step 2: Execute
 

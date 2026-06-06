@@ -53,8 +53,6 @@ export interface RunContext {
   apiToken: string;
   oss: boolean;
   plan: AccountPlan;
-  proxyModel?: string | undefined;
-  dbSecrets?: Record<string, string> | undefined;
 }
 
 const defaultSettings: RepoSettings = {
@@ -119,8 +117,6 @@ export async function fetchRunContext(params: {
       apiToken: string;
       oss?: boolean;
       plan?: AccountPlan;
-      proxyModel?: string;
-      dbSecrets?: Record<string, string>;
     } | null;
 
     if (data === null) {
@@ -141,8 +137,6 @@ export async function fetchRunContext(params: {
       apiToken: data.apiToken,
       oss: data.oss ?? false,
       plan: data.plan ?? "none",
-      proxyModel: data.proxyModel,
-      dbSecrets: data.dbSecrets,
     };
   } catch {
     clearTimeout(timeoutId);

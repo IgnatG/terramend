@@ -2,6 +2,7 @@ import { isAbsolute, resolve } from "node:path";
 import * as core from "@actions/core";
 import { type } from "arktype";
 import type { AuthorPermission, PayloadEvent } from "#app/external";
+import { BUILTIN_MODE_NAMES } from "#app/modes";
 import packageJson from "#package.json" with { type: "json" };
 import { log } from "#app/utils/cli";
 import type { RepoSettings } from "#app/utils/runContext";
@@ -49,6 +50,7 @@ function isCollaborator(event: PayloadEvent): boolean {
 export const Inputs = type({
   prompt: "string",
   "model?": type.string.or("undefined"),
+  "mode?": type.string.or("undefined"),
   "timeout?": type.string.or("undefined"),
   "push?": PushPermissionInput.or("undefined"),
   "shell?": ShellPermissionInput.or("undefined"),
@@ -101,6 +103,7 @@ export function resolvePromptInput(): ResolvedPromptInput {
 function resolveNonPromptInputs() {
   return Inputs.omit("prompt").assert({
     model: core.getInput("model") || undefined,
+    mode: core.getInput("mode") || undefined,
     timeout: core.getInput("timeout") || undefined,
     cwd: core.getInput("cwd") || undefined,
     push: core.getInput("push") || undefined,
@@ -110,6 +113,27 @@ function resolveNonPromptInputs() {
     max_prs: core.getInput("max_prs") || undefined,
     allowed_paths: core.getInput("allowed_paths") || undefined,
   });
+}
+
+/**
+ * Canonicalize the `mode` input against the built-in mode names
+ * (case-insensitive). Returns the canonical name (e.g. "remediate" →
+ * "Remediate") when it matches a built-in mode, letting CI pin a mode
+ * deterministically. Unknown non-empty values warn and return undefined so the
+ * agent falls back to prompt-driven `select_mode` — mirroring how an unknown
+ * `model` slug degrades to auto-select rather than hard-failing the run.
+ */
+export function parseMode(raw: string | undefined): string | undefined {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  const match = BUILTIN_MODE_NAMES.find((name) => name.toLowerCase() === v.toLowerCase());
+  if (!match) {
+    log.warning(
+      `» unknown mode "${v}" — agent will select a mode (valid: ${BUILTIN_MODE_NAMES.join(", ")})`
+    );
+    return undefined;
+  }
+  return match;
 }
 
 /** parse scan_scope; "diff" or "full" (default). */
@@ -194,6 +218,10 @@ export function resolvePayload(
     "~terramend": true as const,
     version: jsonPayload?.version ?? packageJson.version,
     model,
+    // deterministic mode pin for CI (action input only — not accepted from the
+    // JSON payload, which is the internal dispatch surface). undefined → the
+    // agent chooses via select_mode as before.
+    mode: parseMode(inputs.mode),
     prompt,
     triggerer:
       jsonPayload?.triggerer ??
@@ -218,9 +246,6 @@ export function resolvePayload(
     severityThreshold: parseSeverityThreshold(inputs.severity_threshold),
     maxPrs: parseMaxPrs(inputs.max_prs),
     allowedPaths: parseAllowedPaths(inputs.allowed_paths),
-
-    // set by proxy logic in main.ts when routing through OpenRouter
-    proxyModel: undefined as string | undefined,
   };
 }
 

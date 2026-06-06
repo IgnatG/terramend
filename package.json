@@ -1,7 +1,7 @@
 {
   "name": "terramend",
   "version": "0.1.0",
-  "description": "GitHub Action that remediates Terraform to best practices (terraform fmt/validate, tflint, tfsec, checkov) and opens one scoped pull request per concern.",
+  "description": "GitHub Action that remediates Terraform to best practices (terraform fmt/validate, tflint, trivy, checkov) and opens one scoped pull request per concern.",
   "type": "module",
   "bin": {
     "terramend": "dist/cli.mjs"

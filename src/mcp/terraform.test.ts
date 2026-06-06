@@ -5,7 +5,7 @@ import {
   parseCheckovOutput,
   parseFmtOutput,
   parseTflintOutput,
-  parseTfsecOutput,
+  parseTrivyOutput,
   parseValidateOutput,
 } from "#app/mcp/terraform";
 
@@ -28,36 +28,72 @@ describe("parseFmtOutput", () => {
   });
 });
 
-describe("parseTfsecOutput", () => {
+describe("parseTrivyOutput", () => {
   const sample = JSON.stringify({
-    results: [
+    Results: [
       {
-        long_id: "aws-s3-enable-bucket-encryption",
-        rule_id: "AWS017",
-        severity: "CRITICAL",
-        description: "Bucket does not have encryption enabled",
-        resolution: "Enable server-side encryption",
-        location: { filename: "main.tf", start_line: 1 },
+        Target: "main.tf",
+        Class: "config",
+        Type: "terraform",
+        Misconfigurations: [
+          {
+            ID: "AVD-AWS-0088",
+            AVDID: "AVD-AWS-0088",
+            Title: "S3 Data should be encrypted",
+            Description: "S3 encryption should be enabled for buckets at rest.",
+            Message: "Bucket does not have encryption enabled",
+            Resolution: "Enable server-side encryption",
+            Severity: "CRITICAL",
+            References: ["https://avd.aquasec.com/misconfig/avd-aws-0088"],
+            Status: "FAIL",
+            CauseMetadata: { StartLine: 1, EndLine: 1 },
+          },
+        ],
       },
     ],
   });
 
-  it("maps a tfsec result to a security concern with lowercased severity", () => {
-    const [concern] = parseTfsecOutput(sample);
+  it("maps a trivy misconfiguration to a security concern with lowercased severity", () => {
+    const [concern] = parseTrivyOutput(sample);
     expect(concern).toMatchObject({
-      source: "tfsec",
-      rule_id: "tfsec:aws-s3-enable-bucket-encryption",
+      source: "trivy",
+      rule_id: "trivy:AVD-AWS-0088",
       severity: "critical",
       category: "security",
+      // the instance-specific Message is preferred over the generic Description
       evidence: "Bucket does not have encryption enabled",
       remediation_hint: "Enable server-side encryption",
       location: { file: "main.tf", line: 1 },
     });
   });
 
-  it("tolerates a null/empty results array", () => {
-    expect(parseTfsecOutput(JSON.stringify({ results: null }))).toEqual([]);
-    expect(parseTfsecOutput("{}")).toEqual([]);
+  it("drops Status: PASS misconfigurations (defensive against --include-non-failures)", () => {
+    const withPass = JSON.stringify({
+      Results: [
+        {
+          Target: "main.tf",
+          Misconfigurations: [
+            { AVDID: "AVD-AWS-0001", Severity: "HIGH", Status: "PASS", CauseMetadata: { StartLine: 4 } },
+            { AVDID: "AVD-AWS-0002", Severity: "HIGH", Status: "FAIL", CauseMetadata: { StartLine: 9 } },
+          ],
+        },
+      ],
+    });
+    const concerns = parseTrivyOutput(withPass);
+    expect(concerns).toHaveLength(1);
+    expect(concerns[0].rule_id).toBe("trivy:AVD-AWS-0002");
+  });
+
+  it("treats a zero/absent StartLine as a null line", () => {
+    const noLine = JSON.stringify({
+      Results: [{ Target: "main.tf", Misconfigurations: [{ AVDID: "AVD-X", Severity: "LOW" }] }],
+    });
+    expect(parseTrivyOutput(noLine)[0].location.line).toBeNull();
+  });
+
+  it("tolerates a null/empty Results array", () => {
+    expect(parseTrivyOutput(JSON.stringify({ Results: null }))).toEqual([]);
+    expect(parseTrivyOutput("{}")).toEqual([]);
   });
 });
 
@@ -178,45 +214,44 @@ describe("parseValidateOutput", () => {
 });
 
 describe("concern ids", () => {
+  const trivy = (file: string, line: number): string =>
+    JSON.stringify({
+      Results: [
+        {
+          Target: file,
+          Misconfigurations: [{ AVDID: "r", Severity: "low", Status: "FAIL", CauseMetadata: { StartLine: line } }],
+        },
+      ],
+    });
+
   it("are stable and content-derived (same input → same id)", () => {
-    const a = parseTfsecOutput(
-      JSON.stringify({
-        results: [{ long_id: "r", severity: "low", location: { filename: "f.tf", start_line: 2 } }],
-      })
-    )[0];
-    const b = parseTfsecOutput(
-      JSON.stringify({
-        results: [{ long_id: "r", severity: "low", location: { filename: "f.tf", start_line: 2 } }],
-      })
-    )[0];
+    const a = parseTrivyOutput(trivy("f.tf", 2))[0];
+    const b = parseTrivyOutput(trivy("f.tf", 2))[0];
     expect(a.id).toBe(b.id);
   });
 
   it("differ when the location differs", () => {
-    const mk = (line: number): Concern =>
-      parseTfsecOutput(
-        JSON.stringify({
-          results: [
-            { long_id: "r", severity: "low", location: { filename: "f.tf", start_line: line } },
-          ],
-        })
-      )[0];
+    const mk = (line: number): Concern => parseTrivyOutput(trivy("f.tf", line))[0];
     expect(mk(2).id).not.toBe(mk(3).id);
   });
 });
 
 describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
-  const tfsecFile = (filename: string, cwd: string): string =>
-    parseTfsecOutput(
-      JSON.stringify({
-        results: [{ long_id: "r", severity: "high", location: { filename, start_line: 5 } }],
-      }),
-      cwd
-    )[0].location.file;
+  const trivyTarget = (target: string): string =>
+    JSON.stringify({
+      Results: [
+        {
+          Target: target,
+          Misconfigurations: [{ AVDID: "r", Severity: "high", Status: "FAIL", CauseMetadata: { StartLine: 5 } }],
+        },
+      ],
+    });
+  const trivyFile = (target: string, cwd: string): string =>
+    parseTrivyOutput(trivyTarget(target), cwd)[0].location.file;
 
   it("rewrites an absolute scanner path to repo-relative posix", () => {
-    expect(tfsecFile("/repo/sub/main.tf", "/repo/sub")).toBe("main.tf");
-    expect(tfsecFile("D:\\repo\\sub\\net\\vpc.tf", "D:\\repo\\sub")).toBe("net/vpc.tf");
+    expect(trivyFile("/repo/sub/main.tf", "/repo/sub")).toBe("main.tf");
+    expect(trivyFile("D:\\repo\\sub\\net\\vpc.tf", "D:\\repo\\sub")).toBe("net/vpc.tf");
   });
 
   it("strips checkov's leading-slash path", () => {
@@ -232,22 +267,8 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
   it("yields the SAME concern id regardless of the machine's absolute prefix", () => {
     // the core Bug 1 regression: a Linux CI runner and a Windows dev box reported
     // the same logical file under different absolute paths and got different ids.
-    const ci = parseTfsecOutput(
-      JSON.stringify({
-        results: [
-          { long_id: "r", severity: "high", location: { filename: "/home/runner/work/repo/main.tf", start_line: 5 } },
-        ],
-      }),
-      "/home/runner/work/repo"
-    )[0];
-    const dev = parseTfsecOutput(
-      JSON.stringify({
-        results: [
-          { long_id: "r", severity: "high", location: { filename: "D:\\Users\\dev\\repo\\main.tf", start_line: 5 } },
-        ],
-      }),
-      "D:\\Users\\dev\\repo"
-    )[0];
+    const ci = parseTrivyOutput(trivyTarget("/home/runner/work/repo/main.tf"), "/home/runner/work/repo")[0];
+    const dev = parseTrivyOutput(trivyTarget("D:\\Users\\dev\\repo\\main.tf"), "D:\\Users\\dev\\repo")[0];
     expect(ci.location.file).toBe("main.tf");
     expect(dev.location.file).toBe("main.tf");
     expect(ci.id).toBe(dev.id);
@@ -257,7 +278,7 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
 describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
   const concern = (file: string, severity: Concern["severity"], rule_id: string): Concern => ({
     id: `${rule_id}|${file}`,
-    source: "tfsec",
+    source: "trivy",
     rule_id,
     severity,
     category: "security",
@@ -269,13 +290,13 @@ describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
   it("groups by file, ranks groups by max severity, and collects ids + rules", () => {
     const groups = groupConcerns([
       concern("main.tf", "low", "tflint:a"),
-      concern("main.tf", "high", "tfsec:b"),
-      concern("vpc.tf", "medium", "tfsec:c"),
+      concern("main.tf", "high", "trivy:b"),
+      concern("vpc.tf", "medium", "trivy:c"),
     ]);
     expect(groups).toHaveLength(2);
     expect(groups[0]).toMatchObject({ file: "main.tf", severity: "high", concern_count: 2 });
     expect(groups[1]).toMatchObject({ file: "vpc.tf", severity: "medium", concern_count: 1 });
-    expect(groups[0].rule_ids).toEqual(["tflint:a", "tfsec:b"]);
+    expect(groups[0].rule_ids).toEqual(["tflint:a", "trivy:b"]);
     expect(groups[0].concern_ids).toHaveLength(2);
   });
 

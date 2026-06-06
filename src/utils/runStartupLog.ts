@@ -20,7 +20,6 @@ function resolveModelForLog(ctx: {
 }): string {
   const envModel = process.env.TERRAMEND_MODEL?.trim();
   if (envModel) return `${envModel} (override via TERRAMEND_MODEL)`;
-  if (ctx.payload.proxyModel) return `${ctx.payload.proxyModel} (proxy)`;
   if (ctx.resolvedModel && ctx.payload.model && ctx.payload.model !== ctx.resolvedModel) {
     return `${ctx.resolvedModel} (resolved from ${ctx.payload.model})`;
   }

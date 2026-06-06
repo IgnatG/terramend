@@ -1,26 +1,17 @@
 // Codex-to-OpenCode auth bridging for the action runtime.
 //
-// `terramend auth codex` stores a Codex CLI `auth.json` blob in the Terramend
-// per-org secret store (production Postgres) — NOT a GitHub Actions secret.
-// This is non-negotiable: the OAuth refresh chain rotates on every use, and
-// `entryPost.ts` writes the rotated chain back via `PUT /api/runtime/secret`
-// after each run. GH Actions secrets are immutable at runtime, so a token
-// stashed there silently expires on the first refresh (~1h). See
-// wiki/codex-auth.md for the full constraint.
+// `CODEX_AUTH_JSON` (a Codex CLI `auth.json` blob) is read from the environment
+// — supplied directly as a GitHub Actions secret or workflow `env:` value. The
+// hosted per-org secret store + `dbSecrets` delivery + server-side rotation
+// (`maybeRotateCodexSecret`) were removed with the rest of the managed backend,
+// so the standalone fork reads the env value verbatim.
 //
-// At runtime, `CODEX_AUTH_JSON` lands in process.env via `runContext.dbSecrets`
-// merged in main.ts — sourced from Terramend Postgres through the OIDC-validated
-// run-context endpoint, never from `${{ secrets.CODEX_AUTH_JSON }}` in
-// workflow yaml.
-//
-// The run-context endpoint calls `maybeRotateCodexSecret` (see
-// `utils/codexSecretRotation.ts`) inside a Postgres row lock just before
-// decrypting + returning dbSecrets. That serializes concurrent rotations
-// across the fleet: the first concurrent run rotates the token; the rest
-// see the just-written value and skip. Result: the token in
-// `process.env.CODEX_AUTH_JSON` is guaranteed fresh for at least the
-// rotation safety margin (~50min) when this code runs. No action-side
-// pre-flight refresh is needed.
+// Caveat (GH Actions secrets are immutable at runtime): the OAuth refresh chain
+// rotates on use, so a token stashed as a static secret expires on its first
+// refresh (~1h). Codex auth is therefore best for short runs; longer runs rely
+// on OpenCode's in-process CodexAuthPlugin to refresh mid-run. `entryPost.ts`
+// still detects a mid-run rotation, but its hosted write-back is now a no-op
+// without a backend to persist to. See wiki/codex-auth.md.
 //
 // This utility then:
 //   1. parses + validates the env value
@@ -93,9 +84,9 @@ export interface InstalledCodexAuth {
  * returns null when the env var is absent, malformed, or wrong auth mode —
  * caller treats null as "no codex auth, fall through to API key flow".
  *
- * The env value is server-side guaranteed fresh by `maybeRotateCodexSecret`
- * in the run-context endpoint. We only parse + write it here; no refresh,
- * no DB interaction. */
+ * The env value is read as-is — we only parse + write it here, no refresh and
+ * no DB interaction. Freshness is the supplier's responsibility (see the
+ * header caveat on static-secret expiry). */
 export function installCodexAuth(): InstalledCodexAuth | null {
   const raw = process.env[CODEX_AUTH_ENV];
   if (!raw) return null;

@@ -634,6 +634,13 @@ ${PR_SUMMARY_FORMAT}`,
 // static export for UI display — uses opencode format as the readable default
 export const modes: Mode[] = computeModes("opencode");
 
+/** built-in mode names in canonical casing. used to validate / canonicalize the
+ * `mode` action input so a CI run can pin a mode deterministically instead of
+ * relying on the agent's prompt-driven `select_mode` choice. mode names are
+ * agent-independent (only the embedded tool refs differ per agent), so the
+ * opencode-rendered list is the authoritative name set. */
+export const BUILTIN_MODE_NAMES: readonly string[] = modes.map((m) => m.name);
+
 /**
  * modes that legitimately never modify the working tree. used by the post-run
  * dirty-tree gate to suppress the "commit and push" nudge — those modes

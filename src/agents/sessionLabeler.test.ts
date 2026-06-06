@@ -12,7 +12,7 @@ describe("deriveLabelFromTaskInput", () => {
       deriveLabelFromTaskInput({
         prompt: "lens: security\nReview the diff for...",
         description: "general review",
-      })
+      }),
     ).toBe("lens:security");
   });
 
@@ -20,7 +20,7 @@ describe("deriveLabelFromTaskInput", () => {
     expect(
       deriveLabelFromTaskInput({
         prompt: "lens=user-journey\nWalk through the happy path...",
-      })
+      }),
     ).toBe("lens:user-journey");
   });
 
@@ -29,7 +29,7 @@ describe("deriveLabelFromTaskInput", () => {
       deriveLabelFromTaskInput({
         prompt: "Review this diff for any bugs",
         description: "Auth lens",
-      })
+      }),
     ).toBe("lens:auth-lens");
   });
 
@@ -37,9 +37,9 @@ describe("deriveLabelFromTaskInput", () => {
     expect(
       deriveLabelFromTaskInput({
         prompt: "Some generic prompt",
-        subagent_type: "reviewfrog",
-      })
-    ).toBe("reviewfrog");
+        subagent_type: "review",
+      }),
+    ).toBe("review");
   });
 
   test("returns generic subagent when nothing identifiable", () => {
@@ -50,15 +50,16 @@ describe("deriveLabelFromTaskInput", () => {
     expect(
       deriveLabelFromTaskInput({
         description: "Schema migration & operational readiness!",
-      })
+      }),
     ).toBe("lens:schema-migration-operational-readiness");
   });
 
   test("slug truncates labels longer than 40 chars to keep prefix readable", () => {
     expect(
       deriveLabelFromTaskInput({
-        description: "this is a very long lens description that exceeds the slug limit",
-      })
+        description:
+          "this is a very long lens description that exceeds the slug limit",
+      }),
     ).toBe("lens:this-is-a-very-long-lens-description-tha");
   });
 
@@ -67,7 +68,7 @@ describe("deriveLabelFromTaskInput", () => {
       deriveLabelFromTaskInput({
         prompt: "Please review the lens: security claim made above",
         description: "billing",
-      })
+      }),
     ).toBe("lens:billing");
   });
 });
@@ -159,8 +160,12 @@ describe("SessionLabeler", () => {
 
     // subagent events come through with shared session_id but distinct
     // parent_tool_use_id — direct mapping wins
-    expect(labeler.labelFor("shared-session", "toolu_01")).toBe("lens:correctness");
-    expect(labeler.labelFor("shared-session", "toolu_02")).toBe("lens:security");
+    expect(labeler.labelFor("shared-session", "toolu_01")).toBe(
+      "lens:correctness",
+    );
+    expect(labeler.labelFor("shared-session", "toolu_02")).toBe(
+      "lens:security",
+    );
 
     // orchestrator events on the same session still resolve correctly
     expect(labeler.labelFor("shared-session", null)).toBe(ORCHESTRATOR_LABEL);
@@ -177,7 +182,9 @@ describe("SessionLabeler", () => {
     // to the sessionID-keyed path.
     const labeler = new SessionLabeler();
     labeler.labelFor("shared", null);
-    expect(labeler.labelFor("shared", "unknown-tool-id")).toBe(ORCHESTRATOR_LABEL);
+    expect(labeler.labelFor("shared", "unknown-tool-id")).toBe(
+      ORCHESTRATOR_LABEL,
+    );
   });
 
   test("realistic four-lens parallel fan-out — interleaved tool_use stream", () => {
@@ -225,11 +232,16 @@ describe("formatWithLabel", () => {
     // ANSI magenta + reset markers around the bracketed label (escapes
     // built via fromCharCode to satisfy biome's no-control-character-in-regex)
     const ESC = String.fromCharCode(27);
-    expect(out).toMatch(new RegExp(`${ESC}\\[35m\\[orchestrator\\]${ESC}\\[0m hello world$`));
+    expect(out).toMatch(
+      new RegExp(`${ESC}\\[35m\\[orchestrator\\]${ESC}\\[0m hello world$`),
+    );
   });
 
   test("prefixes every line of a multi-line message", () => {
-    const out = formatWithLabel("lens:security", "line one\nline two\nline three");
+    const out = formatWithLabel(
+      "lens:security",
+      "line one\nline two\nline three",
+    );
     const lines = out.split("\n");
     expect(lines).toHaveLength(3);
     for (const line of lines) {

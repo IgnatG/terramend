@@ -9,16 +9,15 @@
 // new auth shapes; OpenCode itself can't.
 //
 // Two captures per run:
-//   1. `captureBaselineModels` — called BEFORE Terramend-stored credentials
-//      (dbSecrets + Codex auth.json) land in the env. The set OpenCode can
-//      serve from the runner's pre-existing environment alone.
-//   2. `captureAuthorizedModels` — called AFTER dbSecrets merge + Codex
-//      auth.json materialization. The authoritative set for BYOK
-//      decisions (fallback + validateAgentApiKey).
+//   1. `captureBaselineModels` — called BEFORE Codex `auth.json` is
+//      materialized. The set OpenCode can serve from the runner's pre-existing
+//      environment alone (workflow `env:` block + GH Actions secrets).
+//   2. `captureAuthorizedModels` — called AFTER Codex `auth.json`
+//      materialization. The authoritative set for BYOK decisions (fallback +
+//      validateAgentApiKey).
 //
-// The set difference (`authorized - baseline`) is the contribution of
-// Terramend-stored auth to this run — logged once for operator visibility
-// and reserved for a future server-side "OSS proxy opt-out" detection.
+// The set difference (`authorized - baseline`) is the contribution of the
+// Codex OAuth credential to this run — logged once for operator visibility.
 //
 // Memoized at module scope so the two consumers
 // (`selectFallbackModelIfNeeded` + `autoSelectModel`) share one shell-out.

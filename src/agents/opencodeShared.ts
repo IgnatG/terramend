@@ -103,7 +103,7 @@ export function autoSelectModel(): string | undefined {
     // skip hidden aliases (internal subagent-tier targets like
     // opencode/gpt-5.4) — they should never surface as a user-facing
     // orchestrator pick. mirrors the selectable-list filter in
-    // components/ModelSelector.tsx and action/commands/init.ts.
+    // components/ModelSelector.tsx.
     const match =
       modelAliases.find((a) => !a.hidden && a.preferred && authorized.has(a.resolve)) ??
       modelAliases.find((a) => !a.hidden && authorized.has(a.resolve));

@@ -1,6 +1,6 @@
 /**
  * Track per-session labels so log lines from parallel subagents can be
- * differentiated. The orchestrator dispatches lens subagents (e.g. reviewfrog)
+ * differentiated. The orchestrator dispatches lens subagents
  * via the Task tool; each subagent runs in its own opencode/claude Session
  * with its own `sessionID` (or `session_id`) tag on the NDJSON event stream.
  *
@@ -27,7 +27,8 @@ export interface TaskDispatchInput {
 
 export const ORCHESTRATOR_LABEL = "orchestrator";
 
-const LENS_PROMPT_PATTERN = /^\s*(?:lens|Lens|LENS)\s*[:=]\s*([A-Za-z][\w &/.-]{0,60})/m;
+const LENS_PROMPT_PATTERN =
+  /^\s*(?:lens|Lens|LENS)\s*[:=]\s*([A-Za-z][\w &/.-]{0,60})/m;
 
 function slug(value: string): string {
   return value
@@ -44,7 +45,7 @@ function slug(value: string): string {
  *      lets the orchestrator name the lens deterministically
  *   2. the Task tool's `description` field — short, written by orchestrator
  *      per call, usually enough
- *   3. the `subagent_type` (e.g. `reviewfrog`) — falls back to the named
+ *   3. the `subagent_type` — falls back to the named
  *      subagent identity when description is missing
  *   4. generic "subagent" — last resort
  */
@@ -103,7 +104,10 @@ export class SessionLabeler {
    *                   (Claude path). Always also pushed to the FIFO queue so
    *                   the OpenCode path still works when toolUseId is absent.
    */
-  recordTaskDispatch(input: TaskDispatchInput, toolUseId?: string | null): string {
+  recordTaskDispatch(
+    input: TaskDispatchInput,
+    toolUseId?: string | null,
+  ): string {
     const label = deriveLabelFromTaskInput(input);
     this.pendingLabels.push(label);
     if (toolUseId) this.labelsByToolUseId.set(toolUseId, label);
@@ -119,7 +123,10 @@ export class SessionLabeler {
    *                          subagent messages. When set and known, takes
    *                          priority over the FIFO/sessionID path.
    */
-  labelFor(sessionID: string | undefined | null, parentToolUseId?: string | null): string {
+  labelFor(
+    sessionID: string | undefined | null,
+    parentToolUseId?: string | null,
+  ): string {
     // Claude path: subagent messages carry parent_tool_use_id pointing at
     // the Agent tool_use that spawned them. resolve directly without
     // touching the sessionID-keyed map (which is bound to the orchestrator

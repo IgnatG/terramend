@@ -1,4 +1,5 @@
-import { Inputs, JsonPayload } from "#app/utils/payload";
+import { BUILTIN_MODE_NAMES } from "#app/modes";
+import { Inputs, JsonPayload, parseMode } from "#app/utils/payload";
 
 describe("Inputs schema", () => {
   it("only prompt is required", () => {
@@ -27,6 +28,36 @@ describe("Inputs schema", () => {
   it.each([["push"], ["shell"]] as const)("should reject invalid %s values", (prop) => {
     const input = { prompt: "test", [prop]: "invalid" as any };
     expect(() => Inputs.assert(input)).toThrow();
+  });
+
+  it("accepts a free-form mode string (validation happens in parseMode)", () => {
+    expect(() => Inputs.assert({ prompt: "test", mode: "Remediate" })).not.toThrow();
+    expect(() => Inputs.assert({ prompt: "test", mode: undefined })).not.toThrow();
+  });
+});
+
+describe("parseMode", () => {
+  it("returns undefined for unset/empty input", () => {
+    expect(parseMode(undefined)).toBeUndefined();
+    expect(parseMode("")).toBeUndefined();
+    expect(parseMode("   ")).toBeUndefined();
+  });
+
+  it("canonicalizes a case-insensitive match to the built-in name", () => {
+    expect(parseMode("remediate")).toBe("Remediate");
+    expect(parseMode("  REMEDIATE  ")).toBe("Remediate");
+    expect(parseMode("Build")).toBe("Build");
+  });
+
+  it("every built-in mode name round-trips through itself", () => {
+    for (const name of BUILTIN_MODE_NAMES) {
+      expect(parseMode(name)).toBe(name);
+      expect(parseMode(name.toLowerCase())).toBe(name);
+    }
+  });
+
+  it("falls back to undefined (agent auto-selects) for an unknown mode", () => {
+    expect(parseMode("definitely-not-a-mode")).toBeUndefined();
   });
 });
 

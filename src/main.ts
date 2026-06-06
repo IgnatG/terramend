@@ -18,7 +18,11 @@ import {
 import { resolveAgent, resolveModel } from "#app/utils/agent";
 import { validateAgentApiKey } from "#app/utils/apiKeys";
 import { resolveBody } from "#app/utils/body";
-import { selectFallbackModelIfNeeded } from "#app/utils/byokFallback";
+import {
+  buildUnavailableModelError,
+  hasProviderKeyForModel,
+  selectFallbackModelIfNeeded,
+} from "#app/utils/byokFallback";
 import { log } from "#app/utils/cli";
 import { installCodexAuth, TERRAMEND_DATA_DIR } from "#app/utils/codexHome";
 import { recordDiffReadFromToolUse } from "#app/utils/diffCoverage";
@@ -29,7 +33,7 @@ import { createOctokit, writeGitHubUsageSummaryToFile } from "#app/utils/github"
 import { resolveInstructions } from "#app/utils/instructions";
 import { persistLearnings, seedLearningsFile } from "#app/utils/learnings";
 import { describeSetupFailure, executeLifecycleHook } from "#app/utils/lifecycle";
-import { normalizeEnv, sanitizeSecret } from "#app/utils/normalizeEnv";
+import { normalizeEnv } from "#app/utils/normalizeEnv";
 import {
   captureAuthorizedModels,
   captureBaselineModels,
@@ -43,7 +47,6 @@ import {
 } from "#app/utils/packageManager";
 import { aggregateUsage, patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
 import { resolveOutputSchema, resolvePayload, resolvePromptInput } from "#app/utils/payload";
-import { type OidcCredentials, runProxyResolution } from "#app/utils/proxy";
 import { fetchPreviousSnapshot, persistSummary, seedSummaryFile } from "#app/utils/prSummary";
 import { handleAgentResult } from "#app/utils/run";
 import { resolveRunContextData } from "#app/utils/runContextData";
@@ -133,28 +136,13 @@ export async function main(): Promise<MainResult> {
   // mcp server setup further down also consume the same tmpdir.
   const tmpdir = createTempDirectory();
 
-  // install OpenCode + capture the BASELINE model set BEFORE dbSecrets and
-  // Codex auth.json are in scope. this is the set of models OpenCode can
-  // route from the runner's pre-existing environment alone (workflow
-  // `env:` block + GH Actions secrets). install is fs-cached, so the
-  // duplicate call inside the opencode agent's run() is a no-op.
+  // install OpenCode + capture the BASELINE model set BEFORE Codex auth.json
+  // is in scope. this is the set of models OpenCode can route from the runner's
+  // pre-existing environment alone (workflow `env:` block + GH Actions secrets).
+  // install is fs-cached, so the duplicate call inside the opencode agent's
+  // run() is a no-op.
   const opencodeCliPath = await agents.opencode.install();
   captureBaselineModels(opencodeCliPath);
-
-  // inject account-level secrets into process.env (YAML secrets take precedence).
-  // sanitizeSecret trims + masks so accidental trailing whitespace doesn't leak
-  // through GitHub Actions' line-based log masking. whitespace-only values
-  // return null and skip injection so the user sees a clear missing-key error.
-  if (runContext.dbSecrets) {
-    for (const [key, value] of Object.entries(runContext.dbSecrets)) {
-      if (!process.env[key]) {
-        const sanitized = sanitizeSecret(key, value);
-        if (sanitized !== null) process.env[key] = sanitized;
-      }
-    }
-    const count = Object.keys(runContext.dbSecrets).length;
-    if (count > 0) log.info(`» ${count} db secret(s) loaded`);
-  }
 
   // materialize Codex auth.json (idempotent — opencode agent re-calls inside
   // run() and writes the same file). this has to land BEFORE
@@ -162,11 +150,11 @@ export async function main(): Promise<MainResult> {
   // OAuth-routed openai/* models.
   installCodexAuth();
 
-  // capture the AUTHORIZED model set after dbSecrets + Codex auth.json are
-  // applied. this is the authoritative source for the BYOK fallback
-  // decision and the opencode-agent path of validateAgentApiKey — strictly
-  // more accurate than the static envVars/managedCredentials catalog,
-  // which can miss new auth shapes.
+  // capture the AUTHORIZED model set after Codex auth.json is applied. this is
+  // the authoritative source for the BYOK fallback decision and the
+  // opencode-agent path of validateAgentApiKey — strictly more accurate than
+  // the static envVars/managedCredentials catalog, which can miss new auth
+  // shapes.
   captureAuthorizedModels(opencodeCliPath);
 
   // configure env allowlist for subprocess filtering
@@ -191,35 +179,11 @@ export async function main(): Promise<MainResult> {
   // for the leak inventory and threat model.
   wipeRunnerLeakSurface();
 
-  // stash OIDC credentials in memory before wiping from process.env
-  // the agent's shell commands can't access JS variables, so this is safe
-  const oidcCredentials: OidcCredentials | null =
-    process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
-      ? {
-          requestUrl: process.env.ACTIONS_ID_TOKEN_REQUEST_URL,
-          requestToken: process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
-        }
-      : null;
-
   // clear OIDC env vars in restricted mode to prevent agent from minting tokens
   if (payload.shell !== "enabled") {
     delete process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     delete process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
   }
-
-  // Proxy decision: mint an OpenRouter key for OSS repos or managed billing
-  // accounts. BillingError (402) and TransientError (503) get rendered inside
-  // `runProxyResolution` before being rethrown — handled here (not in the
-  // outer catch) because the outer catch needs `toolContext` (not yet built)
-  // for its general-purpose error path.
-  await runProxyResolution({
-    payload,
-    oss: runContext.oss,
-    proxyModel: runContext.proxyModel,
-    oidcCredentials,
-    repo: runContext.repo,
-    toolState,
-  });
 
   // create octokit with MCP token for GitHub API calls
   const octokit = createOctokit(tokenRef.mcpToken);
@@ -258,35 +222,43 @@ export async function main(): Promise<MainResult> {
     await using gitAuthServer = await startGitAuthServer(tmpdir);
     setGitAuthServer(gitAuthServer);
 
-    const initialResolvedModel = payload.proxyModel
-      ? undefined
-      : resolveModel({ slug: payload.model });
+    const initialResolvedModel = resolveModel({ slug: payload.model });
 
-    // BYOK fallback: if the configured model needs a key the runner doesn't
-    // have, swap to a free OpenCode model so the run can still produce
-    // value. Without this, the agent launches with no key, the LLM provider
-    // 401s, and the run dies in seconds with a synthetic "Invalid API key"
-    // — exactly the silent-churn pattern that took out 15 accounts before
-    // this landed. Router/proxy runs are skipped (Terramend mints the key);
-    // see `selectFallbackModelIfNeeded` for the full skip set.
+    // BYOK model gate. Three outcomes (see `selectFallbackModelIfNeeded`):
+    //   - use-resolved: run the configured model as-is.
+    //   - fallback: NO provider key present → swap to the free OpenCode model
+    //     so the run still produces value. Without this, the agent launches
+    //     with no key, the LLM provider 401s, and the run dies in seconds with
+    //     a synthetic "Invalid API key" — the silent-churn pattern that took
+    //     out 15 accounts before this landed.
+    //   - unavailable: a provider key IS present but the configured model is
+    //     not one the key can route. Fail loudly with the authorized list
+    //     rather than silently downgrading to free (which hides a wrong model
+    //     id — see PR #2, where a Google key was set but the slug was invalid
+    //     and the run silently used big-pickle).
     const authorized = getAuthorizedModels();
-    const fallback = selectFallbackModelIfNeeded({
+    const decision = selectFallbackModelIfNeeded({
       resolvedModel: initialResolvedModel,
-      proxyModel: payload.proxyModel,
       authorized,
+      providerKeyPresent: initialResolvedModel
+        ? hasProviderKeyForModel(initialResolvedModel)
+        : false,
     });
+    if (decision.kind === "unavailable") {
+      throw new Error(buildUnavailableModelError({ model: decision.model, authorized }));
+    }
     // when fallback engages we bypass `resolveModel` for the new slug —
     // `TERRAMEND_MODEL` has higher priority than the slug arg inside that
     // helper and would otherwise re-override back to the unkeyed model.
     // the free fallback slug is already a CLI-ready specifier, so using
     // it verbatim is correct and avoids the override.
-    const effectiveSlug = fallback.fallback ? fallback.to : payload.model;
-    const resolvedModel = fallback.fallback ? fallback.to : initialResolvedModel;
-    if (fallback.fallback) {
+    const effectiveSlug = decision.kind === "fallback" ? decision.to : payload.model;
+    const resolvedModel = decision.kind === "fallback" ? decision.to : initialResolvedModel;
+    if (decision.kind === "fallback") {
       log.warning(
-        `» fell back from ${fallback.from} to ${fallback.to} — no BYOK key present in runner env. add a provider key in repo secrets to use ${fallback.from} instead.`
+        `» fell back from ${decision.from} to ${decision.to} — no provider key present in runner env. add a provider key in repo secrets to use ${decision.from} instead.`
       );
-      toolState.modelFallback = { from: fallback.from };
+      toolState.modelFallback = { from: decision.from };
     }
 
     vertexCredentials = materializeVertexCredentials({ model: resolvedModel });
@@ -294,27 +266,19 @@ export async function main(): Promise<MainResult> {
     const agent = resolveAgent({ model: resolvedModel });
 
     // surface the effective model in comment/review footers. payload.model is
-    // just the stored slug (often undefined for router/oss runs that derive
-    // the target from proxyModel). matching priority with resolveModelForLog
-    // so the "Using `…`" badge reflects what actually ran.
-    toolState.model = payload.proxyModel ?? resolvedModel ?? effectiveSlug;
+    // just the stored slug (often undefined when the agent auto-selects).
+    // matching priority with resolveModelForLog so the "Using `…`" badge
+    // reflects what actually ran.
+    toolState.model = resolvedModel ?? effectiveSlug;
 
     // skip validation when fallback engaged: the effective model is the
     // free fallback (`opencode/big-pickle`) and the fallback gate already
     // authoritatively decided "this model is OK to run". re-validating
     // would spuriously throw if `opencode models` doesn't list big-pickle.
-    //
-    // also skip when proxyModel is set: `runProxyResolution` already minted
-    // OPENROUTER_API_KEY and the server-side gate (`run-context/route.ts`)
-    // is the authority on "can this run use the router". the `authorized`
-    // set was captured BEFORE the proxy mint, so it doesn't see the
-    // openrouter slug — re-validating would spuriously throw. mirrors the
-    // analogous `if (input.proxyModel) return { fallback: false }` skip in
-    // `selectFallbackModelIfNeeded`.
-    if (!fallback.fallback && !payload.proxyModel) {
+    if (decision.kind !== "fallback") {
       validateAgentApiKey({
         agent,
-        model: payload.proxyModel ?? resolvedModel ?? effectiveSlug,
+        model: resolvedModel ?? effectiveSlug,
         authorized,
         owner: runContext.repo.owner,
         name: runContext.repo.name,
