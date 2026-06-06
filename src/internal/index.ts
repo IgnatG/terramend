@@ -33,10 +33,7 @@ export {
 } from "#app/external";
 export type { Mode } from "#app/modes";
 export { modes } from "#app/modes";
-export type {
-  BuildTerramendFooterParams,
-  WorkflowRunFooterInfo,
-} from "#app/utils/buildTerramendFooter";
+export type { BuildTerramendFooterParams } from "#app/utils/buildTerramendFooter";
 export {
   buildTerramendFooter,
   TERRAMEND_DIVIDER,

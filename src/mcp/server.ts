@@ -41,7 +41,11 @@ import {
 } from "#app/mcp/reviewComments";
 import { SelectModeTool } from "#app/mcp/selectMode";
 import { addTools } from "#app/mcp/shared";
-import { TerraformScanTool, TerraformValidateTool } from "#app/mcp/terraform";
+import {
+  TerraformScanTool,
+  TerraformValidateTool,
+  TerraformVerifyRemediationTool,
+} from "#app/mcp/terraform";
 import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
 import { UploadFileTool } from "#app/mcp/upload";
 
@@ -60,7 +64,6 @@ export interface ToolContext {
   modeInstructions: Record<string, string>;
   toolState: ToolState;
   runId: number | undefined;
-  jobId: string | undefined;
   mcpServerUrl: string;
   tmpdir: string;
   // repo-level OSS flag + account-level billing plan. together they decide
@@ -142,6 +145,7 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     // Remediate / GenerateTerraform modes can scan + gate without extra perms.
     TerraformScanTool(ctx),
     TerraformValidateTool(ctx),
+    TerraformVerifyRemediationTool(ctx),
   ];
 
   const isStandalone = ctx.payload.event.trigger === "unknown";

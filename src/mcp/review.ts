@@ -866,9 +866,6 @@ async function createAndSubmitWithFooter(
     }
 
     const footer = buildTerramendFooter({
-      workflowRun: ctx.runId
-        ? { owner: ctx.repo.owner, repo: ctx.repo.name, runId: ctx.runId, jobId: ctx.jobId }
-        : undefined,
       customParts,
       model: ctx.toolState.model,
       fallbackFrom: ctx.toolState.modelFallback?.from,

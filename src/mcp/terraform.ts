@@ -18,7 +18,7 @@ import { execute, tool } from "#app/mcp/shared";
  * add `lens` / `standard` / `control_id` / `state` on top. Keeping the shape a
  * subset means a future reviewer integration (read_findings) can emit the same
  * Concern[] with no change to the modes or the rest of the tools — only the
- * SOURCE of concerns swaps. See REMEDIATOR-ADAPTATION.md §1.
+ * SOURCE of concerns swaps. See ARCHITECTURE.md "The spine".
  */
 export interface Concern {
   /** stable content id: sha1(source|rule_id|file|line). idempotency key for branch/PR naming. */
@@ -534,6 +534,42 @@ function changedTerraformFiles(cwd: string): Set<string> | null {
   return new Set(files);
 }
 
+/** run every scanner once over `cwd`. shared by `terraform_scan` and the
+ * deterministic remediation verifier so both see the identical toolchain. */
+function runScanners(cwd: string): ScannerOutcome[] {
+  return [scanFmt(cwd), scanValidate(cwd), scanTflint(cwd), scanTrivy(cwd), scanCheckov(cwd)];
+}
+
+export interface RemediationVerdict {
+  /** true only when every original concern id is absent from the re-scan. */
+  verified: boolean;
+  /** original ids no longer present (the fix cleared them). */
+  resolved: string[];
+  /** original ids still present (the fix did NOT clear them). */
+  remaining: string[];
+}
+
+/**
+ * Deterministic ✗→✓ check: partition the group's original `concern_ids` into
+ * those gone from a fresh scan (`resolved`) and those still present
+ * (`remaining`). Concern ids are content hashes (`sha1(source|rule|file|line)`),
+ * so a missing id means that exact concern is gone — the correct primitive for
+ * "did the fix clear it", independent of severity/scope filtering. This is the
+ * code-level replacement for the agent eyeballing a re-scan and self-reporting.
+ */
+export function computeRemediationVerdict(
+  originalConcernIds: string[],
+  currentConcernIds: Set<string>
+): RemediationVerdict {
+  const resolved: string[] = [];
+  const remaining: string[] = [];
+  for (const id of originalConcernIds) {
+    if (currentConcernIds.has(id)) remaining.push(id);
+    else resolved.push(id);
+  }
+  return { verified: remaining.length === 0, resolved, remaining };
+}
+
 export const TerraformScanParams = type({
   "scan_scope?": type("'full' | 'diff'").describe(
     "'full' (default) scans the whole workspace; 'diff' limits concerns to Terraform files changed vs the base branch."
@@ -564,13 +600,7 @@ export function TerraformScanTool(ctx: ToolContext) {
       const minRank = SEVERITY_RANK[threshold];
       const scope = scan_scope ?? ctx.payload.scanScope ?? "full";
 
-      const outcomes: ScannerOutcome[] = [
-        scanFmt(cwd),
-        scanValidate(cwd),
-        scanTflint(cwd),
-        scanTrivy(cwd),
-        scanCheckov(cwd),
-      ];
+      const outcomes = runScanners(cwd);
 
       // diff scope: keep only concerns in Terraform files changed vs the base.
       let scopeNote: string | undefined;
@@ -642,6 +672,44 @@ export function TerraformValidateTool(ctx: ToolContext) {
         passed: remaining.length === 0,
         checks_ran: ran,
         remaining_issues: remaining,
+      };
+    }),
+  });
+}
+
+export const TerraformVerifyRemediationParams = type({
+  concern_ids: type.string.array().describe(
+    "the `concern_ids` of the group being remediated (from the original terraform_scan). the tool re-runs the scanners and reports which are now resolved vs still present."
+  ),
+});
+
+export function TerraformVerifyRemediationTool(ctx: ToolContext) {
+  return tool({
+    name: "terraform_verify_remediation",
+    description:
+      "Deterministic ✗→✓ proof for a remediation. Re-runs the scanners and partitions the given " +
+      "`concern_ids` into `resolved` (gone from the re-scan) and `remaining` (still present), with a " +
+      "`verified` flag that is true ONLY when every id is gone. Call this AFTER pushing the fix branch " +
+      "and build the PR's Validation section from its result — do NOT eyeball a scan or self-report " +
+      "resolution. A concern may be listed as ✓ resolved only if it appears in `resolved`.",
+    parameters: TerraformVerifyRemediationParams,
+    execute: execute(async ({ concern_ids }) => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      const outcomes = runScanners(cwd);
+      const current = new Set(dedupe(outcomes.flatMap((o) => o.concerns)).map((c) => c.id));
+      const verdict = computeRemediationVerdict(concern_ids, current);
+      const ran = outcomes.filter((o) => o.ran).map((o) => o.source);
+      log.info(
+        `» terraform_verify_remediation: ${verdict.resolved.length}/${concern_ids.length} resolved` +
+          ` (${verdict.remaining.length} still present) from [${ran.join(", ")}]`
+      );
+      return {
+        verified: verdict.verified,
+        resolved_count: verdict.resolved.length,
+        remaining_count: verdict.remaining.length,
+        resolved: verdict.resolved,
+        remaining: verdict.remaining,
+        scanners_ran: ran,
       };
     }),
   });

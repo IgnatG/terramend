@@ -4,7 +4,7 @@ import type { ToolContext } from "#app/mcp/server";
 
 /**
  * Remediation guardrails — hard, code-level limits that back the Remediate
- * mode's prompt rules (REMEDIATOR-ADAPTATION.md §3.H). They only engage when
+ * mode's prompt rules (see ARCHITECTURE.md "Guardrails"). They only engage when
  * the run selected the **Remediate** mode, so every other mode (Build, Fix,
  * Review, …) is completely unaffected.
  */

@@ -20,9 +20,6 @@ export const PullRequest = type({
 function buildPrBodyWithFooter(ctx: ToolContext, body: string): string {
   const footer = buildTerramendFooter({
     triggeredBy: true,
-    workflowRun: ctx.runId
-      ? { owner: ctx.repo.owner, repo: ctx.repo.name, runId: ctx.runId, jobId: ctx.jobId }
-      : undefined,
     model: ctx.toolState.model,
     fallbackFrom: ctx.toolState.modelFallback?.from,
   });

@@ -2,21 +2,9 @@ import { getModelProvider, modelAliases, providers, resolveDisplayAlias } from "
 
 export const TERRAMEND_DIVIDER = "<!-- TERRAMEND_DIVIDER_DO_NOT_REMOVE_PLZ -->";
 
-export interface WorkflowRunFooterInfo {
-  owner: string;
-  repo: string;
-  runId: number;
-  /** optional job ID - if provided, will append /job/{jobId} to the workflow run URL */
-  jobId?: string | undefined;
-}
-
 export interface BuildTerramendFooterParams {
   /** add "via Terramend" link */
   triggeredBy?: boolean;
-  /** add "View workflow run" link */
-  workflowRun?: WorkflowRunFooterInfo | undefined;
-  /** alternative: just pass a pre-built URL directly (for shortlinks etc.) */
-  workflowRunUrl?: string | undefined;
   /** arbitrary custom parts (e.g., action links) */
   customParts?: string[] | undefined;
   /** model slug from payload (e.g., "anthropic/claude-opus"). shown in footer as "Using `Model Name`" */
@@ -60,21 +48,13 @@ function formatModelLabel(params: { model: string; fallbackFrom?: string | undef
 
 /**
  * build a terramend footer with configurable parts
- * order: action links (customParts) > workflow run > model > attribution
+ * order: action links (customParts) > model > attribution
  */
 export function buildTerramendFooter(params: BuildTerramendFooterParams): string {
   const parts: string[] = [];
 
   if (params.customParts) {
     parts.push(...params.customParts);
-  }
-
-  if (params.workflowRunUrl) {
-    parts.push(`[View workflow run](${params.workflowRunUrl})`);
-  } else if (params.workflowRun) {
-    const baseUrl = `https://github.com/${params.workflowRun.owner}/${params.workflowRun.repo}/actions/runs/${params.workflowRun.runId}`;
-    const url = params.workflowRun.jobId ? `${baseUrl}/job/${params.workflowRun.jobId}` : baseUrl;
-    parts.push(`[View workflow run](${url})`);
   }
 
   if (params.triggeredBy) {

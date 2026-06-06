@@ -40,7 +40,6 @@ export async function reportErrorToComment(ctx: ReportErrorParams): Promise<void
 
   const footer = buildTerramendFooter({
     triggeredBy: true,
-    workflowRun: runId ? { owner: repoContext.owner, repo: repoContext.name, runId } : undefined,
     customParts,
     model: ctx.toolState.model,
     fallbackFrom: ctx.toolState.modelFallback?.from,

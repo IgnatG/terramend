@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type Concern,
+  computeRemediationVerdict,
   groupConcerns,
   parseCheckovOutput,
   parseFmtOutput,
@@ -304,5 +305,36 @@ describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
     const a = groupConcerns([concern("main.tf", "low", "x")])[0];
     const b = groupConcerns([concern("main.tf", "high", "y")])[0];
     expect(a.id).toBe(b.id);
+  });
+});
+
+describe("computeRemediationVerdict (C2 — tamper-proof ✗→✓)", () => {
+  it("verifies when every original concern id is gone from the re-scan", () => {
+    const verdict = computeRemediationVerdict(["a", "b", "c"], new Set(["x", "y"]));
+    expect(verdict).toEqual({ verified: true, resolved: ["a", "b", "c"], remaining: [] });
+  });
+
+  it("does NOT verify when a concern is still present — the claim can't outrun the re-scan", () => {
+    // the core C2 regression: even if the agent asserts success, a concern still
+    // present in the fresh scan lands in `remaining` and `verified` is false.
+    const verdict = computeRemediationVerdict(["a", "b"], new Set(["b"]));
+    expect(verdict.verified).toBe(false);
+    expect(verdict.resolved).toEqual(["a"]);
+    expect(verdict.remaining).toEqual(["b"]);
+  });
+
+  it("reports all remaining when nothing was fixed", () => {
+    const verdict = computeRemediationVerdict(["a", "b"], new Set(["a", "b", "c"]));
+    expect(verdict.verified).toBe(false);
+    expect(verdict.remaining).toEqual(["a", "b"]);
+    expect(verdict.resolved).toEqual([]);
+  });
+
+  it("verifies vacuously for an empty concern set", () => {
+    expect(computeRemediationVerdict([], new Set(["a"]))).toEqual({
+      verified: true,
+      resolved: [],
+      remaining: [],
+    });
   });
 });

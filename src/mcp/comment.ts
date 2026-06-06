@@ -19,18 +19,8 @@ export {
 } from "#app/utils/leapingComment";
 
 function buildCommentFooter(ctx: ToolContext, customParts?: string[]): string {
-  const runId = ctx.runId;
   return buildTerramendFooter({
     triggeredBy: true,
-    workflowRun:
-      runId !== undefined
-        ? {
-            owner: ctx.repo.owner,
-            repo: ctx.repo.name,
-            runId,
-            jobId: ctx.jobId,
-          }
-        : undefined,
     customParts,
     model: ctx.toolState.model,
     fallbackFrom: ctx.toolState.modelFallback?.from,

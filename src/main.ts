@@ -346,7 +346,6 @@ export async function main(): Promise<MainResult> {
       modeInstructions: runContext.repoSettings.modeInstructions,
       toolState,
       runId: runInfo.runId,
-      jobId: runInfo.jobId,
       mcpServerUrl: "",
       tmpdir,
       oss: runContext.oss,

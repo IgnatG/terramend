@@ -133,5 +133,5 @@ see [`LICENSE`](LICENSE). It is a derivative of the MIT-licensed
 
 ## Design
 
-See [`REMEDIATOR-ADAPTATION.md`](REMEDIATOR-ADAPTATION.md) for the end-to-end architecture, the
-internal concern model, and how the fork was adapted from Pullfrog.
+See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the end-to-end architecture, the internal concern
+model, and how the fork was adapted from Pullfrog.
