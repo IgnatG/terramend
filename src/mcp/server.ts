@@ -49,7 +49,13 @@ import {
   TerraformValidateTool,
   TerraformVerifyRemediationTool,
 } from "#app/mcp/terraform";
-import { ListModulesTool, TerraformModuleGraphTool } from "#app/mcp/modules";
+import {
+  ListModulesTool,
+  TerraformModuleGraphTool,
+  TerraformModuleInterfaceTool,
+} from "#app/mcp/modules";
+import { TerraformProviderSchemaTool } from "#app/mcp/providerSchema";
+import { TerraformRootsTool } from "#app/mcp/roots";
 import { ScaffoldTerratestTool } from "#app/mcp/terratest";
 import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
 import { UploadFileTool } from "#app/mcp/upload";
@@ -156,6 +162,9 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     TerraformPlanTool(ctx),
     ListModulesTool(ctx),
     TerraformModuleGraphTool(ctx),
+    TerraformModuleInterfaceTool(ctx),
+    TerraformProviderSchemaTool(ctx),
+    TerraformRootsTool(ctx),
     ScaffoldTerratestTool(ctx),
   ];
 

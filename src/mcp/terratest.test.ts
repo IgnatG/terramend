@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { scaffoldTerratest } from "#app/mcp/terratest";
+import { scaffoldTerraformTest, scaffoldTerratest } from "#app/mcp/terratest";
 
 describe("scaffoldTerratest (§28)", () => {
-  it("emits an example fixture + versions + a plan-only Go test", () => {
+  it("emits an example fixture + versions + a plan-only Go test + a native test", () => {
     const s = scaffoldTerratest({ moduleName: "vpc", modulePath: "modules/vpc" });
     const paths = s.files.map((f) => f.path);
-    expect(paths).toEqual(["examples/vpc/main.tf", "examples/vpc/versions.tf", "test/vpc_test.go"]);
+    expect(paths).toEqual([
+      "examples/vpc/main.tf",
+      "examples/vpc/versions.tf",
+      "test/vpc_test.go",
+      "tests/vpc.tftest.hcl",
+    ]);
   });
 
   it("computes the example's relative source back to the module dir", () => {
@@ -40,5 +45,22 @@ describe("scaffoldTerratest (§28)", () => {
     const go = s.files.find((f) => f.path.endsWith("_test.go"))!.content;
     expect(go).toContain("func TestAwsS3Bucket(");
     expect(s.files.some((f) => f.path.startsWith("examples/aws-s3-bucket/"))).toBe(true);
+  });
+
+  it("bundles a Terraform-native test alongside the Go test", () => {
+    const s = scaffoldTerratest({ moduleName: "vpc", modulePath: "modules/vpc" });
+    const native = s.files.find((f) => f.path === "tests/vpc.tftest.hcl")!;
+    expect(native.content).toContain("command = plan");
+    expect(native.content).toContain('source = "./examples/vpc"');
+  });
+});
+
+describe("scaffoldTerraformTest (§28 native variant)", () => {
+  it("emits a plan-only .tftest.hcl run block", () => {
+    const f = scaffoldTerraformTest({ moduleName: "my-vpc" });
+    expect(f.path).toBe("tests/my-vpc.tftest.hcl");
+    expect(f.content).toContain('run "plan_my_vpc_example"');
+    expect(f.content).toContain("command = plan");
+    expect(f.content).not.toMatch(/command\s*=\s*apply/);
   });
 });

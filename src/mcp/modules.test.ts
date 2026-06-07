@@ -9,6 +9,7 @@ import {
   type ModuleGraph,
   parseModuleBlocks,
   parseModuleCatalogue,
+  parseModuleInterface,
   splitModuleSource,
   walkTfFiles,
 } from "#app/mcp/modules";
@@ -147,6 +148,74 @@ describe("isInLocalModule", () => {
     expect(isInLocalModule("./modules/net/vpc.tf", graph)?.dir).toBe("modules/net");
     expect(isInLocalModule("modules/network/vpc.tf", graph)).toBeNull();
     expect(isInLocalModule("main.tf", graph)).toBeNull();
+  });
+});
+
+describe("parseModuleInterface", () => {
+  it("parses variables (type, description, required) and outputs", () => {
+    const hcl = `
+      variable "bucket_name" {
+        description = "The bucket name"
+        type        = string
+      }
+      variable "tags" {
+        type    = map(string)
+        default = {}
+      }
+      variable "retention_in_days" {
+        type = number
+        default = 30
+        validation {
+          condition     = var.retention_in_days > 0
+          error_message = "must be positive"
+        }
+      }
+      output "arn" {
+        description = "The bucket ARN"
+        value       = aws_s3_bucket.this.arn
+      }`;
+    const iface = parseModuleInterface(hcl);
+    expect(iface.variables).toEqual([
+      { name: "bucket_name", type: "string", description: "The bucket name", required: true },
+      { name: "tags", type: "map(string)", description: null, required: false },
+      { name: "retention_in_days", type: "number", description: null, required: false },
+    ]);
+    expect(iface.outputs).toEqual([{ name: "arn", description: "The bucket ARN" }]);
+  });
+
+  it("brace-matches a variable with a nested validation/object type", () => {
+    const hcl = `variable "cfg" {
+      type = object({ name = string, size = number })
+      default = { name = "x", size = 1 }
+    }`;
+    const iface = parseModuleInterface(hcl);
+    expect(iface.variables).toHaveLength(1);
+    expect(iface.variables[0]).toMatchObject({ name: "cfg", required: false });
+    expect(iface.variables[0].type).toContain("object(");
+  });
+
+  it("returns empty for HCL with no variables/outputs", () => {
+    expect(parseModuleInterface('resource "aws_s3_bucket" "b" {}')).toEqual({ variables: [], outputs: [] });
+  });
+
+  it("keeps a variable REQUIRED when only a nested object field is named `default`", () => {
+    // regression: a `default = string` FIELD inside `object({…})` must not be
+    // mistaken for the variable's `default` attribute (which would mark it optional).
+    const hcl = `variable "x" {
+      type = object({
+        enabled = bool
+        default = string
+      })
+    }`;
+    expect(parseModuleInterface(hcl).variables[0]).toMatchObject({ name: "x", required: true });
+  });
+
+  it("still detects a real top-level default (including an empty object)", () => {
+    const hcl = `variable "tags" {
+      type    = map(string)
+      default = {}
+    }`;
+    expect(parseModuleInterface(hcl).variables[0].required).toBe(false);
   });
 });
 

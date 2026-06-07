@@ -21,9 +21,13 @@ import {
   moduleAddressOf,
   parseCheckovOutput,
   parseFmtOutput,
+  isSarif,
+  parseFindingsFile,
   parseInfracostBreakdown,
+  parseInfracostResources,
   parseRequiredProviders,
   parseReviewerFindings,
+  parseSarifFindings,
   parseTerraformPlanJson,
   parseTflintOutput,
   parseTrivyOutput,
@@ -663,6 +667,113 @@ describe("parseReviewerFindings", () => {
   it("returns nothing for an empty or findings-less report", () => {
     expect(parseReviewerFindings("")).toEqual([]);
     expect(parseReviewerFindings(JSON.stringify({ schema_version: "1.0" }))).toEqual([]);
+  });
+});
+
+describe("SARIF ingestion (read_findings)", () => {
+  const sarif = (driver: string, results: unknown[], rules: unknown[] = []) =>
+    JSON.stringify({
+      version: "2.1.0",
+      $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+      runs: [{ tool: { driver: { name: driver, rules } }, results }],
+    });
+
+  it("detects a SARIF report vs a reviewer findings.json", () => {
+    expect(isSarif(JSON.parse(sarif("Trivy", [])))).toBe(true);
+    expect(isSarif({ schema_version: "1.0", findings: [] })).toBe(false);
+    expect(isSarif(null)).toBe(false);
+  });
+
+  it("maps a Trivy SARIF result to a concern with a reproducible id", () => {
+    const report = sarif(
+      "Trivy",
+      [
+        {
+          ruleId: "AVD-AWS-0088",
+          level: "error",
+          message: { text: "Bucket is not encrypted" },
+          locations: [{ physicalLocation: { artifactLocation: { uri: "main.tf" }, region: { startLine: 5 } } }],
+        },
+      ],
+      [{ id: "AVD-AWS-0088", helpUri: "https://avd.aquasec.com/misconfig/avd-aws-0088" }]
+    );
+    const [c] = parseSarifFindings(report);
+    expect(c).toMatchObject({
+      source: "trivy",
+      rule_id: "trivy:AVD-AWS-0088",
+      severity: "high",
+      category: "security",
+      location: { file: "main.tf", line: 5 },
+      remediation_hint: "https://avd.aquasec.com/misconfig/avd-aws-0088",
+    });
+    // same id Terramend's own trivy scan of the same rule/file/line produces.
+    const [own] = parseTrivyOutput(
+      JSON.stringify({
+        Results: [
+          { Target: "main.tf", Misconfigurations: [{ AVDID: "AVD-AWS-0088", Severity: "HIGH", Status: "FAIL", CauseMetadata: { StartLine: 5 } }] },
+        ],
+      })
+    );
+    expect(c.id).toBe(own.id);
+  });
+
+  it("uses security-severity to refine the level when present", () => {
+    const report = sarif("Checkov", [
+      {
+        ruleId: "CKV_AWS_18",
+        level: "warning",
+        message: { text: "x" },
+        properties: { "security-severity": "9.1" },
+        locations: [{ physicalLocation: { artifactLocation: { uri: "a.tf" }, region: { startLine: 1 } } }],
+      },
+    ]);
+    expect(parseSarifFindings(report)[0].severity).toBe("critical");
+  });
+
+  it("drops non-Terraform files and tolerates an empty report", () => {
+    const report = sarif("Trivy", [
+      { ruleId: "X", level: "error", message: { text: "y" }, locations: [{ physicalLocation: { artifactLocation: { uri: "Dockerfile" } } }] },
+    ]);
+    expect(parseSarifFindings(report)).toEqual([]);
+    expect(parseSarifFindings("{}")).toEqual([]);
+  });
+
+  it("parseFindingsFile dispatches to the right parser", () => {
+    const sarifReport = sarif("Trivy", [
+      { ruleId: "AVD-AWS-1", level: "error", message: { text: "z" }, locations: [{ physicalLocation: { artifactLocation: { uri: "main.tf" }, region: { startLine: 2 } } }] },
+    ]);
+    expect(parseFindingsFile(sarifReport)[0].source).toBe("trivy");
+    const reviewer = JSON.stringify({ schema_version: "1.0", findings: [{ source: "checkov", rule_id: "checkov:CKV_AWS_18", severity: "high", location: { file: "main.tf", line: 5 } }] });
+    expect(parseFindingsFile(reviewer)[0].source).toBe("checkov");
+  });
+});
+
+describe("parseInfracostResources (resource-level cost breakdown)", () => {
+  it("extracts and sorts per-resource monthly costs (most expensive first)", () => {
+    const json = JSON.stringify({
+      projects: [
+        {
+          breakdown: {
+            resources: [
+              { name: "aws_instance.web", monthlyCost: "12.40" },
+              { name: "aws_db_instance.db", monthlyCost: "120.00" },
+              { name: "aws_s3_bucket.logs", monthlyCost: null },
+              { name: "aws_iam_role.r", monthlyCost: "0" },
+            ],
+          },
+        },
+      ],
+    });
+    expect(parseInfracostResources(json)).toEqual([
+      { name: "aws_db_instance.db", monthlyCost: 120 },
+      { name: "aws_instance.web", monthlyCost: 12.4 },
+    ]);
+  });
+
+  it("tolerates empty / malformed input", () => {
+    expect(parseInfracostResources("")).toEqual([]);
+    expect(parseInfracostResources("not json")).toEqual([]);
+    expect(parseInfracostResources(JSON.stringify({ projects: [] }))).toEqual([]);
   });
 });
 

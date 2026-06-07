@@ -47,7 +47,10 @@ The model only *applies* fixes; the **tools decide** what's wrong. The finding s
 | `terraform_verify_remediation` | Re-runs the scanners and partitions the targeted `concern_ids` into `resolved` / `remaining` (the tamper-proof ✗→✓ proof), reports `regressions` the fix introduced, and a deterministic `confidence`. |
 | `terraform_module_graph` | Parses the repo's `module` blocks into a call-graph (local / registry / git / remote) so a concern inside a **local module** is fixed once at the source, and a concern in a **remote** module is flagged as out-of-repo. |
 | `list_modules` | Returns the [`module_catalogue`](#inputs) **plus** house modules auto-discovered in the repo (`discovered_house_modules`), so a fix/generation reuses a blessed registry, private-git, or house module over raw resources. |
-| `scaffold_terratest` | *(opt-in via `terratest`)* Generates a plan-only Go Terratest smoke test + `examples/` fixture for a newly generated module. |
+| `terraform_module_interface` | Parses a module's `variable`s (name/type/required) + `output`s so a `module` block uses the module's real interface. |
+| `terraform_roots` | Discovers the repo's Terraform **root modules** (dirs with a `provider`/`backend`) so plan/validate run per-root in multi-root repos. |
+| `terraform_provider_schema` | After `init`, returns a resource type's valid attributes/blocks for the **installed provider**, flagging args that would break `plan`. Cached per run. |
+| `scaffold_terratest` | *(opt-in via `terratest`)* Generates a plan-only Go Terratest test **+** a native `tests/*.tftest.hcl` **+** `examples/` fixture for a newly generated module. |
 | `infracost_diff` | *(opt-in)* Monthly cost delta of the fix; escalates to `needs-human` when it crosses `cost_increase_block_usd`. |
 | `read_findings` | Loads concerns from a terraform-reviewer `findings.json` instead of scanning — same `{concerns, groups}` shape. |
 

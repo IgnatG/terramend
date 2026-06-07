@@ -114,13 +114,44 @@ func Test${fn}(t *testing.T) {
       { path: `${exampleDir}/main.tf`, content: exampleMain },
       { path: `${exampleDir}/versions.tf`, content: exampleVersions },
       { path: `test/${name}_test.go`, content: goTest },
+      // a Terraform-native test too (no Go needed) — the lighter option.
+      scaffoldTerraformTest({ moduleName: name }),
     ],
     notes: [
       `Set the module's required variables and a provider config in ${exampleDir}/main.tf before running the test.`,
-      "The test is plan-only (no apply) — run it in CI with `cd test && go test -run Test" + fn + " -v` where Go + the provider toolchain are available.",
-      "Add a go.mod with the terratest + testify dependencies if the repo doesn't already have one.",
+      "Both tests are plan-only (no apply). Go/Terratest: `cd test && go test -run Test" + fn + " -v`. Native: `terraform test`.",
+      "The native `tests/*.tftest.hcl` needs no Go; the Go test needs a go.mod with terratest + testify.",
     ],
   };
+}
+
+/**
+ * §28 (native variant) — scaffold a Terraform-native test (`tests/<name>.tftest.hcl`,
+ * Terraform 1.6+). Lighter than Terratest: no Go toolchain, just HCL that
+ * Terraform runs with `terraform test`. Plan-only `run` block (no apply, so no
+ * cloud needed to construct the test). Pure.
+ */
+export function scaffoldTerraformTest(opts: { moduleName: string }): ScaffoldFile {
+  const name = opts.moduleName.replace(/[^A-Za-z0-9_-]/g, "-");
+  const content = `# Terraform-native test for the ${name} module (Terraform 1.6+).
+# Plan-only — asserts the example plans cleanly without applying. Run with:
+#   terraform test
+run "plan_${name.replace(/-/g, "_")}_example" {
+  command = plan
+
+  # point at the example fixture as the module under test.
+  module {
+    source = "./examples/${name}"
+  }
+
+  # add assertions against planned values, e.g.:
+  # assert {
+  #   condition     = output.id != ""
+  #   error_message = "module must expose an id output"
+  # }
+}
+`;
+  return { path: `tests/${name}.tftest.hcl`, content };
 }
 
 export const ScaffoldTerratestParams = type({

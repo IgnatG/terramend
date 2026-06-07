@@ -381,6 +381,121 @@ export function isInLocalModule(file: string, graph: ModuleGraph): { dir: string
   return null;
 }
 
+// --- module interface introspection ----------------------------------------
+
+export interface ModuleVariable {
+  name: string;
+  /** the `type` expression as written (`string`, `list(string)`, …), or null. */
+  type: string | null;
+  description: string | null;
+  /** true when the variable has NO `default` (the caller must set it). */
+  required: boolean;
+}
+
+export interface ModuleOutput {
+  name: string;
+  description: string | null;
+}
+
+export interface ModuleInterface {
+  variables: ModuleVariable[];
+  outputs: ModuleOutput[];
+}
+
+/** collapse every nested `{…}` span (to a fixpoint) so a `default`/`source`
+ * etc. token INSIDE an object type or a nested block isn't mistaken for a
+ * top-level attribute of the enclosing block. */
+function stripNestedBraces(s: string): string {
+  let prev: string;
+  let cur = s;
+  do {
+    prev = cur;
+    cur = cur.replace(/\{[^{}]*\}/g, " ");
+  } while (cur !== prev);
+  return cur;
+}
+
+/** brace-match the body of the first `<kw> "<name>" {` block at/after `from`. */
+function blockBody(hcl: string, kw: string): { name: string; body: string; end: number }[] {
+  const out: { name: string; body: string; end: number }[] = [];
+  const re = new RegExp(`${kw}\\s+"([^"]+)"\\s*\\{`, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(hcl)) !== null) {
+    const name = m[1];
+    const braceStart = re.lastIndex - 1;
+    let depth = 0;
+    let end = -1;
+    for (let i = braceStart; i < hcl.length; i++) {
+      if (hcl[i] === "{") depth++;
+      else if (hcl[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end === -1) break;
+    out.push({ name, body: hcl.slice(braceStart + 1, end), end });
+    re.lastIndex = end + 1;
+  }
+  return out;
+}
+
+/**
+ * Parse a module's `variable`/`output` blocks into its public interface — the
+ * real names, types, descriptions, and which variables are REQUIRED (no
+ * `default`). Used so a generated `module` block (or a Terratest/example
+ * fixture) sets the module's ACTUAL variables instead of guessed ones. Pure;
+ * brace-matched so a nested `type = object({…})` or `validation {…}` doesn't
+ * confuse it.
+ */
+export function parseModuleInterface(hcl: string): ModuleInterface {
+  const variables: ModuleVariable[] = [];
+  for (const { name, body } of blockBody(hcl, "variable")) {
+    // `type = <expr>` up to end-of-line (the expr can contain braces/parens).
+    const typeMatch = body.match(/(?:^|\n)\s*type\s*=\s*([^\n]+)/);
+    const description = body.match(/(?:^|\n)\s*description\s*=\s*"((?:[^"\\]|\\.)*)"/)?.[1] ?? null;
+    // a TOP-LEVEL `default` attribute makes the variable optional. Strip nested
+    // `{…}` spans first so an object-type FIELD named `default`
+    // (`type = object({ default = string })`) or a `validation {}` block isn't
+    // mistaken for the attribute — that would wrongly mark a REQUIRED var optional.
+    const hasDefault = /(?:^|\n)\s*default\s*=/.test(stripNestedBraces(body));
+    variables.push({
+      name,
+      type: typeMatch ? typeMatch[1].trim() : null,
+      description,
+      required: !hasDefault,
+    });
+  }
+  const outputs: ModuleOutput[] = [];
+  for (const { name, body } of blockBody(hcl, "output")) {
+    const description = body.match(/(?:^|\n)\s*description\s*=\s*"((?:[^"\\]|\\.)*)"/)?.[1] ?? null;
+    outputs.push({ name, description });
+  }
+  return { variables, outputs };
+}
+
+/** read a module DIR's `*.tf` (non-recursive — a module is a single dir) and
+ * parse its interface. */
+export function collectModuleInterface(cwd: string, moduleDir: string): ModuleInterface {
+  let text = "";
+  const full = moduleDir ? join(cwd, moduleDir) : cwd;
+  try {
+    for (const f of readdirSync(full)) {
+      if (!f.endsWith(".tf")) continue;
+      try {
+        text += `${readFileSync(join(full, f), "utf8")}\n`;
+      } catch {
+        /* skip */
+      }
+    }
+  } catch {
+    return { variables: [], outputs: [] };
+  }
+  return parseModuleInterface(text);
+}
+
 // --- the tools -------------------------------------------------------------
 
 export const ListModulesParams = type({});
@@ -456,6 +571,38 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
         })),
         local_module_dirs: graph.localModuleDirs,
         external_module_count: graph.externalCount,
+      };
+    }),
+  });
+}
+
+export const TerraformModuleInterfaceParams = type({
+  module_dir: type.string.describe(
+    "the module's repo-relative dir (e.g. 'modules/cloudwatch_logs' or a discovered house module's path)."
+  ),
+});
+
+export function TerraformModuleInterfaceTool(ctx: ToolContext) {
+  return tool({
+    name: "terraform_module_interface",
+    description:
+      "Parse a module's PUBLIC INTERFACE — its `variable`s (name, type, description, and whether each is " +
+      "REQUIRED, i.e. has no default) and its `output`s — so a `module` block you write (or a Terratest/" +
+      "example fixture) uses the module's REAL variable names and sets every required input, instead of " +
+      "guessing. Point it at a local/house module dir (from `list_modules` / `terraform_module_graph`).",
+    parameters: TerraformModuleInterfaceParams,
+    execute: execute(async ({ module_dir }) => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      const iface = collectModuleInterface(cwd, module_dir);
+      log.info(
+        `» terraform_module_interface(${module_dir}): ${iface.variables.length} var(s), ${iface.outputs.length} output(s)`
+      );
+      return {
+        ok: true,
+        module_dir,
+        required_variables: iface.variables.filter((v) => v.required).map((v) => v.name),
+        variables: iface.variables,
+        outputs: iface.outputs,
       };
     }),
   });

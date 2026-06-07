@@ -920,6 +920,39 @@ export function parseInfracostBreakdown(stdout: string): CostBreakdown {
   };
 }
 
+export interface ResourceCost {
+  name: string;
+  monthlyCost: number;
+}
+
+/**
+ * Parse the per-resource monthly costs from `infracost breakdown --format json`
+ * (`projects[].breakdown.resources[]`), so a cost increase can be attributed to
+ * the specific resources that drove it instead of just a total. Skips unpriced
+ * (null/zero) resources; returns them sorted most-expensive first. Pure.
+ */
+export function parseInfracostResources(stdout: string): ResourceCost[] {
+  let parsed: {
+    projects?: { breakdown?: { resources?: { name?: string; monthlyCost?: string | number | null }[] } }[];
+  };
+  try {
+    parsed = JSON.parse(stdout || "{}");
+  } catch {
+    return [];
+  }
+  const out: ResourceCost[] = [];
+  for (const project of parsed.projects ?? []) {
+    for (const r of project.breakdown?.resources ?? []) {
+      const raw = r.monthlyCost;
+      const cost = typeof raw === "number" ? raw : raw != null ? Number.parseFloat(raw) : Number.NaN;
+      if (Number.isFinite(cost) && cost > 0 && r.name) {
+        out.push({ name: r.name, monthlyCost: Math.round(cost * 100) / 100 });
+      }
+    }
+  }
+  return out.sort((a, b) => b.monthlyCost - a.monthlyCost);
+}
+
 export interface CostDelta {
   currency: string;
   baselineMonthly: number | null;
@@ -1273,6 +1306,8 @@ export function InfracostDiffTool(ctx: ToolContext) {
       }
       const baseline = infracostBaseline(cwd, key, ctx.tmpdir);
       const delta = computeCostDelta(baseline, current);
+      // per-resource breakdown (top drivers) for a collapsed <details> in the PR.
+      const topResources = parseInfracostResources(cur.stdout).slice(0, 10);
       // §5.19 — record the cost direction for the confidence label.
       ctx.toolState.lastCostDirection = delta.direction;
       // §4.16-next — escalate to human review when the increase crosses the
@@ -1295,6 +1330,8 @@ export function InfracostDiffTool(ctx: ToolContext) {
         // §4.16-next — when true, label the PR needs-human (large spend increase).
         needs_human: escalation.escalate,
         ...(escalation.reason ? { cost_escalation_reason: escalation.reason } : {}),
+        // per-resource cost drivers (top 10) for a collapsed <details> block.
+        ...(topResources.length ? { top_resource_costs: topResources } : {}),
         ...(delta.deltaMonthly === null
           ? {
               note: "Baseline cost unavailable (no base ref or unpriced) — reporting current monthly cost only.",
@@ -1412,6 +1449,143 @@ export function parseReviewerFindings(json: string, cwd = ""): Concern[] {
     });
   }
   return out;
+}
+
+// --- SARIF ingestion (read_findings) --------------------------------------
+
+interface SarifLocation {
+  physicalLocation?: {
+    artifactLocation?: { uri?: string };
+    region?: { startLine?: number };
+  };
+}
+interface SarifResult {
+  ruleId?: string;
+  level?: string;
+  message?: { text?: string };
+  locations?: SarifLocation[];
+  properties?: { "security-severity"?: string };
+}
+interface SarifRule {
+  id?: string;
+  helpUri?: string;
+  shortDescription?: { text?: string };
+}
+interface SarifRun {
+  tool?: { driver?: { name?: string; rules?: SarifRule[] } };
+  results?: SarifResult[];
+}
+interface SarifReport {
+  version?: string;
+  $schema?: string;
+  runs?: SarifRun[];
+}
+
+/** true when a parsed JSON object looks like a SARIF report (the standard
+ * scanner-output format) rather than a terraform-reviewer findings.json. */
+export function isSarif(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== "object") return false;
+  const o = parsed as Record<string, unknown>;
+  const schema = typeof o.$schema === "string" ? o.$schema.toLowerCase() : "";
+  return Array.isArray(o.runs) && (schema.includes("sarif") || typeof o.version === "string");
+}
+
+/** map a SARIF driver name to a Concern source (so a re-run reproduces the id
+ * for the scanners Terramend also runs; everything else → `reviewer`). */
+function mapSarifDriver(name: string | undefined): Concern["source"] {
+  switch ((name ?? "").toLowerCase()) {
+    case "trivy":
+      return "trivy";
+    case "checkov":
+      return "checkov";
+    case "tflint":
+      return "tflint";
+    default:
+      return "reviewer";
+  }
+}
+
+/** SARIF `level` → severity (a `security-severity` property refines it). */
+function sarifSeverity(level: string | undefined, securitySeverity: string | undefined): Severity {
+  const score = securitySeverity ? Number.parseFloat(securitySeverity) : Number.NaN;
+  if (Number.isFinite(score)) {
+    if (score >= 9) return "critical";
+    if (score >= 7) return "high";
+    if (score >= 4) return "medium";
+    if (score > 0) return "low";
+  }
+  switch ((level ?? "").toLowerCase()) {
+    case "error":
+      return "high";
+    case "warning":
+      return "medium";
+    case "note":
+      return "low";
+    default:
+      return "info";
+  }
+}
+
+/**
+ * Parse a SARIF 2.1.0 report (the standard scanner-output format Trivy /
+ * Checkov / tflint all emit) into Concern[]. The driver name picks the source so
+ * a finding from a scanner Terramend re-runs reproduces the SAME content id
+ * (✗→✓ verifiable); other tools collapse to `reviewer`. Rule docs come from the
+ * matching `tool.driver.rules[].helpUri`. Non-Terraform files are dropped.
+ */
+export function parseSarifFindings(json: string, cwd = ""): Concern[] {
+  let report: SarifReport;
+  try {
+    report = JSON.parse(json || "{}") as SarifReport;
+  } catch {
+    return [];
+  }
+  const out: Concern[] = [];
+  for (const run of report.runs ?? []) {
+    const source = mapSarifDriver(run.tool?.driver?.name);
+    const ruleDocs = new Map<string, string>();
+    for (const rule of run.tool?.driver?.rules ?? []) {
+      if (rule.id && rule.helpUri) ruleDocs.set(rule.id, rule.helpUri);
+    }
+    for (const result of run.results ?? []) {
+      const loc = result.locations?.[0]?.physicalLocation;
+      const file = toRepoRelative(loc?.artifactLocation?.uri, cwd);
+      if (!isTerraformFile(file)) continue;
+      const start = loc?.region?.startLine;
+      const line = typeof start === "number" && start > 0 ? start : null;
+      const rawRule = result.ruleId || "finding";
+      // strip a `${source}:` prefix if a tool already namespaced it, so the
+      // content id matches Terramend's own scan of the same rule.
+      const bareRule =
+        source !== "reviewer" && rawRule.startsWith(`${source}:`)
+          ? rawRule.slice(source.length + 1)
+          : rawRule;
+      const ruleId = source === "reviewer" ? rawRule : `${source}:${bareRule}`;
+      out.push({
+        id: concernId(source, bareRule, file, line),
+        source,
+        rule_id: ruleId,
+        severity: sarifSeverity(result.level, result.properties?.["security-severity"]),
+        category: source === "tflint" ? "style" : "security",
+        evidence: result.message?.text || ruleId,
+        location: { file, line },
+        remediation_hint: ruleDocs.get(rawRule) ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+/** dispatch a findings file to the right parser: SARIF (standard scanner
+ * output) or a terraform-reviewer findings.json. */
+export function parseFindingsFile(json: string, cwd = ""): Concern[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json || "{}");
+  } catch {
+    return [];
+  }
+  return isSarif(parsed) ? parseSarifFindings(json, cwd) : parseReviewerFindings(json, cwd);
 }
 
 // --- terraform plan (the safety gate) -------------------------------------
@@ -2206,9 +2380,11 @@ export function ReadFindingsTool(ctx: ToolContext) {
       }
       let parsed: Concern[];
       try {
-        parsed = parseReviewerFindings(raw, cwd);
+        // accept BOTH a terraform-reviewer findings.json AND a standard SARIF
+        // report (Trivy/Checkov/tflint -o sarif) — the dispatcher detects which.
+        parsed = parseFindingsFile(raw, cwd);
       } catch {
-        return { found: false, reason: `could not parse findings.json at ${findingsPath}`, concerns: [], groups: [] };
+        return { found: false, reason: `could not parse findings file at ${findingsPath}`, concerns: [], groups: [] };
       }
 
       const configured = ctx.payload.severityThreshold as Severity | undefined;
