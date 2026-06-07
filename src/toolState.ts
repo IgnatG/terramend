@@ -105,6 +105,15 @@ export interface ToolState {
   // number of remediation PRs opened this run. set only in Remediate mode by
   // create_pull_request; read by the max_prs guardrail (mcp/guardrails.ts).
   remediationPrsOpened?: number;
+  // destructive resources the most recent terraform_plan reported, partitioned
+  // into stateful (data-bearing, high-risk) and ephemeral. set by
+  // terraform_plan; read by the destroy-block guardrail (mcp/guardrails.ts) at
+  // push time so a fix that would delete/replace a datastore is blocked on the
+  // plan's evidence rather than the agent's self-report.
+  plannedDestroy?: {
+    stateful: { address: string; action: string; type: string }[];
+    ephemeral: { address: string; action: string; type: string }[];
+  };
   // number of prepush hook failures this run. push_branch runs the hook
   // while this is 0 and skips it once non-zero; never decremented within
   // a run.

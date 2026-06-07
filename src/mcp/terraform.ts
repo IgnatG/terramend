@@ -1006,6 +1006,9 @@ export interface PlanSummary {
   add: number;
   change: number;
   destroy: number;
+  /** every resource with a real action (create/update/delete/replace) — the set
+   * that powers blast-radius (§2.6) and plan-stability (§1.3). */
+  changed: { address: string; action: string }[];
   /** resources that would be deleted or replaced — the destructive set. */
   destructive: { address: string; action: string }[];
   hasDestroyOrReplace: boolean;
@@ -1013,15 +1016,17 @@ export interface PlanSummary {
 
 /**
  * Parse `terraform plan -json` (newline-delimited JSON). `change_summary` gives
- * the add/change/destroy totals; each `planned_change` whose action deletes or
- * replaces a resource is collected as destructive (the high-risk set a reviewer
- * must scrutinise). Non-JSON / non-plan lines are ignored, so a noisy stream
- * (provider logs, diagnostics) parses cleanly.
+ * the add/change/destroy totals; each `planned_change` with a real action is
+ * collected into `changed`, and the delete/replace subset into `destructive`
+ * (the high-risk set a reviewer must scrutinise). `no-op` / `read` actions are
+ * ignored, as are non-JSON / non-plan lines, so a noisy stream (provider logs,
+ * diagnostics) parses cleanly.
  */
 export function parseTerraformPlanJson(stdout: string): PlanSummary {
   let add = 0;
   let change = 0;
   let destroy = 0;
+  const changed: { address: string; action: string }[] = [];
   const destructive: { address: string; action: string }[] = [];
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
@@ -1042,14 +1047,185 @@ export function parseTerraformPlanJson(stdout: string): PlanSummary {
       destroy = Number(msg.changes.remove) || 0;
     } else if (msg.type === "planned_change" && msg.change) {
       const action = String(msg.change.action ?? "");
+      if (!action || action === "no-op" || action === "read") continue;
+      const address = msg.change.resource?.addr || msg.change.resource?.resource || "(unknown)";
+      changed.push({ address, action });
       // "delete", "replace", and the "*-then-delete" / "delete-then-*" forms.
       if (action.includes("delete") || action === "replace") {
-        const address = msg.change.resource?.addr || msg.change.resource?.resource || "(unknown)";
         destructive.push({ address, action });
       }
     }
   }
-  return { add, change, destroy, destructive, hasDestroyOrReplace: destructive.length > 0 };
+  return { add, change, destroy, changed, destructive, hasDestroyOrReplace: destructive.length > 0 };
+}
+
+// --- stateful destroy/replace classification (safety gate §2.5) ------------
+
+/**
+ * Resource types that hold data/state — destroying or replacing one of these
+ * means data loss, not just recreation. A remediation that would delete or
+ * replace one is hard-blocked at push time unless the operator opts in via the
+ * `allow_replace` input. Not exhaustive: it covers the common managed
+ * datastores across AWS / Azure / GCP; extend as new ones come up.
+ */
+export const STATEFUL_RESOURCE_TYPES: ReadonlySet<string> = new Set([
+  // AWS
+  "aws_db_instance",
+  "aws_rds_cluster",
+  "aws_rds_cluster_instance",
+  "aws_s3_bucket",
+  "aws_ebs_volume",
+  "aws_efs_file_system",
+  "aws_dynamodb_table",
+  "aws_dynamodb_global_table",
+  "aws_elasticache_cluster",
+  "aws_elasticache_replication_group",
+  "aws_redshift_cluster",
+  "aws_docdb_cluster",
+  "aws_neptune_cluster",
+  "aws_opensearch_domain",
+  "aws_elasticsearch_domain",
+  // Azure
+  "azurerm_sql_database",
+  "azurerm_mssql_database",
+  "azurerm_postgresql_database",
+  "azurerm_postgresql_flexible_server",
+  "azurerm_mysql_database",
+  "azurerm_mysql_flexible_server",
+  "azurerm_cosmosdb_account",
+  "azurerm_cosmosdb_sql_database",
+  "azurerm_storage_account",
+  "azurerm_managed_disk",
+  // GCP
+  "google_sql_database_instance",
+  "google_storage_bucket",
+  "google_bigtable_instance",
+  "google_bigquery_dataset",
+  "google_spanner_database",
+  "google_redis_instance",
+  "google_filestore_instance",
+  "google_compute_disk",
+]);
+
+/**
+ * Extract the Terraform resource TYPE from a plan address, stripping any
+ * `module.<name>.` prefixes and an instance index/key suffix:
+ *   `module.db.aws_db_instance.main`               -> `aws_db_instance`
+ *   `aws_s3_bucket.data["prod"]`                   -> `aws_s3_bucket`
+ *   `module.a.module.b.google_storage_bucket.x[0]` -> `google_storage_bucket`
+ * Returns "" when the address has no parseable `type.name` pair.
+ */
+export function resourceTypeOf(address: string): string {
+  const withoutModules = address.replace(/^(?:module\.[^.]+\.)+/, "");
+  const cleaned = withoutModules.replace(/\[[^\]]*\]$/, "");
+  const segments = cleaned.split(".");
+  return segments.length >= 2 ? segments[segments.length - 2] : "";
+}
+
+export interface DestroyClassification {
+  /** destroy/replace of a data-bearing type — high-risk, blocked by default. */
+  stateful: { address: string; action: string; type: string }[];
+  /** destroy/replace of a recreatable type — recorded, not blocked. */
+  ephemeral: { address: string; action: string; type: string }[];
+}
+
+/** partition a plan's destructive set into stateful (blocked) vs ephemeral. */
+export function classifyDestructive(
+  destructive: { address: string; action: string }[]
+): DestroyClassification {
+  const stateful: DestroyClassification["stateful"] = [];
+  const ephemeral: DestroyClassification["ephemeral"] = [];
+  for (const d of destructive) {
+    const type = resourceTypeOf(d.address);
+    (STATEFUL_RESOURCE_TYPES.has(type) ? stateful : ephemeral).push({ ...d, type });
+  }
+  return { stateful, ephemeral };
+}
+
+// --- blast-radius scoring (§2.6) -------------------------------------------
+
+export type BlastTier = "low" | "medium" | "high";
+
+export interface BlastRadius {
+  tier: BlastTier;
+  /** count of resources the plan would create/update/delete/replace. */
+  resourceCount: number;
+  /** distinct module addresses touched (root resources count as `root`). */
+  modules: string[];
+}
+
+/**
+ * Extract the module address from a resource address: the `module.X[.module.Y]`
+ * call path, or `root` for a top-level resource. Strips instance index/key from
+ * EVERY segment — a `count`/`for_each` MODULE carries its key on the module
+ * segment (`module.net[0]`), so all instances of one module collapse to one
+ * address (else a single-module fix would look cross-module). Removing keys
+ * first also tolerates a `.` inside a `for_each` string key.
+ *   `aws_s3_bucket.b`                  -> `root`
+ *   `module.db.aws_db_instance.main`   -> `module.db`
+ *   `module.net[0].aws_vpc.main`       -> `module.net`
+ *   `module.a.module.b.google_x.y[0]`  -> `module.a.module.b`
+ */
+export function moduleAddressOf(address: string): string {
+  const cleaned = address.replace(/\[[^\]]*\]/g, "");
+  const segments = cleaned.split(".");
+  // the resource is the final `type.name` pair; anything before is the module path.
+  return segments.length <= 2 ? "root" : segments.slice(0, segments.length - 2).join(".");
+}
+
+/**
+ * Score how much a fix touches, to route large changes through stricter review:
+ * 1–2 resources = `low`, 3–10 = `medium`, more than 10 OR spanning more than one
+ * module = `high`. A `high` blast radius should force human-in-the-loop
+ * regardless of finding severity (feeds §3.9). 0 changes is `low` (nothing to do).
+ */
+export function computeBlastRadius(changed: { address: string }[]): BlastRadius {
+  const resourceCount = changed.length;
+  const modules = [...new Set(changed.map((c) => moduleAddressOf(c.address)))].sort();
+  const crossModule = modules.length > 1;
+  let tier: BlastTier;
+  if (resourceCount > 10 || crossModule) tier = "high";
+  else if (resourceCount >= 3) tier = "medium";
+  else tier = "low";
+  return { tier, resourceCount, modules };
+}
+
+// --- plan stability / idempotency (§1.3) -----------------------------------
+
+export interface StabilityResult {
+  /** true when a second plan produced the identical change set. */
+  stable: boolean;
+  reason?: string;
+}
+
+/** a normalized signature of a plan's change set (summary counts + sorted
+ * address:action pairs) — two plans with the same signature are equivalent. */
+function planSignature(s: PlanSummary): string {
+  const set = s.changed
+    .map((c) => `${c.address}:${c.action}`)
+    .sort()
+    .join(",");
+  return `+${s.add}~${s.change}-${s.destroy}|${set}`;
+}
+
+/**
+ * Compare two consecutive plans for stability. Terramend never `apply`s (it only
+ * opens PRs), so a true "no perpetual diff after apply" cannot be proven here —
+ * but a fix whose plan is non-deterministic (e.g. `timestamp()`, `uuid()`, an
+ * unkeyed `random_*`, or a data source that varies run-to-run) yields a DIFFERENT
+ * plan on the second run, and that is a real perpetual-diff smell we can catch
+ * without applying. Stable ⇒ the two plans matched; unstable ⇒ report it.
+ */
+export function comparePlanStability(first: PlanSummary, second: PlanSummary): StabilityResult {
+  if (planSignature(first) === planSignature(second)) return { stable: true };
+  return {
+    stable: false,
+    reason:
+      `the plan is not deterministic — a second \`terraform plan\` (same state, no apply) produced a ` +
+      `different change set (first: +${first.add} ~${first.change} -${first.destroy}; ` +
+      `second: +${second.add} ~${second.change} -${second.destroy}). This is a perpetual-diff smell, ` +
+      `usually a non-deterministic value in the config (timestamp()/uuid()/unkeyed random_*/a varying data source).`,
+  };
 }
 
 // env vars that signal a cloud provider credential is present — terraform plan
@@ -1073,10 +1249,13 @@ function hasCloudCredentials(): boolean {
 }
 
 // env vars terraform/providers legitimately consume, re-admitted past the
-// secret-stripping `run()` env for the plan invocation. PREFIXES are only ones
-// that can't collide with an LLM/secret key — NB the bare `GOOGLE_` prefix is
-// deliberately NOT used (it would re-admit the Gemini key
-// `GOOGLE_GENERATIVE_AI_API_KEY`); GCP creds are matched by exact NAME instead.
+// secret-stripping `run()` env for the plan invocation. Terramend is BYOK
+// across providers (Anthropic / OpenAI / Google Gemini / …), so NONE of those
+// LLM keys may leak into the terraform subprocess. PREFIXES are only ones that
+// can't collide with a provider key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+// `GEMINI_API_KEY` carry no cloud prefix; the bare `GOOGLE_` prefix is
+// deliberately NOT used — it would re-admit `GOOGLE_GENERATIVE_AI_API_KEY`).
+// GCP creds are matched by exact NAME / the safe `GOOGLE_CLOUD_` prefix instead.
 const CLOUD_CRED_PREFIXES = ["AWS_", "ARM_", "AZURE_", "GCLOUD_", "GOOGLE_CLOUD_", "TF_VAR_", "TF_TOKEN_", "TF_CLI_"];
 const CLOUD_CRED_NAMES = new Set([
   "GOOGLE_CREDENTIALS",
@@ -1089,10 +1268,23 @@ const CLOUD_CRED_NAMES = new Set([
   "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT",
 ]);
 
+// LLM/model-provider credentials that collide with a cloud PREFIX above and so
+// must be explicitly denied — otherwise a BYOK key would leak into the terraform
+// subprocess. `AWS_BEARER_TOKEN_BEDROCK` (Amazon Bedrock) matches `AWS_`;
+// `AZURE_OPENAI_*` matches `AZURE_`. NB `AWS_REGION` (also a Bedrock env var) is
+// a legitimate cloud/terraform setting and is intentionally NOT denied. Keep in
+// sync with the provider `envVars` in src/models.ts.
+const LLM_CRED_DENY = new Set([
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "AZURE_OPENAI_API_KEY",
+  "AZURE_OPENAI_ENDPOINT",
+]);
+
 export function collectCloudCredentials(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
     if (v === undefined) continue;
+    if (LLM_CRED_DENY.has(k)) continue; // never leak a model-provider key, even if it matches a cloud prefix
     if (CLOUD_CRED_PREFIXES.some((p) => k.startsWith(p)) || CLOUD_CRED_NAMES.has(k)) env[k] = v;
   }
   return env;
@@ -1104,11 +1296,13 @@ export function TerraformPlanTool(ctx: ToolContext) {
   return tool({
     name: "terraform_plan",
     description:
-      "Run `terraform plan` and report the planned change summary (resources to add / change / destroy) " +
-      "plus any resource that would be DESTROYED or REPLACED. Opt-in and degrades green — it auto-skips " +
-      "(returns `ran: false`, never fails the run) when no cloud credentials are detected, terraform is " +
-      "not installed, or init/plan can't complete (plan needs live provider/backend access). Call it after " +
-      "a fix to attach the real-world effect to the PR and surface destructive changes for human review.",
+      "Run `terraform plan` and report the planned change summary (resources to add / change / destroy), " +
+      "any resource that would be DESTROYED or REPLACED, a blast-radius score (how much the fix touches), " +
+      "and a plan-stability check (a second plan must match the first — a perpetual-diff smell otherwise). " +
+      "Opt-in and degrades green — it auto-skips (returns `ran: false`, never fails the run) when no cloud " +
+      "credentials are detected, terraform is not installed, or init/plan can't complete (plan needs live " +
+      "provider/backend access). Call it after a fix to attach the real-world effect to the PR and surface " +
+      "destructive changes for human review.",
     parameters: TerraformPlanParams,
     execute: execute(async () => {
       const cwd = ctx.payload.cwd ?? process.cwd();
@@ -1128,12 +1322,8 @@ export function TerraformPlanTool(ctx: ToolContext) {
           skipped_reason: `terraform init failed — plan skipped: ${init.stderr.trim().slice(0, 300) || "unknown error"}`,
         };
       }
-      const plan = run(
-        "terraform",
-        ["plan", "-input=false", "-no-color", "-lock=false", "-json"],
-        cwd,
-        creds
-      );
+      const planArgs = ["plan", "-input=false", "-no-color", "-lock=false", "-json"];
+      const plan = run("terraform", planArgs, cwd, creds);
       if (plan.status !== 0) {
         return {
           ran: false,
@@ -1141,9 +1331,32 @@ export function TerraformPlanTool(ctx: ToolContext) {
         };
       }
       const summary = parseTerraformPlanJson(plan.stdout);
+      const classified = classifyDestructive(summary.destructive);
+      const blastRadius = computeBlastRadius(summary.changed);
+      // record what the plan showed so the push-time destroy-block guardrail
+      // (mcp/guardrails.ts) acts on this evidence, not on the agent's word.
+      ctx.toolState.plannedDestroy = { stateful: classified.stateful, ephemeral: classified.ephemeral };
+
+      // §1.3 plan stability: re-plan once (init is already done) and confirm the
+      // change set is identical. Only worth it when there IS a change — an empty
+      // plan is trivially stable, so skip the second run.
+      let stability: StabilityResult = { stable: true };
+      const hasChanges = summary.add + summary.change + summary.destroy > 0 || summary.changed.length > 0;
+      if (hasChanges) {
+        const plan2 = run("terraform", planArgs, cwd, creds);
+        if (plan2.status === 0) {
+          stability = comparePlanStability(summary, parseTerraformPlanJson(plan2.stdout));
+        }
+        // a failed second plan is not evidence of instability — leave stable:true.
+      }
+
       log.info(
-        `» terraform_plan: +${summary.add} ~${summary.change} -${summary.destroy}` +
-          (summary.hasDestroyOrReplace ? ` (DESTRUCTIVE: ${summary.destructive.length})` : "")
+        `» terraform_plan: +${summary.add} ~${summary.change} -${summary.destroy} ` +
+          `[blast: ${blastRadius.tier}, ${blastRadius.resourceCount} res / ${blastRadius.modules.length} mod]` +
+          (summary.hasDestroyOrReplace
+            ? ` (DESTRUCTIVE: ${summary.destructive.length}, stateful: ${classified.stateful.length})`
+            : "") +
+          (stability.stable ? "" : " ⚠ UNSTABLE (non-deterministic plan)")
       );
       return {
         ran: true,
@@ -1152,6 +1365,14 @@ export function TerraformPlanTool(ctx: ToolContext) {
         to_destroy: summary.destroy,
         has_destroy_or_replace: summary.hasDestroyOrReplace,
         destructive: summary.destructive,
+        // data-bearing resources that would be lost — these block the push
+        // unless allowed via `allow_replace`.
+        stateful_destructive: classified.stateful,
+        // §2.6 — how much this fix touches; `high` should force human review.
+        blast_radius: blastRadius,
+        // §1.3 — false when a second plan disagreed (perpetual-diff smell).
+        idempotent: stability.stable,
+        idempotency_warning: stability.reason,
       };
     }),
   });

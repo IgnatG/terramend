@@ -52,6 +52,9 @@ Terramend's remediation runs are bounded by **code-level** guardrails (not just 
 - **Terraform-only edits.** A remediation push is rejected if the run changed any file outside the
   allowed paths (default `**/*.tf`, `**/*.tfvars`). Configurable via `allowed_paths`.
 - **Bounded PR volume.** A run opens at most `max_prs` pull requests (default **1**).
+- **No destroying data.** When cloud credentials are present, `terraform_plan` runs before the push; a
+  fix it shows would **delete or replace a stateful resource** (RDS, S3, EBS, a SQL database, …) is
+  hard-blocked. Opt in per-resource with `allow_replace` only when the replacement is intended.
 - **Never auto-merges.** Terramend has no merge capability — every change is left for human review.
 - **Idempotent.** Branch/PR naming is keyed on the concern `id`; an existing remediation PR is updated,
   not duplicated.
@@ -111,6 +114,7 @@ jobs:
 | `max_prs` | `1` | Maximum remediation PRs opened per run. |
 | `allowed_paths` | `**/*.tf,**/*.tfvars` | Comma-separated globs the agent may modify. |
 | `base_branch` | (default branch) | Branch the PR targets. Defaults to the repository's default branch (`main`, or `master`). Set it to pin a specific base (e.g. a release branch) regardless of where the run is dispatched. |
+| `allow_replace` | (none) | Comma-separated resource addresses (or globs, or `*`/`all`) the fix is allowed to destroy/replace. By default a plan that would delete/replace a stateful resource blocks the push. Needs cloud credentials for the plan to run. |
 
 Standard agent inputs (`prompt`, `model`, `timeout`, `push`, `shell`, `token`, `output_schema`) are
 also available.

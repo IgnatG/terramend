@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolContext } from "#app/mcp/server";
 import {
+  assertNoBlockedDestroy,
   assertUnderPrCap,
   DEFAULT_ALLOWED_PATHS,
   GENERATE_MODE,
@@ -86,5 +87,56 @@ describe("PR-cap guardrail is scoped to the Terraform-write modes", () => {
     const unguarded = ctx("Build", 0);
     recordRemediationPrOpened(unguarded);
     expect(unguarded.toolState.remediationPrsOpened).toBe(0);
+  });
+});
+
+describe("destroy-block guardrail (§2.5 — never delete/replace a stateful resource)", () => {
+  // assertNoBlockedDestroy reads only toolState.plannedDestroy + payload.allowReplace.
+  const ctx = (
+    selectedMode: string | undefined,
+    plannedDestroy: ToolContext["toolState"]["plannedDestroy"],
+    allowReplace?: string[]
+  ) =>
+    ({
+      toolState: { selectedMode, plannedDestroy },
+      payload: { allowReplace },
+    }) as unknown as ToolContext;
+
+  const statefulDestroy = {
+    stateful: [{ address: "aws_db_instance.main", action: "delete", type: "aws_db_instance" }],
+    ephemeral: [],
+  };
+
+  it("blocks a push that would destroy/replace a stateful resource", () => {
+    expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy))).toThrow(
+      /DESTROY or REPLACE 1 stateful/
+    );
+    expect(() => assertNoBlockedDestroy(ctx(GENERATE_MODE, statefulDestroy))).toThrow(
+      /aws_db_instance\.main/
+    );
+  });
+
+  it("allows the destroy when the operator opted in via allow_replace (address, glob, or *)", () => {
+    expect(() =>
+      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.main"]))
+    ).not.toThrow();
+    expect(() =>
+      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.*"]))
+    ).not.toThrow();
+    expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["*"]))).not.toThrow();
+  });
+
+  it("never engages for ephemeral-only destroys (recreatable resources)", () => {
+    const ephemeralOnly = {
+      stateful: [],
+      ephemeral: [{ address: "aws_instance.web", action: "replace", type: "aws_instance" }],
+    };
+    expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, ephemeralOnly))).not.toThrow();
+  });
+
+  it("no-ops when no plan ran, or outside a guarded mode", () => {
+    expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, undefined))).not.toThrow();
+    expect(() => assertNoBlockedDestroy(ctx("Build", statefulDestroy))).not.toThrow();
+    expect(() => assertNoBlockedDestroy(ctx(undefined, statefulDestroy))).not.toThrow();
   });
 });

@@ -1,5 +1,11 @@
 import { BUILTIN_MODE_NAMES } from "#app/modes";
-import { Inputs, JsonPayload, parseBaseBranch, parseMode } from "#app/utils/payload";
+import {
+  Inputs,
+  JsonPayload,
+  parseAllowReplace,
+  parseBaseBranch,
+  parseMode,
+} from "#app/utils/payload";
 
 describe("Inputs schema", () => {
   it("only prompt is required", () => {
@@ -81,6 +87,22 @@ describe("parseBaseBranch", () => {
   it("strips a leading refs/heads/", () => {
     expect(parseBaseBranch("refs/heads/main")).toBe("main");
     expect(parseBaseBranch("refs/heads/release/1.2")).toBe("release/1.2");
+  });
+});
+
+describe("parseAllowReplace", () => {
+  it("returns undefined for unset/empty input", () => {
+    expect(parseAllowReplace(undefined)).toBeUndefined();
+    expect(parseAllowReplace("")).toBeUndefined();
+    expect(parseAllowReplace("  ,  ")).toBeUndefined();
+  });
+
+  it("splits, trims, and drops empties", () => {
+    expect(parseAllowReplace("aws_db_instance.main, aws_s3_bucket.*")).toEqual([
+      "aws_db_instance.main",
+      "aws_s3_bucket.*",
+    ]);
+    expect(parseAllowReplace("*")).toEqual(["*"]);
   });
 });
 

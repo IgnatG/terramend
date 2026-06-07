@@ -126,6 +126,50 @@ export function enforceRemediationPaths(ctx: ToolContext): void {
   log.info(`» Terraform-only path guardrail ok (${changed.length} file(s), all within [${allowed.join(", ")}])`);
 }
 
+/** resource addresses the operator has explicitly allowed to be destroyed/replaced. */
+export function resolveAllowReplace(ctx: ToolContext): string[] {
+  return ctx.payload.allowReplace ?? [];
+}
+
+function isReplaceAllowed(address: string, allowList: string[]): boolean {
+  return allowList.some(
+    (a) => a === "*" || a === "all" || a === address || globToRegex(a).test(address)
+  );
+}
+
+/**
+ * Block a push that `terraform_plan` showed would DELETE or REPLACE a stateful
+ * (data-bearing) resource — RDS, S3, EBS, a SQL database, etc. A best-practice
+ * remediation should never destroy data; if the replacement is genuinely
+ * intended the operator opts in per-resource via the `allow_replace` input
+ * (an address, a glob, or `*`/`all`). No-op outside guarded modes. When no plan
+ * ran (no cloud credentials — `terraform_plan` degraded green), there is no
+ * evidence to act on and nothing is blocked: this gate engages only on what the
+ * plan actually reported, so it strengthens the run when creds are wired and is
+ * silent otherwise.
+ */
+export function assertNoBlockedDestroy(ctx: ToolContext): void {
+  if (!isGuardedMode(ctx)) return;
+  const planned = ctx.toolState.plannedDestroy;
+  if (!planned || planned.stateful.length === 0) return;
+
+  const allow = resolveAllowReplace(ctx);
+  const blocked = planned.stateful.filter((r) => !isReplaceAllowed(r.address, allow));
+  if (blocked.length === 0) {
+    log.info(
+      `» destroy-block guardrail ok (${planned.stateful.length} stateful destroy/replace allowed via allow_replace)`
+    );
+    return;
+  }
+  throw new Error(
+    `push blocked (Terraform-only guardrail): terraform plan shows this change would DESTROY or REPLACE ` +
+      `${blocked.length} stateful resource(s), which would likely cause data loss — a best-practice ` +
+      `remediation should not. Abandon this change, or, ONLY if the replacement is genuinely intended, ` +
+      `set the \`allow_replace\` input to include the resource address(es):\n` +
+      blocked.map((r) => `  - ${r.address} (${r.action}, ${r.type})`).join("\n")
+  );
+}
+
 /** maximum remediation PRs a single run may open (default 1). */
 export function resolveMaxPrs(ctx: ToolContext): number {
   return ctx.payload.maxPrs ?? 1;

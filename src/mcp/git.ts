@@ -8,7 +8,7 @@ import { log } from "#app/utils/cli";
 import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
 import { executeLifecycleHook, type LifecycleHookFailure } from "#app/utils/lifecycle";
 import { $ } from "#app/utils/shell";
-import { enforceRemediationPaths } from "#app/mcp/guardrails";
+import { assertNoBlockedDestroy, enforceRemediationPaths } from "#app/mcp/guardrails";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 
@@ -302,6 +302,11 @@ export function PushBranchTool(ctx: ToolContext) {
       // Remediate-mode guardrail: refuse to push if the run touched files
       // outside the Terraform allow-list. No-op in every other mode.
       enforceRemediationPaths(ctx);
+
+      // Remediate-mode guardrail: refuse to push if terraform_plan showed the
+      // change would destroy/replace a stateful (data-bearing) resource, unless
+      // the operator allowed it via `allow_replace`. No-op when no plan ran.
+      assertNoBlockedDestroy(ctx);
 
       // validate push destination matches expected URL
       const pushDest = validatePushDestination(ctx, branch);

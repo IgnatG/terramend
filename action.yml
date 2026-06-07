@@ -42,6 +42,9 @@ inputs:
   base_branch:
     description: "Branch the remediation/generation PR targets. Default: the repository's default branch (main, or master). Set this to pin a specific base (e.g. a release branch) regardless of where the run is dispatched."
     required: false
+  allow_replace:
+    description: "Terraform remediation: comma-separated resource addresses (or globs, or '*'/'all') allowed to be destroyed/replaced. By default a fix that terraform_plan shows would delete/replace a stateful resource (RDS, S3, EBS, a SQL database, …) is blocked at push to prevent data loss. Requires cloud credentials for the plan to run."
+    required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
     required: false

@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  classifyDestructive,
   collectCloudCredentials,
+  comparePlanStability,
+  computeBlastRadius,
   type Concern,
   computeCostDelta,
   computeRemediationVerdict,
   groupConcerns,
   isTerraformConcern,
+  moduleAddressOf,
   parseCheckovOutput,
   parseFmtOutput,
   parseInfracostBreakdown,
@@ -14,6 +18,7 @@ import {
   parseTflintOutput,
   parseTrivyOutput,
   parseValidateOutput,
+  resourceTypeOf,
 } from "#app/mcp/terraform";
 
 describe("parseFmtOutput", () => {
@@ -497,6 +502,9 @@ describe("collectCloudCredentials", () => {
     "GOOGLE_GENERATIVE_AI_API_KEY",
     "GEMINI_API_KEY",
     "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_REGION",
   ];
   const saved: Record<string, string | undefined> = {};
   for (const k of touched) saved[k] = process.env[k];
@@ -515,14 +523,58 @@ describe("collectCloudCredentials", () => {
     process.env.GOOGLE_GENERATIVE_AI_API_KEY = "gemini-key"; // must NOT leak (Gemini LLM key)
     process.env.GEMINI_API_KEY = "gemini-key-2"; // must NOT leak
     process.env.ANTHROPIC_API_KEY = "anthropic-key"; // must NOT leak
+    process.env.OPENAI_API_KEY = "openai-key"; // must NOT leak (BYOK is multi-provider)
+    process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-key"; // must NOT leak — Bedrock LLM key, despite AWS_ prefix
+    process.env.AWS_REGION = "eu-west-1"; // MUST pass — a legit terraform/cloud setting
 
     const env = collectCloudCredentials();
     expect(env.AWS_ACCESS_KEY_ID).toBe("akia");
     expect(env.AWS_SECRET_ACCESS_KEY).toBe("secret");
     expect(env.GOOGLE_APPLICATION_CREDENTIALS).toBe("/creds.json");
+    expect(env.AWS_REGION).toBe("eu-west-1");
     expect(env.GOOGLE_GENERATIVE_AI_API_KEY).toBeUndefined();
     expect(env.GEMINI_API_KEY).toBeUndefined();
     expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.OPENAI_API_KEY).toBeUndefined();
+    expect(env.AWS_BEARER_TOKEN_BEDROCK).toBeUndefined();
+  });
+});
+
+describe("resourceTypeOf", () => {
+  it("extracts the type from a plain address", () => {
+    expect(resourceTypeOf("aws_db_instance.main")).toBe("aws_db_instance");
+  });
+
+  it("strips module prefixes and index/key suffixes", () => {
+    expect(resourceTypeOf("module.db.aws_db_instance.main")).toBe("aws_db_instance");
+    expect(resourceTypeOf('aws_s3_bucket.data["prod"]')).toBe("aws_s3_bucket");
+    expect(resourceTypeOf("module.a.module.b.google_storage_bucket.x[0]")).toBe(
+      "google_storage_bucket"
+    );
+  });
+
+  it("returns '' for an unparseable address", () => {
+    expect(resourceTypeOf("nodots")).toBe("");
+  });
+});
+
+describe("classifyDestructive (§2.5 — stateful vs ephemeral destroy/replace)", () => {
+  it("routes data-bearing types to stateful and recreatable types to ephemeral", () => {
+    const out = classifyDestructive([
+      { address: "aws_db_instance.main", action: "delete" },
+      { address: "module.web.aws_instance.app", action: "replace" },
+      { address: 'aws_s3_bucket.data["prod"]', action: "replace" },
+    ]);
+    expect(out.stateful.map((r) => r.address)).toEqual([
+      "aws_db_instance.main",
+      'aws_s3_bucket.data["prod"]',
+    ]);
+    expect(out.stateful[0]).toMatchObject({ type: "aws_db_instance", action: "delete" });
+    expect(out.ephemeral.map((r) => r.address)).toEqual(["module.web.aws_instance.app"]);
+  });
+
+  it("returns empty partitions for an empty destructive set", () => {
+    expect(classifyDestructive([])).toEqual({ stateful: [], ephemeral: [] });
   });
 });
 
@@ -568,10 +620,106 @@ describe("parseTerraformPlanJson", () => {
       add: 0,
       change: 0,
       destroy: 0,
+      changed: [],
       destructive: [],
       hasDestroyOrReplace: false,
     });
     expect(parseTerraformPlanJson("")).toMatchObject({ add: 0, hasDestroyOrReplace: false });
+  });
+
+  it("collects every real action into `changed`, ignoring no-op / read", () => {
+    const out = lines(
+      { type: "planned_change", change: { action: "create", resource: { addr: "aws_s3_bucket.a" } } },
+      { type: "planned_change", change: { action: "update", resource: { addr: "aws_instance.web" } } },
+      { type: "planned_change", change: { action: "no-op", resource: { addr: "aws_vpc.main" } } },
+      { type: "planned_change", change: { action: "read", resource: { addr: "data.aws_ami.ubuntu" } } }
+    );
+    expect(parseTerraformPlanJson(out).changed).toEqual([
+      { address: "aws_s3_bucket.a", action: "create" },
+      { address: "aws_instance.web", action: "update" },
+    ]);
+  });
+});
+
+describe("moduleAddressOf", () => {
+  it("returns root for a top-level resource", () => {
+    expect(moduleAddressOf("aws_s3_bucket.b")).toBe("root");
+    expect(moduleAddressOf("aws_s3_bucket.b[0]")).toBe("root");
+  });
+
+  it("extracts the module call path, stripping the resource instance index", () => {
+    expect(moduleAddressOf("module.db.aws_db_instance.main")).toBe("module.db");
+    expect(moduleAddressOf("module.a.module.b.google_storage_bucket.x[0]")).toBe("module.a.module.b");
+  });
+
+  it("collapses count/for_each module instances to a single module address", () => {
+    expect(moduleAddressOf("module.net[0].aws_vpc.main")).toBe("module.net");
+    expect(moduleAddressOf("module.net[1].aws_vpc.main")).toBe("module.net");
+    expect(moduleAddressOf('module.net["prod"].aws_vpc.main')).toBe("module.net");
+  });
+});
+
+describe("computeBlastRadius (§2.6)", () => {
+  const res = (...addrs: string[]) => addrs.map((address) => ({ address }));
+
+  it("tiers by resource count: 0-2 low, 3-10 medium, >10 high", () => {
+    expect(computeBlastRadius(res()).tier).toBe("low");
+    expect(computeBlastRadius(res("aws_s3_bucket.a", "aws_s3_bucket.b")).tier).toBe("low");
+    expect(computeBlastRadius(res("a.1", "a.2", "a.3")).tier).toBe("medium");
+    const eleven = Array.from({ length: 11 }, (_, i) => ({ address: `aws_instance.n${i}` }));
+    expect(computeBlastRadius(eleven).tier).toBe("high");
+  });
+
+  it("escalates to high when the change spans more than one module", () => {
+    const out = computeBlastRadius(res("aws_s3_bucket.a", "module.net.aws_vpc.main"));
+    expect(out.tier).toBe("high");
+    expect(out.modules).toEqual(["module.net", "root"]);
+    expect(out.resourceCount).toBe(2);
+  });
+
+  it("does NOT escalate when count/for_each instances of ONE module change", () => {
+    const out = computeBlastRadius(res("module.net[0].aws_vpc.main", "module.net[1].aws_vpc.main"));
+    expect(out.modules).toEqual(["module.net"]);
+    expect(out.tier).toBe("low");
+  });
+});
+
+describe("comparePlanStability (§1.3)", () => {
+  const plan = (over: Partial<ReturnType<typeof parseTerraformPlanJson>>) =>
+    ({ add: 0, change: 0, destroy: 0, changed: [], destructive: [], hasDestroyOrReplace: false, ...over }) as ReturnType<
+      typeof parseTerraformPlanJson
+    >;
+
+  it("is stable when both plans have the same change set", () => {
+    const a = plan({ change: 1, changed: [{ address: "aws_instance.web", action: "update" }] });
+    const b = plan({ change: 1, changed: [{ address: "aws_instance.web", action: "update" }] });
+    expect(comparePlanStability(a, b).stable).toBe(true);
+  });
+
+  it("is unstable when the counts or addresses differ (perpetual-diff smell)", () => {
+    const a = plan({ change: 1, changed: [{ address: "aws_instance.web", action: "update" }] });
+    const b = plan({ change: 2, changed: [{ address: "aws_instance.web", action: "update" }] });
+    const out = comparePlanStability(a, b);
+    expect(out.stable).toBe(false);
+    expect(out.reason).toMatch(/not deterministic/);
+  });
+
+  it("ignores `changed` ordering", () => {
+    const a = plan({
+      add: 2,
+      changed: [
+        { address: "aws_s3_bucket.a", action: "create" },
+        { address: "aws_s3_bucket.b", action: "create" },
+      ],
+    });
+    const b = plan({
+      add: 2,
+      changed: [
+        { address: "aws_s3_bucket.b", action: "create" },
+        { address: "aws_s3_bucket.a", action: "create" },
+      ],
+    });
+    expect(comparePlanStability(a, b).stable).toBe(true);
   });
 });
 

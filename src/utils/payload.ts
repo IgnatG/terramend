@@ -62,6 +62,7 @@ export const Inputs = type({
   "max_prs?": type.string.or("undefined"),
   "allowed_paths?": type.string.or("undefined"),
   "base_branch?": type.string.or("undefined"),
+  "allow_replace?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -114,6 +115,7 @@ function resolveNonPromptInputs() {
     max_prs: core.getInput("max_prs") || undefined,
     allowed_paths: core.getInput("allowed_paths") || undefined,
     base_branch: core.getInput("base_branch") || undefined,
+    allow_replace: core.getInput("allow_replace") || undefined,
   });
 }
 
@@ -175,6 +177,17 @@ function parseAllowedPaths(raw: string | undefined): string[] | undefined {
 export function parseBaseBranch(raw: string | undefined): string | undefined {
   const v = raw?.trim().replace(/^refs\/heads\//, "");
   return v || undefined;
+}
+
+/** parse the comma-separated allow_replace list — resource addresses (or globs,
+ * or `*`/`all`) permitted to be destroyed/replaced; undefined when unset. */
+export function parseAllowReplace(raw: string | undefined): string[] | undefined {
+  if (!raw) return undefined;
+  const entries = raw
+    .split(",")
+    .map((a) => a.trim())
+    .filter(Boolean);
+  return entries.length > 0 ? entries : undefined;
 }
 
 const isTerramend = (actor: string | null | undefined): boolean => {
@@ -258,6 +271,10 @@ export function resolvePayload(
     // explicit base-branch override; when unset the effective base is resolved
     // at PR time (run-start branch → repo default) — see resolveBaseBranch.
     baseBranch: parseBaseBranch(inputs.base_branch),
+    // resource addresses the operator allows the remediation to destroy/replace
+    // — consumed by the destroy-block guardrail (mcp/guardrails.ts). Unset means
+    // no destructive change to a stateful resource is permitted.
+    allowReplace: parseAllowReplace(inputs.allow_replace),
   };
 }
 
