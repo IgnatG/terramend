@@ -28,6 +28,7 @@ import {
   planBatches,
   resourceTypeOf,
   ruleDocUrl,
+  shouldSuggestInline,
 } from "#app/mcp/terraform";
 
 describe("parseFmtOutput", () => {
@@ -904,6 +905,38 @@ describe("classifyAutonomy (§3.9)", () => {
 
   it("medium/low blast radius does not escalate", () => {
     expect(classifyAutonomy([c("low", "style")], "high", "medium").autonomy).toBe("auto");
+  });
+});
+
+describe("shouldSuggestInline (§5.18)", () => {
+  const base = { hasPrContext: true, severity: "low" as const, fileCount: 1, hunkCount: 1, blastTier: "low" as const };
+
+  it("suggests inline for a single-hunk low-risk fix on an existing PR", () => {
+    expect(shouldSuggestInline(base).suggest).toBe(true);
+    expect(shouldSuggestInline({ ...base, severity: "info" }).suggest).toBe(true);
+  });
+
+  it("does not suggest without an existing PR context", () => {
+    expect(shouldSuggestInline({ ...base, hasPrContext: false }).suggest).toBe(false);
+  });
+
+  it("does not suggest for higher-severity fixes", () => {
+    expect(shouldSuggestInline({ ...base, severity: "high" }).suggest).toBe(false);
+    expect(shouldSuggestInline({ ...base, severity: "medium" }).suggest).toBe(false);
+  });
+
+  it("does not suggest for multi-hunk / multi-file fixes", () => {
+    expect(shouldSuggestInline({ ...base, hunkCount: 2 }).suggest).toBe(false);
+    expect(shouldSuggestInline({ ...base, fileCount: 2 }).suggest).toBe(false);
+  });
+
+  it("does not suggest for a medium/high blast radius", () => {
+    expect(shouldSuggestInline({ ...base, blastTier: "high" }).suggest).toBe(false);
+    expect(shouldSuggestInline({ ...base, blastTier: "medium" }).suggest).toBe(false);
+  });
+
+  it("tolerates an unknown blast tier (plan didn't run)", () => {
+    expect(shouldSuggestInline({ ...base, blastTier: undefined }).suggest).toBe(true);
   });
 });
 

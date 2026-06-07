@@ -170,18 +170,117 @@ metadata_options {
   needed.
 - **Pin versions.** When adding a provider or module, include a version
   constraint. Never widen an existing pin as a side effect.
-- **House modules first.** If a house module catalogue is configured (see the
-  `list_house_modules` tool), prefer the house module + its exact variable
-  names over inlining a raw resource.
+- **Approved modules first.** Call `list_modules` — if a catalogue is configured,
+  prefer the catalogue module (a registry module or a local/house module) + its
+  exact variable names over inlining a raw resource, and pin its `version`. See
+  *Using Terraform modules* below.
 - **No secrets in HCL or state.** Never introduce a literal credential. If the
   fix needs a secret, reference a variable or a secrets data source.
 - **Idempotent, reviewable diffs.** The diff should read so a senior engineer
   approves it without hesitation: one concern, one rationale, no churn.
 
+## Gold standards (the bar every fix is measured against)
+
+These are the non-negotiable defaults a "good" Terraform change embodies. A fix
+should never *move away* from any of these, and should move *toward* them when
+the concern is adjacent:
+
+- **Encrypt everything, at rest and in transit.** Storage encrypted (CMK where
+  the data is sensitive); TLS-only endpoints; no plaintext in state.
+- **Private by default.** No `0.0.0.0/0` to admin/database ports; public access
+  blocked unless the resource's whole purpose is to be public (and then scoped).
+- **Least privilege.** No `"*"` IAM actions/resources; scope to what the workload
+  uses. Prefer a referenced role/policy over an inline wildcard.
+- **Pinned + reproducible.** `required_version` and every `required_providers` /
+  module `version` constrained (`~>`); no floating `latest`.
+- **Parameterised, not hardcoded** (see below).
+- **Tagged + named consistently.** Match the repo's existing tag keys and naming
+  scheme; don't invent a new convention.
+- **Observable.** Logging / versioning / audit trails enabled where the provider
+  supports them and the concern is about data durability or traceability.
+- **Idempotent + deterministic.** No `timestamp()`/`uuid()`/unkeyed `random_*`
+  driving a value that lands in state — it produces a perpetual diff.
+
+When in doubt, the secure/idiomatic default from the catalogue above IS the gold
+standard. Don't gold-plate beyond the concern, but never regress one of these.
+
+## Parameterize, don't hardcode (§4.13)
+
+A value that varies by environment, account, or deployment must be a `variable`
+or `local`, never a literal baked into a resource:
+
+- **Reuse first.** If the repo already exposes `var.region` / `local.tags` /
+  `var.vpc_cidr`, reference it — don't introduce a parallel one.
+- **Introduce a typed variable** when none fits: give it a `type`, a
+  `description`, and a safe `default` only when a default is genuinely sane
+  (secrets and account-specific ids get NO default). Match the repo's existing
+  file layout — add to `variables.tf` if the repo separates them, otherwise keep
+  it next to the resource as the repo does.
+- **Derive with `locals`.** Computed/repeated values (a name prefix, a merged tag
+  map) belong in `locals`, referenced everywhere — not copy-pasted.
+- **Never inline a secret, account id, ARN, or CIDR.** A "fix" that pastes a
+  literal credential is itself a finding (and the secret-scan guardrail will
+  block the push). Reference a variable or a secrets data source.
+
+## Using Terraform modules (registry + your own)
+
+Prefer a well-formed module over a pile of raw resources when one cleanly fits —
+it carries the secure defaults for you. **Always call `list_modules` first.**
+
+- **Operator-approved catalogue.** When `list_modules` returns entries, use those
+  — they're the org's blessed modules (a public registry module like
+  `terraform-aws-modules/vpc/aws`, or one of the org's own/house modules at a
+  local path). Use the module's **exact variable names**, set the secure-relevant
+  inputs the concern is about, and **pin the `version`** for a registry module.
+- **No catalogue configured.** Prefer a well-maintained public registry module
+  (e.g. the [terraform-aws-modules](https://registry.terraform.io/namespaces/terraform-aws-modules)
+  collection — `vpc`, `s3-bucket`, `rds`, `eks`, …), pinned with `~>`, over a
+  hand-rolled resource — but only when it cleanly fits; do NOT swap a working raw
+  resource for a module as a side effect of an unrelated fix.
+- **Don't introduce a module mid-remediation just to "improve" things.** Using a
+  module is right when *generating* new infra or when the fix is genuinely a
+  module swap; for a one-line security fix on an existing raw resource, fix the
+  resource in place.
+
+### Module-source-aware fixes (§4.14)
+
+Before fixing a concern, call `terraform_module_graph` to see where the file
+lives in the module call-graph:
+
+- **Concern inside a LOCAL module dir** (listed in `local_module_dirs`): fix it
+  **once at the module source**. The fix propagates to every caller — do not
+  patch each call site. Note the callers in the PR body so a reviewer sees the
+  blast radius.
+- **Concern that would require editing a REGISTRY / git / remote module**: that
+  source lives outside this repo — you **cannot** fix it here. Do **not** vendor
+  the module or fork it inline. Instead report it (open an issue / PR comment)
+  naming the upstream module + version and the concern, so a human routes it.
+
+## Tests & examples for modules (Terratest, §28)
+
+When your change is to a **reusable module** (it lives under a local module dir
+with callers, or it's a module you're generating), keep its tests/examples in
+step — a module change with no updated example or test is incomplete:
+
+- **`examples/`** — if the module ships an `examples/<name>/` fixture, update it
+  so it still validates against the changed interface (new required variable,
+  renamed output). Add a minimal example when generating a new module.
+- **Terratest** — if the module has a Go [Terratest](https://terratest.gruntwork.io/)
+  suite (`test/*_test.go` calling `terraform.InitAndPlan`/`Apply`), update the
+  options/assertions to match the new interface (don't delete a test to make it
+  pass). Terramend does **not** run Terratest itself (it needs Go + real cloud to
+  `apply`); it keeps the test source consistent and flags in the PR that the
+  suite should be run. Never weaken an assertion just to go green.
+- These touch `*.tf` (examples) and Go test files — the example `.tf` edits ride
+  the normal guardrail; a Go test edit is allowed only when `allowed_paths` is
+  widened to include it (otherwise leave a clear PR note that the test needs a
+  matching update).
+
 ## Hard rules
 
-- Only modify `*.tf` / `*.tfvars`. Never touch CI, application code, or
-  unrelated config in a remediation PR.
+- Only modify `*.tf` / `*.tfvars` (plus module `examples/` `.tf` and, when
+  `allowed_paths` permits, that module's test files). Never touch CI, application
+  code, or unrelated config in a remediation PR.
 - One concern per PR. If you notice other issues, leave them for their own runs.
 - Never auto-merge. The PR is for a human to review.
 - If you cannot fix a concern cleanly (it needs a human decision, or the secure

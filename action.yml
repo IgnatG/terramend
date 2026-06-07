@@ -57,6 +57,9 @@ inputs:
   cost_increase_block_usd:
     description: "Terraform remediation: monthly USD increase at/above which a fix is escalated to human review (needs-human label) when infracost runs. Default: unset (no cost escalation)."
     required: false
+  module_catalogue:
+    description: "Terraform remediation/generation: newline- or comma-separated list of approved modules the agent should PREFER over raw resources, each '[name=]<source>[ <version>]' — a public registry module (e.g. 'terraform-aws-modules/vpc/aws ~> 5.0') or a local/house module path (e.g. './modules/networking'). Surfaced via the list_modules tool. Default: none."
+    required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
     required: false

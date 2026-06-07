@@ -5,6 +5,7 @@ import type { AuthorPermission, PayloadEvent } from "#app/external";
 import { BUILTIN_MODE_NAMES } from "#app/modes";
 import packageJson from "#package.json" with { type: "json" };
 import { log } from "#app/utils/cli";
+import { parseRemediationCommand } from "#app/utils/remediationCommand";
 import type { RepoSettings } from "#app/utils/runContext";
 import { validateCompatibility } from "#app/utils/versioning";
 
@@ -67,6 +68,7 @@ export const Inputs = type({
   "autonomy_threshold?": type.string.or("undefined"),
   "gitleaks?": type.string.or("undefined"),
   "cost_increase_block_usd?": type.string.or("undefined"),
+  "module_catalogue?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -124,6 +126,7 @@ function resolveNonPromptInputs() {
     autonomy_threshold: core.getInput("autonomy_threshold") || undefined,
     gitleaks: core.getInput("gitleaks") || undefined,
     cost_increase_block_usd: core.getInput("cost_increase_block_usd") || undefined,
+    module_catalogue: core.getInput("module_catalogue") || undefined,
   });
 }
 
@@ -302,6 +305,14 @@ export function resolvePayload(
     // §4.16-next — monthly $ increase at/above which a fix is escalated to a
     // human (needs-human). undefined disables cost escalation.
     costIncreaseBlockUsd: parseCostIncreaseBlock(inputs.cost_increase_block_usd),
+    // §4.14 + module catalogue — operator-approved modules a fix/generation
+    // should prefer; raw string, structured by `parseModuleCatalogue` in the
+    // `list_modules` tool.
+    moduleCatalogue: inputs.module_catalogue,
+    // §3.12 — a `@terramend fix …` command parsed from the triggering comment
+    // body (the prompt), scoping the run to a specific concern/severity/file.
+    // null when the prompt isn't a recognised command.
+    remediationCommand: parseRemediationCommand(prompt),
     // explicit base-branch override; when unset the effective base is resolved
     // at PR time (run-start branch → repo default) — see resolveBaseBranch.
     baseBranch: parseBaseBranch(inputs.base_branch),

@@ -49,6 +49,7 @@ import {
   TerraformValidateTool,
   TerraformVerifyRemediationTool,
 } from "#app/mcp/terraform";
+import { ListModulesTool, TerraformModuleGraphTool } from "#app/mcp/modules";
 import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
 import { UploadFileTool } from "#app/mcp/upload";
 
@@ -152,6 +153,8 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     InfracostDiffTool(ctx),
     ReadFindingsTool(ctx),
     TerraformPlanTool(ctx),
+    ListModulesTool(ctx),
+    TerraformModuleGraphTool(ctx),
   ];
 
   const isStandalone = ctx.payload.event.trigger === "unknown";

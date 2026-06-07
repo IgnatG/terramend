@@ -1649,6 +1649,43 @@ export function classifyAutonomy(
   return { autonomy: reasons.length > 0 ? "needs-human" : "auto", reasons };
 }
 
+// --- inline suggested changes (§5.18) --------------------------------------
+
+export interface SuggestionDecision {
+  /** true ⇒ post a GitHub one-click `suggestion` instead of opening a full PR. */
+  suggest: boolean;
+  reason: string;
+}
+
+/**
+ * §5.18 — decide whether a fix is small/low-risk enough to post as a GitHub
+ * one-click **suggested change** (a ` ```suggestion ` block on the existing PR)
+ * rather than opening a whole `remediate/*` branch + PR. Much lower friction for
+ * trivial fixes. Only when ALL hold: there IS an existing PR context (a comment
+ * trigger on a PR); the group is `low`/`info` severity; the fix is a single hunk
+ * in a single file; and the blast radius (when known) is `low`. Anything bigger
+ * keeps full-PR mode.
+ */
+export function shouldSuggestInline(opts: {
+  hasPrContext: boolean;
+  severity: Severity;
+  fileCount: number;
+  hunkCount: number;
+  blastTier?: BlastTier | undefined;
+}): SuggestionDecision {
+  if (!opts.hasPrContext) return { suggest: false, reason: "no existing PR to attach a suggestion to" };
+  if (opts.severity !== "low" && opts.severity !== "info") {
+    return { suggest: false, reason: `severity ${opts.severity} warrants a reviewable PR, not a one-click suggestion` };
+  }
+  if (opts.fileCount > 1 || opts.hunkCount > 1) {
+    return { suggest: false, reason: "multi-hunk / multi-file fix — open a full PR" };
+  }
+  if (opts.blastTier === "high" || opts.blastTier === "medium") {
+    return { suggest: false, reason: `blast radius ${opts.blastTier} — open a full PR` };
+  }
+  return { suggest: true, reason: "single-hunk low-risk fix on an existing PR — post as a one-click suggestion" };
+}
+
 // --- confidence labeling (§5.19) -------------------------------------------
 
 export type Confidence = "high" | "medium" | "low";
