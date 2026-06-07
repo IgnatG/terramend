@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  annotateGroups,
   classifyAutonomy,
+  classifyCostEscalation,
   classifyDestructive,
   collectCloudCredentials,
   comparePlanStability,
@@ -11,17 +13,21 @@ import {
   computeRegressions,
   computeRemediationVerdict,
   groupConcerns,
+  groupConcernsByRule,
   isTerraformConcern,
   moduleAddressOf,
   parseCheckovOutput,
   parseFmtOutput,
   parseInfracostBreakdown,
+  parseRequiredProviders,
   parseReviewerFindings,
   parseTerraformPlanJson,
   parseTflintOutput,
   parseTrivyOutput,
   parseValidateOutput,
+  planBatches,
   resourceTypeOf,
+  ruleDocUrl,
 } from "#app/mcp/terraform";
 
 describe("parseFmtOutput", () => {
@@ -326,6 +332,191 @@ describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
     const a = groupConcerns([concern("main.tf", "low", "x")])[0];
     const b = groupConcerns([concern("main.tf", "high", "y")])[0];
     expect(a.id).toBe(b.id);
+  });
+});
+
+describe("groupConcernsByRule (§3.11 — one group per rule across files)", () => {
+  const concern = (file: string, severity: Concern["severity"], rule_id: string): Concern => ({
+    id: `${rule_id}|${file}`,
+    source: "trivy",
+    rule_id,
+    severity,
+    category: "security",
+    evidence: "x",
+    location: { file, line: 1 },
+    remediation_hint: null,
+  });
+
+  it("groups a single rule's concerns across all files into one group", () => {
+    const groups = groupConcernsByRule([
+      concern("a.tf", "low", "tflint:missing_tags"),
+      concern("b.tf", "low", "tflint:missing_tags"),
+      concern("c.tf", "high", "trivy:AVD-1"),
+    ]);
+    expect(groups).toHaveLength(2);
+    const tagGroup = groups.find((g) => g.rule_ids[0] === "tflint:missing_tags")!;
+    expect(tagGroup.grouping).toBe("rule");
+    expect(tagGroup.files).toEqual(["a.tf", "b.tf"]);
+    expect(tagGroup.concern_count).toBe(2);
+    expect(tagGroup.file).toBe("2 files");
+  });
+
+  it("uses the single filename as the label when a rule fires in one file", () => {
+    const [g] = groupConcernsByRule([concern("only.tf", "low", "tflint:x")]);
+    expect(g.file).toBe("only.tf");
+    expect(g.files).toEqual(["only.tf"]);
+  });
+
+  it("gives a stable, rule-derived group id distinct from the by-file id", () => {
+    const byRule = groupConcernsByRule([concern("a.tf", "low", "tflint:x")])[0];
+    const byFile = groupConcerns([concern("a.tf", "low", "tflint:x")])[0];
+    expect(byRule.id).not.toBe(byFile.id);
+    // same rule → same id regardless of which files it spans
+    const again = groupConcernsByRule([
+      concern("a.tf", "low", "tflint:x"),
+      concern("z.tf", "low", "tflint:x"),
+    ])[0];
+    expect(again.id).toBe(byRule.id);
+  });
+});
+
+describe("annotateGroups (§3.9 — autonomy by concern membership, both groupings)", () => {
+  const concern = (id: string, file: string, severity: Concern["severity"], category: Concern["category"]): Concern => ({
+    id,
+    source: "trivy",
+    rule_id: "trivy:r",
+    severity,
+    category,
+    evidence: "x",
+    location: { file, line: 1 },
+    remediation_hint: null,
+  });
+
+  it("escalates a by-rule group whose concerns include a high security finding", () => {
+    const all = [concern("1", "a.tf", "high", "security"), concern("2", "b.tf", "high", "security")];
+    const groups = groupConcernsByRule(all);
+    const annotated = annotateGroups(groups, all, "high");
+    expect(annotated[0].autonomy).toBe("needs-human");
+  });
+
+  it("marks a low-severity style group auto", () => {
+    const all = [concern("1", "a.tf", "low", "style")];
+    expect(annotateGroups(groupConcerns(all), all, "high")[0].autonomy).toBe("auto");
+  });
+});
+
+describe("planBatches (§3.10 — atomic vs batched PRs)", () => {
+  const grp = (id: string, severity: Concern["severity"], autonomy: "auto" | "needs-human") => ({
+    id,
+    file: `${id}.tf`,
+    severity,
+    concern_count: 1,
+    rule_ids: ["r"],
+    concern_ids: [id],
+    autonomy,
+  });
+
+  it("batches low/info auto groups and isolates the rest", () => {
+    const plan = planBatches([
+      grp("a", "low", "auto"),
+      grp("b", "info", "auto"),
+      grp("c", "high", "auto"), // higher severity → isolated
+      grp("d", "low", "needs-human"), // escalated → isolated even though low
+    ]);
+    expect(plan.batchable).toEqual(["a", "b"]);
+    expect(plan.isolated).toEqual(["c", "d"]);
+    expect(plan.batch_branch).toMatch(/^remediate\/batch-[0-9a-f]{12}$/);
+  });
+
+  it("does not create a batch branch for fewer than two batchable groups", () => {
+    expect(planBatches([grp("a", "low", "auto"), grp("c", "high", "auto")]).batch_branch).toBeNull();
+  });
+
+  it("is deterministic for the same member set regardless of order", () => {
+    const a = planBatches([grp("x", "low", "auto"), grp("y", "info", "auto")]).batch_branch;
+    const b = planBatches([grp("y", "info", "auto"), grp("x", "low", "auto")]).batch_branch;
+    expect(a).toBe(b);
+  });
+});
+
+describe("ruleDocUrl (§5.17)", () => {
+  const c = (rule_id: string, remediation_hint: string | null) => ({ rule_id, remediation_hint });
+
+  it("prefers an explicit URL remediation_hint", () => {
+    expect(ruleDocUrl(c("checkov:CKV_AWS_18", "https://docs.example/ckv"))).toBe("https://docs.example/ckv");
+  });
+
+  it("derives the Aqua AVD page for a trivy rule with no hint URL", () => {
+    expect(ruleDocUrl(c("trivy:AVD-AWS-0088", null))).toBe(
+      "https://avd.aquasec.com/misconfig/avd-aws-0088"
+    );
+  });
+
+  it("returns null when there is no URL hint and no known pattern", () => {
+    expect(ruleDocUrl(c("checkov:CKV_AWS_18", "enable encryption"))).toBeNull();
+    expect(ruleDocUrl(c("terraform-fmt:unformatted", null))).toBeNull();
+  });
+});
+
+describe("parseRequiredProviders (§4.15)", () => {
+  it("parses the object form with source + version and resolves the major", () => {
+    const hcl = `
+      terraform {
+        required_providers {
+          aws = {
+            source  = "hashicorp/aws"
+            version = "~> 5.0"
+          }
+          random = {
+            source  = "hashicorp/random"
+            version = ">= 3.1, < 4.0"
+          }
+        }
+      }`;
+    expect(parseRequiredProviders(hcl)).toEqual([
+      { name: "aws", source: "hashicorp/aws", version: "~> 5.0", major: 5 },
+      { name: "random", source: "hashicorp/random", version: ">= 3.1, < 4.0", major: 3 },
+    ]);
+  });
+
+  it("parses the legacy string form", () => {
+    const hcl = `required_providers { aws = "~> 4.0" }`;
+    expect(parseRequiredProviders(hcl)).toEqual([
+      { name: "aws", source: null, version: "~> 4.0", major: 4 },
+    ]);
+  });
+
+  it("does not mistake an object's inner source/version lines for providers", () => {
+    const hcl = `required_providers { aws = { source = "hashicorp/aws", version = "~> 5.0" } }`;
+    const out = parseRequiredProviders(hcl);
+    expect(out.map((p) => p.name)).toEqual(["aws"]);
+  });
+
+  it("returns nothing when there is no required_providers block", () => {
+    expect(parseRequiredProviders('resource "aws_s3_bucket" "b" {}')).toEqual([]);
+  });
+
+  it("dedups a provider declared in more than one block (first wins)", () => {
+    const hcl = `
+      required_providers { aws = { version = "~> 5.0" } }
+      required_providers { aws = { version = "~> 4.0" } }`;
+    const out = parseRequiredProviders(hcl);
+    expect(out).toHaveLength(1);
+    expect(out[0].major).toBe(5);
+  });
+});
+
+describe("classifyCostEscalation (§4.16-next)", () => {
+  it("escalates when the increase meets or exceeds the threshold", () => {
+    expect(classifyCostEscalation(50, 25).escalate).toBe(true);
+    expect(classifyCostEscalation(25, 25).escalate).toBe(true);
+  });
+
+  it("does not escalate below the threshold, on a decrease, or with no threshold", () => {
+    expect(classifyCostEscalation(10, 25).escalate).toBe(false);
+    expect(classifyCostEscalation(-30, 25).escalate).toBe(false);
+    expect(classifyCostEscalation(100, undefined).escalate).toBe(false);
+    expect(classifyCostEscalation(null, 25).escalate).toBe(false);
   });
 });
 

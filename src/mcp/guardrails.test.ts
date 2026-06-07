@@ -8,6 +8,7 @@ import {
   GENERATE_MODE,
   globToRegex,
   isPathAllowed,
+  parseGitleaksReport,
   recordRemediationPrOpened,
   REMEDIATE_MODE,
   scanDiffForSecrets,
@@ -220,5 +221,31 @@ describe("scanDiffForSecrets (§2.8)", () => {
   it("returns nothing for a clean diff", () => {
     const d = diff("+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.bucket_name");
     expect(scanDiffForSecrets(d)).toEqual([]);
+  });
+});
+
+describe("parseGitleaksReport (§2.8 — optional gitleaks engine)", () => {
+  it("maps gitleaks findings to SecretHit with a gitleaks: rule prefix", () => {
+    const report = JSON.stringify([
+      { RuleID: "aws-access-token", File: "main.tf", StartLine: 12, Description: "AWS" },
+      { RuleID: "generic-api-key", File: "modules/db/main.tf", StartLine: 4 },
+    ]);
+    expect(parseGitleaksReport(report)).toEqual([
+      { file: "main.tf", line: 12, rule: "gitleaks:aws-access-token" },
+      { file: "modules/db/main.tf", line: 4, rule: "gitleaks:generic-api-key" },
+    ]);
+  });
+
+  it("tolerates an empty report, empty string, and malformed JSON", () => {
+    expect(parseGitleaksReport("[]")).toEqual([]);
+    expect(parseGitleaksReport("")).toEqual([]);
+    expect(parseGitleaksReport("not json")).toEqual([]);
+    expect(parseGitleaksReport(JSON.stringify({ not: "an array" }))).toEqual([]);
+  });
+
+  it("defaults missing fields rather than throwing", () => {
+    expect(parseGitleaksReport(JSON.stringify([{}]))).toEqual([
+      { file: "(unknown)", line: 0, rule: "gitleaks:secret" },
+    ]);
   });
 });

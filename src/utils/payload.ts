@@ -65,6 +65,8 @@ export const Inputs = type({
   "allow_replace?": type.string.or("undefined"),
   "protected_paths?": type.string.or("undefined"),
   "autonomy_threshold?": type.string.or("undefined"),
+  "gitleaks?": type.string.or("undefined"),
+  "cost_increase_block_usd?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -120,6 +122,8 @@ function resolveNonPromptInputs() {
     allow_replace: core.getInput("allow_replace") || undefined,
     protected_paths: core.getInput("protected_paths") || undefined,
     autonomy_threshold: core.getInput("autonomy_threshold") || undefined,
+    gitleaks: core.getInput("gitleaks") || undefined,
+    cost_increase_block_usd: core.getInput("cost_increase_block_usd") || undefined,
   });
 }
 
@@ -166,6 +170,14 @@ function parseMaxPrs(raw: string | undefined): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+/** parse cost_increase_block_usd; a positive number of dollars/month, else
+ * undefined (no cost escalation). */
+function parseCostIncreaseBlock(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const n = Number.parseFloat(raw.trim());
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 /** parse a comma-separated glob list (allowed_paths / protected_paths);
  * undefined when unset or empty after trimming. */
 function parseGlobList(raw: string | undefined): string[] | undefined {
@@ -175,6 +187,13 @@ function parseGlobList(raw: string | undefined): string[] | undefined {
     .map((g) => g.trim())
     .filter(Boolean);
   return globs.length > 0 ? globs : undefined;
+}
+
+/** parse a boolean-ish action input ("true"/"1"/"yes" → true). undefined/unset
+ * and any other value → false. */
+function parseBooleanInput(raw: string | undefined): boolean {
+  if (!raw) return false;
+  return ["true", "1", "yes", "on"].includes(raw.trim().toLowerCase());
 }
 
 /** parse the base_branch override; trims and strips a leading `refs/heads/`,
@@ -277,6 +296,12 @@ export function resolvePayload(
     protectedPaths: parseGlobList(inputs.protected_paths),
     // §3.9 — minimum severity at which a security concern escalates to a human.
     autonomyThreshold: parseSeverityThreshold(inputs.autonomy_threshold),
+    // §2.8 — opt in to the external gitleaks engine on top of the built-in
+    // secret scanner (best-effort; degrades to built-in only when absent).
+    gitleaks: parseBooleanInput(inputs.gitleaks),
+    // §4.16-next — monthly $ increase at/above which a fix is escalated to a
+    // human (needs-human). undefined disables cost escalation.
+    costIncreaseBlockUsd: parseCostIncreaseBlock(inputs.cost_increase_block_usd),
     // explicit base-branch override; when unset the effective base is resolved
     // at PR time (run-start branch → repo default) — see resolveBaseBranch.
     baseBranch: parseBaseBranch(inputs.base_branch),

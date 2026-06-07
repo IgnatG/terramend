@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
 import { log } from "#app/utils/cli";
@@ -238,6 +238,108 @@ interface ValidateDiagnostic {
   summary?: string;
   detail?: string;
   range?: { filename?: string; start?: { line?: number } };
+}
+
+// --- provider-version awareness (§4.15) ------------------------------------
+
+export interface ProviderRequirement {
+  /** local name, e.g. `aws`. */
+  name: string;
+  /** registry source, e.g. `hashicorp/aws`, or null (legacy string form). */
+  source: string | null;
+  /** raw version constraint, e.g. `~> 5.0`, or null when unconstrained. */
+  version: string | null;
+  /** the pinned MAJOR (the lower-bound major of the constraint) — the number a
+   * fix must target, since argument schemas differ across provider majors. */
+  major: number | null;
+}
+
+/** the lower-bound major version from a constraint string (`~> 5.0` → 5,
+ * `>= 3.1, < 4.0` → 3, `5` → 5). null when no number is present. */
+function majorOf(version: string | null): number | null {
+  if (!version) return null;
+  const m = version.match(/(\d+)\s*\.\s*\d+/) ?? version.match(/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Parse every `required_providers { … }` block in some HCL text into the pinned
+ * provider requirements. Handles the modern object form
+ * (`aws = { source = "hashicorp/aws", version = "~> 5.0" }`) and the legacy
+ * string form (`aws = "~> 5.0"`). A repo's "correct" fix depends on the provider
+ * MAJOR — argument names and valid blocks differ across AWS/Azure majors — so
+ * surfacing the pinned major lets a fix target the right schema instead of
+ * breaking `plan`. Brace-matched (not a fragile single regex) so nested objects
+ * don't confuse it. First declaration of a name wins (dedup across files).
+ */
+export function parseRequiredProviders(hcl: string): ProviderRequirement[] {
+  const out: ProviderRequirement[] = [];
+  const seen = new Set<string>();
+  let searchFrom = 0;
+  for (;;) {
+    const idx = hcl.indexOf("required_providers", searchFrom);
+    if (idx === -1) break;
+    const braceStart = hcl.indexOf("{", idx);
+    if (braceStart === -1) break;
+    let depth = 0;
+    let end = -1;
+    for (let i = braceStart; i < hcl.length; i++) {
+      if (hcl[i] === "{") depth++;
+      else if (hcl[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end === -1) break;
+    const body = hcl.slice(braceStart + 1, end);
+    searchFrom = end + 1;
+
+    // object form: name = { source = "…", version = "…" }
+    const objRe = /([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*\{([^}]*)\}/g;
+    let m: RegExpExecArray | null;
+    while ((m = objRe.exec(body)) !== null) {
+      const name = m[1];
+      const inner = m[2];
+      if (seen.has(name)) continue;
+      seen.add(name);
+      const source = inner.match(/source\s*=\s*"([^"]+)"/)?.[1] ?? null;
+      const version = inner.match(/version\s*=\s*"([^"]+)"/)?.[1] ?? null;
+      out.push({ name, source, version, major: majorOf(version) });
+    }
+    // legacy string form: name = "version" — run on the body with object blocks
+    // stripped so an object's inner `source =`/`version =` lines aren't matched.
+    const bodyNoObjects = body.replace(/([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*\{[^}]*\}/g, "");
+    const strRe = /([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"([^"]+)"/g;
+    while ((m = strRe.exec(bodyNoObjects)) !== null) {
+      const name = m[1];
+      if (seen.has(name)) continue;
+      seen.add(name);
+      out.push({ name, source: null, version: m[2], major: majorOf(m[2]) });
+    }
+  }
+  return out;
+}
+
+/** read the root module's `*.tf` files and parse their pinned provider
+ * requirements (best-effort; an unreadable dir yields none). */
+export function collectProviderRequirements(cwd: string): ProviderRequirement[] {
+  let text = "";
+  try {
+    for (const f of readdirSync(cwd)) {
+      if (!f.endsWith(".tf")) continue;
+      try {
+        text += `${readFileSync(join(cwd, f), "utf8")}\n`;
+      } catch {
+        /* skip unreadable file */
+      }
+    }
+  } catch {
+    return [];
+  }
+  return parseRequiredProviders(text);
 }
 
 // --- tflint ---------------------------------------------------------------
@@ -492,9 +594,17 @@ function sortConcerns(concerns: Concern[]): Concern[] {
  * fixing every concern in the file together and proving them all cleared (✗→✓).
  */
 export interface ConcernGroup {
-  /** stable id derived from the file — the remediation branch/PR key. */
+  /** stable id — the remediation branch/PR key (`remediate/<id>`). Derived from
+   * the file (by-file grouping) or the rule (by-rule grouping). */
   id: string;
+  /** the group's primary file (by-file) or a human label like "3 files"
+   * (by-rule); `files` carries the full list for by-rule groups. */
   file: string;
+  /** §3.11 — every file the group spans. one entry for a by-file group; the
+   * full set for a by-rule group (the agent must fix the rule in all of them). */
+  files?: string[];
+  /** how the group was formed — `file` (default) or `rule` (§3.11). */
+  grouping?: "file" | "rule";
   /** highest severity among the group's concerns. */
   severity: Severity;
   concern_count: number;
@@ -514,6 +624,25 @@ function groupId(file: string): string {
   return createHash("sha1").update(`group|${file}`).digest("hex").slice(0, 12);
 }
 
+function ruleGroupId(ruleId: string): string {
+  return createHash("sha1").update(`rulegroup|${ruleId}`).digest("hex").slice(0, 12);
+}
+
+function maxSeverity(cs: Concern[]): Severity {
+  return cs.reduce<Severity>(
+    (max, c) => (SEVERITY_RANK[c.severity] > SEVERITY_RANK[max] ? c.severity : max),
+    "info"
+  );
+}
+
+function sortGroups(groups: ConcernGroup[]): ConcernGroup[] {
+  return groups.sort((a, b) => {
+    const sev = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+    if (sev !== 0) return sev;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 /** group concerns by file into scoped units, sorted by max severity. */
 export function groupConcerns(concerns: Concern[]): ConcernGroup[] {
   const byFile = new Map<string, Concern[]>();
@@ -524,24 +653,141 @@ export function groupConcerns(concerns: Concern[]): ConcernGroup[] {
   }
   const groups: ConcernGroup[] = [];
   for (const [file, cs] of byFile) {
-    const severity = cs.reduce<Severity>(
-      (max, c) => (SEVERITY_RANK[c.severity] > SEVERITY_RANK[max] ? c.severity : max),
-      "info"
-    );
     groups.push({
       id: groupId(file),
       file,
-      severity,
+      files: [file],
+      grouping: "file",
+      severity: maxSeverity(cs),
       concern_count: cs.length,
       rule_ids: [...new Set(cs.map((c) => c.rule_id))].sort(),
       concern_ids: cs.map((c) => c.id),
     });
   }
-  return groups.sort((a, b) => {
-    const sev = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
-    if (sev !== 0) return sev;
-    return a.id.localeCompare(b.id);
+  return sortGroups(groups);
+}
+
+/**
+ * §3.11 — group concerns by RULE across files instead of by file. When a single
+ * rule fires in many files ("add `tags` to every resource", "enable encryption
+ * on every bucket"), fixing it as ONE coherent change is far better than N
+ * near-identical per-file PRs. Each group covers one `rule_id` and lists every
+ * `file` it spans; the branch key (`remediate/<id>`) is rule-derived and stable.
+ * Opt-in (scan `group_by: "rule"`) — by-file stays the default because it keeps
+ * each PR's blast radius smaller; by-rule suits sweeping, low-risk rules.
+ */
+export function groupConcernsByRule(concerns: Concern[]): ConcernGroup[] {
+  const byRule = new Map<string, Concern[]>();
+  for (const c of concerns) {
+    const arr = byRule.get(c.rule_id) ?? [];
+    arr.push(c);
+    byRule.set(c.rule_id, arr);
+  }
+  const groups: ConcernGroup[] = [];
+  for (const [ruleId, cs] of byRule) {
+    const files = [...new Set(cs.map((c) => c.location.file))].sort();
+    groups.push({
+      id: ruleGroupId(ruleId),
+      file: files.length === 1 ? files[0] : `${files.length} files`,
+      files,
+      grouping: "rule",
+      severity: maxSeverity(cs),
+      concern_count: cs.length,
+      rule_ids: [ruleId],
+      concern_ids: cs.map((c) => c.id),
+    });
+  }
+  return sortGroups(groups);
+}
+
+/**
+ * §3.9 — annotate each group with an autonomy decision. Works for BOTH grouping
+ * modes: it resolves a group's concerns by `concern_ids` membership (not by
+ * `file`, which is just a label for by-rule groups), so the severity/category
+ * policy applies identically. Blast radius isn't known until terraform_plan
+ * runs, so it can only escalate a group later (the plan tool + prompt apply the
+ * `high`-blast override); at scan time autonomy is severity/category-driven.
+ */
+export function annotateGroups(
+  groups: ConcernGroup[],
+  all: Concern[],
+  threshold: Severity
+): ConcernGroup[] {
+  const byId = new Map(all.map((c) => [c.id, c]));
+  return groups.map((g) => {
+    const groupConcerns = g.concern_ids.map((id) => byId.get(id)).filter((c): c is Concern => !!c);
+    const decision = classifyAutonomy(groupConcerns, threshold);
+    return { ...g, autonomy: decision.autonomy, autonomy_reasons: decision.reasons };
   });
+}
+
+// --- §3.10 atomic vs batched PRs -------------------------------------------
+
+export interface BatchPlan {
+  /** group ids safe to combine into ONE low-risk PR (`remediate/batch-<hash>`). */
+  batchable: string[];
+  /** group ids that must each get their own PR (security / higher severity /
+   * needs-human / large blast). */
+  isolated: string[];
+  /** deterministic branch name for the batch (stable for the same member set). */
+  batch_branch: string | null;
+}
+
+/** a group is safe to batch when it's low-risk: severity `low`/`info` AND its
+ * autonomy decision is `auto` (no escalating security finding, no high blast). */
+function isBatchable(g: ConcernGroup): boolean {
+  const lowRisk = g.severity === "low" || g.severity === "info";
+  return lowRisk && g.autonomy !== "needs-human";
+}
+
+/**
+ * §3.10 — split annotated groups into a single low-risk BATCH (merged into one
+ * easy-to-review PR) and the riskier groups that each stay ISOLATED in their own
+ * PR (so they can be reviewed/reverted independently). The batch branch name
+ * hashes the sorted member ids, so re-runs over the same set reuse the branch
+ * (idempotent). Returns `batch_branch: null` when fewer than two groups are
+ * batchable (one group is just a normal single-group PR, not a batch).
+ */
+export function planBatches(groups: ConcernGroup[]): BatchPlan {
+  const batchable = groups.filter(isBatchable).map((g) => g.id).sort();
+  const isolated = groups.filter((g) => !isBatchable(g)).map((g) => g.id).sort();
+  const batch_branch =
+    batchable.length >= 2
+      ? `remediate/batch-${createHash("sha1").update(batchable.join("|")).digest("hex").slice(0, 12)}`
+      : null;
+  return { batchable, isolated, batch_branch };
+}
+
+// --- §5.17 per-finding explanation (rule documentation links) --------------
+
+/**
+ * Resolve the canonical documentation URL for a concern's rule, for the PR's
+ * per-finding explanation. Prefers the scanner's own `remediation_hint` when it
+ * is already a URL (checkov guideline, tflint rule link, trivy reference).
+ * Otherwise derives the well-known page deterministically: a trivy `AVD-*` rule
+ * maps to its Aqua Vulnerability Database page. Returns null when no canonical
+ * URL is known (the agent then explains from `evidence` alone).
+ */
+export function ruleDocUrl(concern: Pick<Concern, "rule_id" | "remediation_hint">): string | null {
+  const hint = concern.remediation_hint?.trim();
+  if (hint && /^https?:\/\//i.test(hint)) return hint;
+  // trivy:AVD-AWS-0088 → https://avd.aquasec.com/misconfig/avd-aws-0088
+  const trivyMatch = concern.rule_id.match(/^trivy:(AVD-[A-Z0-9-]+)$/i);
+  if (trivyMatch) return `https://avd.aquasec.com/misconfig/${trivyMatch[1].toLowerCase()}`;
+  return null;
+}
+
+/** distinct rule→doc-url map for a group, for the PR body's per-finding links. */
+function docUrlsForGroup(g: ConcernGroup, all: Concern[]): Record<string, string> {
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const out: Record<string, string> = {};
+  for (const id of g.concern_ids) {
+    const c = byId.get(id);
+    if (!c) continue;
+    const url = ruleDocUrl(c);
+    if (url) out[c.rule_id] = url;
+  }
+  return out;
 }
 
 /** the repo's base ref for diff-scope, or null when one can't be determined. */
@@ -699,6 +945,35 @@ export function computeCostDelta(baseline: CostBreakdown | null, current: CostBr
   return { currency, baselineMonthly, currentMonthly, deltaMonthly, direction };
 }
 
+export interface CostEscalation {
+  /** true when the monthly increase meets/exceeds the operator's threshold. */
+  escalate: boolean;
+  reason?: string;
+}
+
+/**
+ * §4.16-next — decide whether a cost increase is large enough to escalate the PR
+ * to human review (`needs-human`). Compares the monthly delta against the
+ * operator's `cost_increase_block_usd` threshold. No threshold set, an unknown
+ * delta, or a decrease/no-change ⇒ no escalation. Pure + deterministic so the
+ * decision is auditable, not a model judgement.
+ */
+export function classifyCostEscalation(
+  deltaMonthly: number | null,
+  thresholdUsd: number | undefined
+): CostEscalation {
+  if (thresholdUsd === undefined || deltaMonthly === null || deltaMonthly <= 0) {
+    return { escalate: false };
+  }
+  if (deltaMonthly >= thresholdUsd) {
+    return {
+      escalate: true,
+      reason: `the fix raises monthly cost by ${deltaMonthly}, at or above the ${thresholdUsd} escalation threshold`,
+    };
+  }
+  return { escalate: false };
+}
+
 function runInfracostBreakdown(scanCwd: string, key: string): RunResult {
   return run("infracost", ["breakdown", "--path", ".", "--format", "json", "--no-color"], scanCwd, {
     INFRACOST_API_KEY: key,
@@ -740,6 +1015,9 @@ export const TerraformScanParams = type({
   "severity_threshold?": type("'critical' | 'high' | 'medium' | 'low' | 'info'").describe(
     "minimum severity to report (default: low). 'info' includes everything."
   ),
+  "group_by?": type("'file' | 'rule'").describe(
+    "'file' (default) makes one group per file (smaller blast radius per PR). 'rule' groups a single rule's concerns across ALL files into one group — use for sweeping, low-risk rules (e.g. 'add tags everywhere') so they become one PR instead of many."
+  ),
 });
 
 export function TerraformScanTool(ctx: ToolContext) {
@@ -755,7 +1033,7 @@ export function TerraformScanTool(ctx: ToolContext) {
       "are what the ✗→✓ re-scan must confirm cleared) rather than one PR per concern. Scanners that aren't " +
       "installed are reported as skipped (they never fail the scan).",
     parameters: TerraformScanParams,
-    execute: execute(async ({ scan_scope, severity_threshold }) => {
+    execute: execute(async ({ scan_scope, severity_threshold, group_by }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
       // precedence: explicit tool arg > the run's configured severity_threshold > "low"
       const configured = ctx.payload.severityThreshold as Severity | undefined;
@@ -789,16 +1067,19 @@ export function TerraformScanTool(ctx: ToolContext) {
         .filter(inScope)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
 
-      // §3.9 autonomy: annotate each group from its concerns. blast radius isn't
-      // known until terraform_plan runs, so it can only escalate later (the plan
-      // tool + prompt apply the `high`-blast override); at scan time autonomy is
-      // severity/category-driven only.
+      // §3.11 grouping mode: by-file (default, smaller per-PR blast radius) or
+      // by-rule (one PR per rule across all files — for sweeping low-risk rules).
+      const grouping = group_by ?? "file";
       const autonomyThreshold = (ctx.payload.autonomyThreshold as Severity | undefined) ?? "high";
-      const groups = groupConcerns(all).map((g) => {
-        const groupConcernList = all.filter((c) => c.location.file === g.file);
-        const decision = classifyAutonomy(groupConcernList, autonomyThreshold);
-        return { ...g, autonomy: decision.autonomy, autonomy_reasons: decision.reasons };
-      });
+      const groups = annotateGroups(
+        grouping === "rule" ? groupConcernsByRule(all) : groupConcerns(all),
+        all,
+        autonomyThreshold
+      );
+
+      // §3.10 batching plan: which auto/low-risk groups can ride one PR vs which
+      // must be isolated. Advisory — the agent acts on it under max_prs.
+      const batchPlan = planBatches(groups);
 
       const by_severity: Record<string, number> = {};
       for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
@@ -809,7 +1090,8 @@ export function TerraformScanTool(ctx: ToolContext) {
         .map((o) => ({ source: o.source, reason: o.skipped_reason }));
 
       log.info(
-        `» terraform_scan: ${all.length} concern(s) ≥ ${threshold} from [${ran.join(", ")}]` +
+        `» terraform_scan: ${all.length} concern(s) ≥ ${threshold} from [${ran.join(", ")}] ` +
+          `(${groups.length} ${grouping}-group(s))` +
           (skippedScanners.length ? ` (skipped: ${skippedScanners.map((s) => s.source).join(", ")})` : "")
       );
 
@@ -817,11 +1099,13 @@ export function TerraformScanTool(ctx: ToolContext) {
         scanned_dir: cwd,
         scope: changed === null ? "full" : "diff",
         ...(scopeNote ? { scope_note: scopeNote } : {}),
+        grouping,
         scanners_ran: ran,
         scanners_skipped: skippedScanners,
         summary: { total: all.length, groups: groups.length, by_severity },
-        groups,
-        concerns: all,
+        groups: groups.map((g) => ({ ...g, doc_urls: docUrlsForGroup(g, all) })),
+        batch_plan: batchPlan,
+        concerns: all.map((c) => ({ ...c, doc_url: ruleDocUrl(c) })),
       };
     }),
   });
@@ -838,7 +1122,10 @@ export function TerraformValidateTool(ctx: ToolContext) {
     name: "terraform_validate",
     description:
       "Fast pre-PR gate. Runs `terraform fmt -check`, `terraform validate`, and `tflint` over the " +
-      "workspace and returns whether the Terraform is well-formed and idiomatic. Call this AFTER " +
+      "workspace and returns whether the Terraform is well-formed and idiomatic. Also reports `providers` " +
+      "— the pinned provider requirements (name + source + version constraint + resolved `major`, §4.15): " +
+      "honour the pinned major when writing a fix, because argument names and valid blocks differ across " +
+      "provider majors, and a 'correct' fix for the wrong major just breaks `plan`. Call this AFTER " +
       "applying a fix and BEFORE opening a PR — never open a PR whose `terraform_validate` did not pass.",
     parameters: TerraformValidateParams,
     execute: execute(async () => {
@@ -846,10 +1133,14 @@ export function TerraformValidateTool(ctx: ToolContext) {
       const checks = [scanFmt(cwd), scanValidate(cwd), scanTflint(cwd)];
       const remaining = sortConcerns(dedupe(checks.flatMap((c) => c.concerns)));
       const ran = checks.filter((c) => c.ran).map((c) => c.source);
+      // §4.15 — surface the pinned provider majors so the fix targets the right
+      // argument schema (deterministic, read straight from required_providers).
+      const providers = collectProviderRequirements(cwd);
       return {
         passed: remaining.length === 0,
         checks_ran: ran,
         remaining_issues: remaining,
+        providers,
       };
     }),
   });
@@ -965,11 +1256,15 @@ export function InfracostDiffTool(ctx: ToolContext) {
       const delta = computeCostDelta(baseline, current);
       // §5.19 — record the cost direction for the confidence label.
       ctx.toolState.lastCostDirection = delta.direction;
+      // §4.16-next — escalate to human review when the increase crosses the
+      // operator's threshold.
+      const escalation = classifyCostEscalation(delta.deltaMonthly, ctx.payload.costIncreaseBlockUsd);
       log.info(
         `» infracost_diff: current ${delta.currentMonthly ?? "?"} ${delta.currency}/mo` +
           (delta.deltaMonthly !== null
             ? `, delta ${delta.deltaMonthly >= 0 ? "+" : ""}${delta.deltaMonthly}`
-            : " (no baseline)")
+            : " (no baseline)") +
+          (escalation.escalate ? " ⚠ COST ESCALATION (needs-human)" : "")
       );
       return {
         ran: true,
@@ -978,6 +1273,9 @@ export function InfracostDiffTool(ctx: ToolContext) {
         baseline_monthly_cost: delta.baselineMonthly,
         monthly_delta: delta.deltaMonthly,
         direction: delta.direction,
+        // §4.16-next — when true, label the PR needs-human (large spend increase).
+        needs_human: escalation.escalate,
+        ...(escalation.reason ? { cost_escalation_reason: escalation.reason } : {}),
         ...(delta.deltaMonthly === null
           ? {
               note: "Baseline cost unavailable (no base ref or unpriced) — reporting current monthly cost only.",
@@ -1615,6 +1913,9 @@ export const ReadFindingsParams = type({
   "severity_threshold?": type("'critical' | 'high' | 'medium' | 'low' | 'info'").describe(
     "minimum severity to report (default: the run's configured threshold, else low)."
   ),
+  "group_by?": type("'file' | 'rule'").describe(
+    "'file' (default) makes one group per file; 'rule' groups a single rule across all files into one group (§3.11)."
+  ),
 });
 
 export function ReadFindingsTool(ctx: ToolContext) {
@@ -1629,7 +1930,7 @@ export function ReadFindingsTool(ctx: ToolContext) {
       "terraform_verify_remediation will report them unresolved — rely on terraform_validate + your explanation " +
       "for those. Returns `found: false` (never an error) when no findings.json is present.",
     parameters: ReadFindingsParams,
-    execute: execute(async ({ path, severity_threshold }) => {
+    execute: execute(async ({ path, severity_threshold, group_by }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
       const findingsPath = path || process.env.TERRAMEND_FINDINGS_PATH || join(cwd, "findings.json");
       let raw: string;
@@ -1661,24 +1962,30 @@ export function ReadFindingsTool(ctx: ToolContext) {
       const all = sortConcerns(dedupe(parsed))
         .filter(isTerraformConcern)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
-      // §3.9 autonomy — annotate groups identically to terraform_scan.
+      // §3.9 + §3.11 — group (by-file or by-rule) and annotate autonomy, exactly
+      // as terraform_scan does, so the rest of the Remediate checklist is
+      // source-agnostic.
+      const grouping = group_by ?? "file";
       const autonomyThreshold = (ctx.payload.autonomyThreshold as Severity | undefined) ?? "high";
-      const groups = groupConcerns(all).map((g) => {
-        const groupConcernList = all.filter((c) => c.location.file === g.file);
-        const decision = classifyAutonomy(groupConcernList, autonomyThreshold);
-        return { ...g, autonomy: decision.autonomy, autonomy_reasons: decision.reasons };
-      });
+      const groups = annotateGroups(
+        grouping === "rule" ? groupConcernsByRule(all) : groupConcerns(all),
+        all,
+        autonomyThreshold
+      );
+      const batchPlan = planBatches(groups);
       const by_severity: Record<string, number> = {};
       for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
 
-      log.info(`» read_findings: ${all.length} concern(s) ≥ ${threshold} from ${findingsPath}`);
+      log.info(`» read_findings: ${all.length} concern(s) ≥ ${threshold} from ${findingsPath} (${groups.length} ${grouping}-group(s))`);
 
       return {
         found: true,
         source_file: findingsPath,
+        grouping,
         summary: { total: all.length, groups: groups.length, by_severity },
-        groups,
-        concerns: all,
+        groups: groups.map((g) => ({ ...g, doc_urls: docUrlsForGroup(g, all) })),
+        batch_plan: batchPlan,
+        concerns: all.map((c) => ({ ...c, doc_url: ruleDocUrl(c) })),
       };
     }),
   });

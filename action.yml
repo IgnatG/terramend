@@ -51,6 +51,12 @@ inputs:
   autonomy_threshold:
     description: "Terraform remediation: minimum severity at which a SECURITY finding is escalated to human review (needs-human label) rather than auto-fixed (critical|high|medium|low|info). A high blast radius always escalates. Default: high."
     required: false
+  gitleaks:
+    description: "Terraform remediation: set 'true' to run the external gitleaks binary as an additional secret scanner on top of the built-in detectors before pushing. Opt-in and best-effort — if gitleaks isn't installed the built-in scanner is still enforced. Default: false."
+    required: false
+  cost_increase_block_usd:
+    description: "Terraform remediation: monthly USD increase at/above which a fix is escalated to human review (needs-human label) when infracost runs. Default: unset (no cost escalation)."
+    required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
     required: false

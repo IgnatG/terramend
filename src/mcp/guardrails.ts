@@ -1,5 +1,9 @@
+import { spawnSync } from "node:child_process";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { $ } from "#app/utils/shell";
 import { log } from "#app/utils/cli";
+import { resolveEnv } from "#app/utils/secrets";
 import type { ToolContext } from "#app/mcp/server";
 
 /**
@@ -237,10 +241,89 @@ export function scanDiffForSecrets(diff: string): SecretHit[] {
 }
 
 /**
+ * Parse a `gitleaks detect --report-format json` report (an array of finding
+ * objects) into the shared `SecretHit` shape. Pure, so it's unit-testable
+ * without the binary. `gitleaks:` prefixes the rule so a hit's engine is
+ * obvious next to the built-in detectors. Tolerates an empty / non-array report.
+ */
+export function parseGitleaksReport(json: string): SecretHit[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json || "[]");
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const hits: SecretHit[] = [];
+  for (const f of parsed as Array<Record<string, unknown>>) {
+    const file = typeof f.File === "string" && f.File ? f.File : "(unknown)";
+    const line = typeof f.StartLine === "number" ? f.StartLine : 0;
+    const rule = typeof f.RuleID === "string" && f.RuleID ? f.RuleID : "secret";
+    hits.push({ file, line, rule: `gitleaks:${rule}` });
+  }
+  return hits;
+}
+
+/**
+ * Optional deeper secret scan via the external `gitleaks` binary, opt-in through
+ * the `gitleaks` action input. Best-effort: returns `null` when gitleaks isn't
+ * installed or can't run (the built-in scanner already provides the fail-closed
+ * baseline, so an absent gitleaks degrades to "built-in only" rather than
+ * failing the push). Scans the commits this run added (`<base>..HEAD`) and uses
+ * `--exit-code 0` so a leak doesn't make the process exit non-zero — we read the
+ * JSON report instead. Restricted env, so no secret leaks into the subprocess.
+ */
+function scanWithGitleaks(ctx: ToolContext, base: string): SecretHit[] | null {
+  const reportPath = join(ctx.tmpdir, `gitleaks-report-${process.pid}.json`);
+  const cwd = ctx.payload.cwd ?? process.cwd();
+  const result = spawnSync(
+    "gitleaks",
+    [
+      "detect",
+      "--source", ".",
+      "--log-opts", `${base}..HEAD`,
+      "--report-format", "json",
+      "--report-path", reportPath,
+      "--exit-code", "0",
+      "--no-banner",
+      "--redact",
+    ],
+    { cwd, encoding: "utf-8", env: resolveEnv("restricted") as NodeJS.ProcessEnv, maxBuffer: 64 * 1024 * 1024 }
+  );
+  if (result.error) {
+    const missing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
+    log.warning(
+      missing
+        ? "» gitleaks requested but not installed — falling back to the built-in secret scanner only"
+        : `» gitleaks could not run (${result.error.message}) — built-in secret scanner still enforced`
+    );
+    return null;
+  }
+  try {
+    const report = readFileSync(reportPath, "utf8");
+    return parseGitleaksReport(report);
+  } catch {
+    // no report file written usually means a clean scan; treat as no hits.
+    return [];
+  } finally {
+    try {
+      rmSync(reportPath, { force: true });
+    } catch {
+      /* best-effort cleanup */
+    }
+  }
+}
+
+/**
  * Block a push whose diff (since run start) inlines a secret. Reuses the same
  * run-start baseline as the path guardrail. No-op outside a guarded mode. Fails
  * closed on a missing baseline. The diff is read with `$` (restricted env), so
  * no secret leaks into the subprocess.
+ *
+ * The built-in detectors always run (the deterministic, fail-closed baseline).
+ * When the operator opts in via the `gitleaks` input, gitleaks ALSO runs for
+ * deeper coverage and its hits are merged — but its absence never weakens the
+ * baseline (see scanWithGitleaks).
  */
 export function assertNoSecretsInDiff(ctx: ToolContext): void {
   if (!isGuardedMode(ctx)) return;
@@ -253,6 +336,13 @@ export function assertNoSecretsInDiff(ctx: ToolContext): void {
   }
   const diff = $("git", ["diff", base, "HEAD"], { log: false });
   const hits = scanDiffForSecrets(diff);
+
+  // optional deeper engine — merged on top of the built-in baseline.
+  if (ctx.payload.gitleaks) {
+    const gitleaksHits = scanWithGitleaks(ctx, base);
+    if (gitleaksHits) hits.push(...gitleaksHits);
+  }
+
   if (hits.length > 0) {
     throw new Error(
       `push blocked (secret-scan guardrail): the change appears to inline ${hits.length} secret(s) — a fix must reference a variable/secret store, never paste a literal. ` +
@@ -260,7 +350,9 @@ export function assertNoSecretsInDiff(ctx: ToolContext): void {
         hits.map((h) => `  - ${h.file}:${h.line} (${h.rule})`).join("\n")
     );
   }
-  log.info("» secret-scan guardrail ok (no inlined secrets in the diff)");
+  log.info(
+    `» secret-scan guardrail ok (no inlined secrets in the diff${ctx.payload.gitleaks ? ", built-in + gitleaks" : ""})`
+  );
 }
 
 /** resource addresses the operator has explicitly allowed to be destroyed/replaced. */
