@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   annotateGroups,
+  buildRefusalReport,
   classifyAutonomy,
   classifyCostEscalation,
   classifyDestructive,
+  classifyRefusal,
+  clusterByLocation,
   collectCloudCredentials,
   comparePlanStability,
   computeBlastRadius,
@@ -26,6 +29,7 @@ import {
   parseTrivyOutput,
   parseValidateOutput,
   planBatches,
+  preventiveControlFor,
   resourceTypeOf,
   ruleDocUrl,
   shouldSuggestInline,
@@ -905,6 +909,101 @@ describe("classifyAutonomy (§3.9)", () => {
 
   it("medium/low blast radius does not escalate", () => {
     expect(classifyAutonomy([c("low", "style")], "high", "medium").autonomy).toBe("auto");
+  });
+});
+
+describe("classifyRefusal (§29 — honest refusal)", () => {
+  const c = (rule_id: string, evidence: string) => ({ rule_id, evidence });
+
+  it("flags IAM least-privilege / wildcard concerns", () => {
+    expect(classifyRefusal(c("checkov:CKV_AWS_1", "IAM policy allows all actions with \"*\"")).refuse).toBe(true);
+    expect(classifyRefusal(c("trivy:AVD-AWS-9", "ensure least-privilege IAM")).refuse).toBe(true);
+  });
+
+  it("flags KMS key-policy and real-CIDR decisions", () => {
+    expect(classifyRefusal(c("checkov:CKV_AWS_2", "the KMS key policy is too permissive")).refuse).toBe(true);
+    expect(classifyRefusal(c("trivy:AVD-AWS-3", "restrict ingress to an allowed CIDR")).refuse).toBe(true);
+  });
+
+  it("does NOT flag a mechanical secure-default fix", () => {
+    expect(classifyRefusal(c("trivy:AVD-AWS-0088", "S3 bucket is not encrypted at rest")).refuse).toBe(false);
+    expect(classifyRefusal(c("checkov:CKV_AWS_18", "S3 access logging is disabled")).refuse).toBe(false);
+  });
+});
+
+describe("buildRefusalReport (§29)", () => {
+  it("produces a structured non-fix issue body with location, why, and next step", () => {
+    const body = buildRefusalReport({
+      concern: { rule_id: "checkov:CKV_AWS_1", evidence: "wildcard IAM action", location: { file: "iam.tf", line: 12 } },
+      whyNoAutoFix: "the exact action set is unknown",
+      humanAction: "scope the policy to the actions the workload uses",
+    });
+    expect(body).toContain("iam.tf:12");
+    expect(body).toContain("wildcard IAM action");
+    expect(body).toContain("the exact action set is unknown");
+    expect(body).toContain("scope the policy to the actions the workload uses");
+  });
+
+  it("omits the line when there is none", () => {
+    const body = buildRefusalReport({
+      concern: { rule_id: "r", evidence: "e", location: { file: "main.tf", line: null } },
+      whyNoAutoFix: "w",
+      humanAction: "h",
+    });
+    expect(body).toContain("`main.tf`");
+    expect(body).not.toContain("main.tf:");
+  });
+});
+
+describe("preventiveControlFor (§21 — fix once, prevent forever)", () => {
+  it("suggests a Checkov hard-fail for a checkov rule", () => {
+    const p = preventiveControlFor({ source: "checkov", rule_id: "checkov:CKV_AWS_18" })!;
+    expect(p.mechanism).toMatch(/Checkov/);
+    expect(p.snippet).toContain("CKV_AWS_18");
+  });
+
+  it("suggests a tflint rule block and a trivy gate", () => {
+    expect(preventiveControlFor({ source: "tflint", rule_id: "tflint:terraform_unused" })!.snippet).toContain(
+      'rule "terraform_unused"'
+    );
+    expect(preventiveControlFor({ source: "trivy", rule_id: "trivy:AVD-AWS-1" })!.mechanism).toMatch(/Trivy/);
+  });
+
+  it("returns null for the reviewer source (no natural CI gate)", () => {
+    expect(preventiveControlFor({ source: "reviewer", rule_id: "reviewer:x" })).toBeNull();
+  });
+});
+
+describe("clusterByLocation (§30 — cross-tool co-location)", () => {
+  const mk = (id: string, source: Concern["source"], file: string, line: number | null): Concern => ({
+    id,
+    source,
+    rule_id: `${source}:r`,
+    severity: "high",
+    category: "security",
+    evidence: "x",
+    location: { file, line },
+    remediation_hint: null,
+  });
+
+  it("clusters concerns from different scanners at the same file:line", () => {
+    const clusters = clusterByLocation([
+      mk("1", "trivy", "main.tf", 5),
+      mk("2", "checkov", "main.tf", 5),
+      mk("3", "tflint", "vpc.tf", 9),
+    ]);
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0]).toMatchObject({ file: "main.tf", line: 5, sources: ["checkov", "trivy"] });
+    expect(clusters[0].concern_ids).toEqual(["1", "2"]);
+  });
+
+  it("does not cluster a single scanner's concerns or null-line concerns", () => {
+    expect(
+      clusterByLocation([mk("1", "trivy", "main.tf", 5), mk("2", "trivy", "main.tf", 5)])
+    ).toEqual([]);
+    expect(
+      clusterByLocation([mk("1", "trivy", "main.tf", null), mk("2", "checkov", "main.tf", null)])
+    ).toEqual([]);
   });
 });
 

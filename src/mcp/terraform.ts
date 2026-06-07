@@ -1031,7 +1031,10 @@ export function TerraformScanTool(ctx: ToolContext) {
       "are also rolled up into `groups` (one per file): different scanners flag the same defect under " +
       "different rule ids, so remediate ONE group per PR (its `id` is the branch/PR key; its `concern_ids` " +
       "are what the ✗→✓ re-scan must confirm cleared) rather than one PR per concern. Scanners that aren't " +
-      "installed are reported as skipped (they never fail the scan).",
+      "installed are reported as skipped (they never fail the scan). Also returns `co_located` (concerns " +
+      "different scanners flagged at the same file:line — fix as ONE canonical change, §30), " +
+      "`refusal_candidates` (concerns whose fix needs a human decision — prefer a structured refusal over " +
+      "guessing, §29), and `prevention` (a CI guardrail per rule that stops it recurring, §21).",
     parameters: TerraformScanParams,
     execute: execute(async ({ scan_scope, severity_threshold, group_by }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
@@ -1081,6 +1084,21 @@ export function TerraformScanTool(ctx: ToolContext) {
       // must be isolated. Advisory — the agent acts on it under max_prs.
       const batchPlan = planBatches(groups);
 
+      // §30 — concerns different scanners flagged at the same file:line (one
+      // canonical fix). §29 — concerns whose fix needs a human decision (prefer
+      // a structured refusal). §21 — the preventive control per distinct rule.
+      const coLocated = clusterByLocation(all);
+      const refusalCandidates = all
+        .map((c) => ({ id: c.id, ...classifyRefusal(c) }))
+        .filter((r) => r.refuse)
+        .map((r) => ({ concern_id: r.id, reason: r.reason }));
+      const prevention: Record<string, PreventiveControl> = {};
+      for (const c of all) {
+        if (prevention[c.rule_id]) continue;
+        const control = preventiveControlFor(c);
+        if (control) prevention[c.rule_id] = control;
+      }
+
       const by_severity: Record<string, number> = {};
       for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
 
@@ -1105,6 +1123,10 @@ export function TerraformScanTool(ctx: ToolContext) {
         summary: { total: all.length, groups: groups.length, by_severity },
         groups: groups.map((g) => ({ ...g, doc_urls: docUrlsForGroup(g, all) })),
         batch_plan: batchPlan,
+        // §30 cross-tool co-location, §29 refusal candidates, §21 prevention.
+        co_located: coLocated,
+        refusal_candidates: refusalCandidates,
+        prevention,
         concerns: all.map((c) => ({ ...c, doc_url: ruleDocUrl(c) })),
       };
     }),
@@ -1751,6 +1773,179 @@ export function computeConfidence(signals: ConfidenceSignals): ConfidenceResult 
   return { level, reasons };
 }
 
+// --- honest refusal (§29) --------------------------------------------------
+
+export interface RefusalDecision {
+  /** true ⇒ this concern needs a human decision; prefer a structured non-fix
+   * (an issue) over guessing a fix that could break the stack. */
+  refuse: boolean;
+  reason?: string;
+}
+
+// concern signatures whose correct fix needs information only a human has —
+// auto-"fixing" them risks a narrow policy that breaks the stack or a wrong
+// value. Matched against the rule id + evidence text (lower-cased).
+const HUMAN_DECISION_SIGNATURES: { test: RegExp; reason: string }[] = [
+  {
+    test: /least[\s_-]?privilege|wildcard|iam.*("\*"|\*\s*action|action.*\*)|policy.*allows? all/i,
+    reason: "narrowing an IAM policy needs the exact action/resource set the workload uses — a human decision",
+  },
+  {
+    test: /\bkms\b.*\bpolicy\b|key[\s_-]?policy|cmk.*polic/i,
+    reason: "a KMS/CMK key policy needs the real principals and grants — a human decision",
+  },
+  {
+    test: /allowed?[\s_-]?cidr|restrict.*cidr|specify.*cidr|known.*ip|real.*source/i,
+    reason: "tightening an ingress CIDR needs the real allowed source — a human decision",
+  },
+];
+
+/**
+ * §29 — advisory check: would auto-fixing this concern require a judgement only
+ * a human can make? If so, the Remediate flow should post a STRUCTURED refusal
+ * (an issue describing the concern, why it won't auto-fix, and what a human
+ * should do) rather than guess a fix that could break the stack. Deterministic
+ * and conservative — it only flags the well-known human-decision classes.
+ */
+export function classifyRefusal(concern: Pick<Concern, "rule_id" | "evidence">): RefusalDecision {
+  const text = `${concern.rule_id} ${concern.evidence}`.toLowerCase();
+  for (const sig of HUMAN_DECISION_SIGNATURES) {
+    if (sig.test.test(text)) return { refuse: true, reason: sig.reason };
+  }
+  return { refuse: false };
+}
+
+/**
+ * §29 — format a structured non-fix for a concern Terramend won't auto-fix. The
+ * output is a Markdown issue body: what's wrong, why it isn't auto-fixed, and
+ * the concrete next step for a human. Pure (string in → string out).
+ */
+export function buildRefusalReport(input: {
+  concern: Pick<Concern, "rule_id" | "evidence" | "location">;
+  whyNoAutoFix: string;
+  humanAction: string;
+}): string {
+  const { concern, whyNoAutoFix, humanAction } = input;
+  const loc = `${concern.location.file}${concern.location.line ? `:${concern.location.line}` : ""}`;
+  return [
+    `### Terramend won't auto-fix \`${concern.rule_id}\` (needs a human decision)`,
+    "",
+    `**Where:** \`${loc}\``,
+    "",
+    `**What's wrong:** ${concern.evidence}`,
+    "",
+    `**Why it isn't auto-fixed:** ${whyNoAutoFix}`,
+    "",
+    `**What a human should do:** ${humanAction}`,
+    "",
+    "_Terramend opens a PR only when it can prove the fix is correct; for this concern it can't, so it's surfaced here instead of guessing._",
+  ].join("\n");
+}
+
+// --- fix once, prevent forever (§21) ---------------------------------------
+
+export interface PreventiveControl {
+  /** the mechanism that stops this class of concern recurring. */
+  mechanism: string;
+  /** a copy-pasteable config/CI snippet. */
+  snippet: string;
+  note: string;
+}
+
+/**
+ * §21 — alongside the patch, suggest the guardrail that stops the concern
+ * RECURRING: a CI gate keyed on the producing scanner. Deterministic by source
+ * (the scanner is the right enforcement point), parameterised by the rule id.
+ * Returns null for sources with no natural preventive gate.
+ */
+export function preventiveControlFor(
+  concern: Pick<Concern, "source" | "rule_id">
+): PreventiveControl | null {
+  // strip only the leading `<source>:` namespace (not every colon) so a rule
+  // name that itself contains a colon survives intact.
+  const prefix = `${concern.source}:`;
+  const bareRule = concern.rule_id.startsWith(prefix)
+    ? concern.rule_id.slice(prefix.length)
+    : concern.rule_id;
+  switch (concern.source) {
+    case "checkov":
+      return {
+        mechanism: "Checkov hard-fail in CI",
+        snippet: `# .checkov.yaml\nhard-fail-on:\n  - ${bareRule}`,
+        note: `Add ${bareRule} to a Checkov hard-fail list so a PR that reintroduces it fails CI.`,
+      };
+    case "trivy":
+      return {
+        mechanism: "Trivy config scan gate in CI",
+        snippet: `# CI step\ntrivy config --exit-code 1 --severity HIGH,CRITICAL .`,
+        note: `Gate PRs on \`trivy config\` so ${bareRule} (and peers) can't be reintroduced.`,
+      };
+    case "tflint":
+      return {
+        mechanism: "tflint rule enforced in CI",
+        snippet: `# .tflint.hcl\nrule "${bareRule}" {\n  enabled = true\n}`,
+        note: `Enable ${bareRule} in \`.tflint.hcl\` and run \`tflint\` in CI.`,
+      };
+    case "terraform-fmt":
+      return {
+        mechanism: "terraform fmt check in CI",
+        snippet: `# CI step\nterraform fmt -check -recursive`,
+        note: "Gate PRs on `terraform fmt -check` so formatting can't drift.",
+      };
+    case "terraform-validate":
+      return {
+        mechanism: "terraform validate in CI",
+        snippet: `# CI step\nterraform validate`,
+        note: "Run `terraform validate` in CI so this correctness error can't return.",
+      };
+    default:
+      return null;
+  }
+}
+
+// --- cross-tool co-location (§30) ------------------------------------------
+
+export interface LocationCluster {
+  file: string;
+  line: number | null;
+  /** the concern ids at this exact location (likely the same underlying defect). */
+  concern_ids: string[];
+  /** the distinct scanners that flagged this location. */
+  sources: string[];
+}
+
+/**
+ * §30 — surface concerns that DIFFERENT scanners flagged at the same `file:line`
+ * — almost always the same underlying defect (trivy ∩ checkov overlap heavily on
+ * e.g. S3 encryption). Reported so the agent writes ONE canonical fix + ONE
+ * explanation for the cluster rather than treating each as separate work. This
+ * is purely advisory: it NEVER removes a concern from the verification set (a
+ * missing id must still provably clear), so it can't drop a real finding. Only
+ * clusters spanning more than one scanner are returned.
+ */
+export function clusterByLocation(concerns: Concern[]): LocationCluster[] {
+  const byLoc = new Map<string, Concern[]>();
+  for (const c of concerns) {
+    if (c.location.line == null) continue; // a null line isn't a precise co-location
+    const key = `${c.location.file}|${c.location.line}`;
+    const arr = byLoc.get(key) ?? [];
+    arr.push(c);
+    byLoc.set(key, arr);
+  }
+  const clusters: LocationCluster[] = [];
+  for (const cs of byLoc.values()) {
+    const sources = [...new Set(cs.map((c) => c.source))].sort();
+    if (sources.length < 2) continue; // single-scanner location isn't cross-tool overlap
+    clusters.push({
+      file: cs[0].location.file,
+      line: cs[0].location.line,
+      concern_ids: cs.map((c) => c.id).sort(),
+      sources,
+    });
+  }
+  return clusters.sort((a, b) => a.file.localeCompare(b.file) || (a.line ?? 0) - (b.line ?? 0));
+}
+
 // --- plan stability / idempotency (§1.3) -----------------------------------
 
 export interface StabilityResult {
@@ -1863,7 +2058,9 @@ export function TerraformPlanTool(ctx: ToolContext) {
       "Opt-in and degrades green — it auto-skips (returns `ran: false`, never fails the run) when no cloud " +
       "credentials are detected, terraform is not installed, or init/plan can't complete (plan needs live " +
       "provider/backend access). Call it after a fix to attach the real-world effect to the PR and surface " +
-      "destructive changes for human review.",
+      "destructive changes for human review. Returns `plan_text` (the full human-readable plan, for a " +
+      "collapsed <details> block in the PR) and `needs_human` (true when a high blast radius, a stateful " +
+      "destroy/replace, or a non-deterministic plan means a human must review).",
     parameters: TerraformPlanParams,
     execute: execute(async () => {
       const cwd = ctx.payload.cwd ?? process.cwd();
@@ -1915,13 +2112,37 @@ export function TerraformPlanTool(ctx: ToolContext) {
       // §5.19 — record idempotency for the confidence label.
       ctx.toolState.lastIdempotent = stability.stable;
 
+      // §1.2 next — a human-readable plan to attach to the PR as a collapsed
+      // <details> block. A separate non-`-json` run (the `-json` stream isn't
+      // human-readable); best-effort and truncated so a huge plan can't bloat
+      // the PR. Skipped when there's nothing to show.
+      let planText: string | undefined;
+      if (hasChanges) {
+        const readable = run("terraform", ["plan", "-input=false", "-no-color", "-lock=false"], cwd, creds);
+        if (readable.status === 0 && readable.stdout.trim()) {
+          planText = readable.stdout.trim().slice(0, 12_000);
+        }
+      }
+
+      // §2.6 → §3.9 — a high blast radius or a stateful destroy is a deterministic
+      // escalation to human review, mirroring the cost-escalation `needs_human`.
+      const escalationReasons: string[] = [];
+      if (blastRadius.tier === "high") {
+        escalationReasons.push(`high blast radius (${blastRadius.resourceCount} resources / ${blastRadius.modules.length} modules)`);
+      }
+      if (classified.stateful.length > 0) {
+        escalationReasons.push(`${classified.stateful.length} stateful resource(s) would be destroyed/replaced`);
+      }
+      if (!stability.stable) escalationReasons.push("non-deterministic plan (perpetual-diff smell)");
+
       log.info(
         `» terraform_plan: +${summary.add} ~${summary.change} -${summary.destroy} ` +
           `[blast: ${blastRadius.tier}, ${blastRadius.resourceCount} res / ${blastRadius.modules.length} mod]` +
           (summary.hasDestroyOrReplace
             ? ` (DESTRUCTIVE: ${summary.destructive.length}, stateful: ${classified.stateful.length})`
             : "") +
-          (stability.stable ? "" : " ⚠ UNSTABLE (non-deterministic plan)")
+          (stability.stable ? "" : " ⚠ UNSTABLE (non-deterministic plan)") +
+          (escalationReasons.length ? " ⚠ needs-human" : "")
       );
       return {
         ran: true,
@@ -1938,6 +2159,11 @@ export function TerraformPlanTool(ctx: ToolContext) {
         // §1.3 — false when a second plan disagreed (perpetual-diff smell).
         idempotent: stability.stable,
         idempotency_warning: stability.reason,
+        // §2.6 → §3.9 — deterministic escalation to human review.
+        needs_human: escalationReasons.length > 0,
+        ...(escalationReasons.length ? { needs_human_reasons: escalationReasons } : {}),
+        // §1.2 next — full human-readable plan for a collapsed <details> block.
+        ...(planText ? { plan_text: planText } : {}),
       };
     }),
   });
