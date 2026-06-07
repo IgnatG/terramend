@@ -39,11 +39,17 @@ function looksLikeVersion(token: string): boolean {
   return /^[v~^]?[<>=]*\s*\d/.test(token) || /^[<>=]/.test(token);
 }
 
-/** derive a stable module name from a source when none was given (last path
- * segment for a local/git source, the module name for a registry ref). */
+/** derive a stable module name from a source when none was given. The most
+ * meaningful name is the `//subdir`'s last segment when present
+ * (`…/modules.git//aws/kms` → `kms`, `terraform-aws-modules/cloudwatch/aws//modules/log-group`
+ * → `log-group`); else the registry module name; else the last path segment. */
 function deriveName(source: string): string {
-  // registry `namespace/name/provider` → `name`; path → last segment.
-  const cleaned = source.replace(/\.git$/, "").replace(/\/+$/, "");
+  const parsed = splitModuleSource(source);
+  if (parsed.subdir) {
+    const seg = parsed.subdir.split("/").filter(Boolean).pop();
+    if (seg) return seg.replace(/[^A-Za-z0-9_-]/g, "_");
+  }
+  const cleaned = parsed.base.replace(/\.git$/, "").replace(/\/+$/, "");
   const registry = cleaned.match(/^(?:[^/]+\/)?([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/);
   if (registry) return registry[2];
   const seg = cleaned.split(/[/]/).filter(Boolean).pop() ?? source;
@@ -52,22 +58,75 @@ function deriveName(source: string): string {
 
 export type ModuleSourceKind = "local" | "registry" | "git" | "remote" | "unknown";
 
+export interface ParsedModuleSource {
+  /** the full original source string. */
+  raw: string;
+  /** the source with the `//subdir` selector and `?query` stripped. */
+  base: string;
+  /** the `//subdir` path within the module repo/package, or null. */
+  subdir: string | null;
+  /** the `?ref=` revision (git tag/branch/commit), or null. This is how git
+   * modules PIN a version — Terraform has no `version` attribute for them. */
+  ref: string | null;
+  kind: ModuleSourceKind;
+}
+
 /**
- * Classify a Terraform module `source` string. Mirrors Terraform's own source
- * resolution: a `./`/`../`/absolute path is LOCAL; a `git::`/`github.com`/`.git`
- * /`bitbucket.org` source is GIT; an `s3::`/`gcs::`/`http(s)` archive is REMOTE;
- * a bare `namespace/name/provider` (optionally host-prefixed) is a REGISTRY ref.
+ * Split a Terraform module `source` into its base, `//subdir` selector, and
+ * `?ref=` revision — the three parts Terraform's go-getter syntax composes
+ * (`git::https://host/repo.git//subdir?ref=v1`,
+ * `terraform-aws-modules/cloudwatch/aws//modules/log-group`). The `//` separator
+ * is the one NOT part of a `://` scheme. Pure; underpins classification + the
+ * version a git module is pinned at.
  */
-export function classifyModuleSource(source: string): ModuleSourceKind {
-  const s = source.trim();
+export function splitModuleSource(raw: string): ParsedModuleSource {
+  let rest = raw.trim();
+
+  // `?query` → pull out ref=.
+  let ref: string | null = null;
+  const q = rest.indexOf("?");
+  if (q >= 0) {
+    const query = rest.slice(q + 1);
+    rest = rest.slice(0, q);
+    const refMatch = query.match(/(?:^|&)ref=([^&]+)/);
+    if (refMatch) {
+      try {
+        ref = decodeURIComponent(refMatch[1]);
+      } catch {
+        ref = refMatch[1];
+      }
+    }
+  }
+
+  // `//subdir` — the first `//` that isn't the `://` of a scheme.
+  let subdir: string | null = null;
+  const sep = rest.match(/(?<!:)\/\//);
+  if (sep && sep.index !== undefined) {
+    subdir = rest.slice(sep.index + 2) || null;
+    rest = rest.slice(0, sep.index);
+  }
+
+  return { raw, base: rest, subdir, ref, kind: classifyBase(rest) };
+}
+
+/** classify a source's BASE (no subdir/query). */
+function classifyBase(base: string): ModuleSourceKind {
+  const s = base.trim();
   if (!s) return "unknown";
   if (s.startsWith("./") || s.startsWith("../") || s.startsWith("/") || /^[A-Za-z]:[\\/]/.test(s)) {
     return "local";
   }
-  if (s.startsWith("git::") || s.startsWith("git@") || /(?:^|\/)github\.com\//.test(s) || /\.git(?:$|[?#])/.test(s) || s.includes("bitbucket.org") || s.startsWith("hg::")) {
+  if (
+    s.startsWith("git::") ||
+    s.startsWith("git@") ||
+    /(?:^|\/)github\.com\//.test(s) ||
+    /\.git$/.test(s) ||
+    s.includes("bitbucket.org") ||
+    s.startsWith("hg::")
+  ) {
     return "git";
   }
-  if (/^(?:s3|gcs|http|https|mercurial|oci)[:]/.test(s) || s.startsWith("https://") || s.startsWith("http://")) {
+  if (/^(?:s3|gcs|http|https|mercurial|oci)[:]/.test(s)) {
     return "remote";
   }
   // host-prefixed or bare registry shorthand: [host/]namespace/name/provider
@@ -75,6 +134,18 @@ export function classifyModuleSource(source: string): ModuleSourceKind {
     return "registry";
   }
   return "unknown";
+}
+
+/**
+ * Classify a Terraform module `source` string (the full value, including any
+ * `//subdir` / `?ref=`). Mirrors Terraform's own source resolution: a
+ * `./`/`../`/absolute path is LOCAL; a `git::`/`github.com`/`.git`/`bitbucket.org`
+ * source is GIT; an `s3::`/`gcs::`/`http(s)` archive is REMOTE; a bare
+ * `namespace/name/provider` (optionally host-prefixed, optionally with a
+ * `//submodule` path) is a REGISTRY ref.
+ */
+export function classifyModuleSource(source: string): ModuleSourceKind {
+  return splitModuleSource(source).kind;
 }
 
 /**
@@ -114,11 +185,15 @@ export function parseModuleCatalogue(raw: string | undefined): ModuleCatalogueEn
       source = parts.join(" ");
     }
     if (!source) continue;
+    const parsed = splitModuleSource(source);
+    // a git module pins its version via `?ref=` (no `version` attribute), so
+    // fall back to the ref when no explicit version token was given.
+    const effectiveVersion = version ?? parsed.ref;
     const finalName = name ?? deriveName(source);
     const dedupeKey = `${finalName}|${source}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
-    out.push({ name: finalName, source, version, kind: classifyModuleSource(source) });
+    out.push({ name: finalName, source, version: effectiveVersion, kind: parsed.kind });
   }
   return out;
 }
@@ -129,7 +204,11 @@ export interface ModuleBlock {
   /** the local name in `module "<name>" { … }`. */
   name: string;
   source: string;
+  /** the pinned version — the `version` attribute (registry) or the git `?ref=`
+   * (git), whichever is present; null when unpinned. */
   version: string | null;
+  /** the `//subdir` selector within the module package, or null. */
+  subdir: string | null;
   kind: ModuleSourceKind;
   /** the file the `module` block was declared in (repo-relative). */
   declaredIn: string;
@@ -137,9 +216,11 @@ export interface ModuleBlock {
 
 /**
  * Parse every `module "<name>" { … }` block in some HCL into its name, source,
- * and version. Brace-matched so nested blocks (e.g. a `providers = { … }` map
- * inside the module block) don't confuse it. `declaredIn` is filled by the
- * caller; here it's left as "".
+ * pinned version, and subdir. Brace-matched so nested blocks (e.g. a
+ * `providers = { … }` map inside the module block) don't confuse it. The version
+ * comes from the `version` attribute (registry modules) OR the source's `?ref=`
+ * (git modules), so a git-pinned module isn't reported as unpinned. `declaredIn`
+ * is filled by the caller; here it's "".
  */
 export function parseModuleBlocks(hcl: string): ModuleBlock[] {
   const out: ModuleBlock[] = [];
@@ -163,11 +244,18 @@ export function parseModuleBlocks(hcl: string): ModuleBlock[] {
     if (end === -1) break;
     const body = hcl.slice(braceStart + 1, end);
     const source = body.match(/(?:^|\n)\s*source\s*=\s*"([^"]+)"/)?.[1] ?? "";
-    const version = body.match(/(?:^|\n)\s*version\s*=\s*"([^"]+)"/)?.[1] ?? null;
-    if (source) {
-      out.push({ name, source, version, kind: classifyModuleSource(source), declaredIn: "" });
-    }
+    const versionAttr = body.match(/(?:^|\n)\s*version\s*=\s*"([^"]+)"/)?.[1] ?? null;
     re.lastIndex = end + 1;
+    if (!source) continue;
+    const parsed = splitModuleSource(source);
+    out.push({
+      name,
+      source,
+      version: versionAttr ?? parsed.ref,
+      subdir: parsed.subdir,
+      kind: parsed.kind,
+      declaredIn: "",
+    });
   }
   return out;
 }
@@ -183,15 +271,71 @@ export interface ModuleGraph {
   externalCount: number;
 }
 
-/** read the root module's `*.tf` files and build the module call-graph. */
+// directories never worth descending into when walking for `.tf` (caches, VCS,
+// venvs, deps). Keeps the recursive walk fast and noise-free.
+const SKIP_DIRS = new Set([
+  ".git",
+  ".terraform",
+  ".terragrunt-cache",
+  ".venv",
+  "venv",
+  "node_modules",
+  ".idea",
+  ".vscode",
+]);
+
+/**
+ * Recursively list `*.tf` files under `cwd`, repo-relative (POSIX), skipping
+ * cache/VCS/dep dirs. Bounded by depth and a file cap so a huge monorepo can't
+ * stall the walk. Real Terraform repos (e.g. hepcare) keep their root config in
+ * a subdir (`terraform/`) with house modules in `terraform/modules/` and even a
+ * second root (`terraform/core/`) — a single-level read misses all of that, so
+ * we walk the tree.
+ */
+export function walkTfFiles(cwd: string, maxDepth = 8, cap = 2000): string[] {
+  const out: string[] = [];
+  const visit = (dir: string, rel: string, depth: number): void => {
+    if (depth > maxDepth || out.length >= cap) return;
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (out.length >= cap) return;
+      if (e.isDirectory()) {
+        if (SKIP_DIRS.has(e.name)) continue;
+        visit(join(dir, e.name), rel ? `${rel}/${e.name}` : e.name, depth + 1);
+      } else if (e.isFile() && e.name.endsWith(".tf")) {
+        out.push(rel ? `${rel}/${e.name}` : e.name);
+      }
+    }
+  };
+  visit(cwd, "", 0);
+  return out;
+}
+
+/** normalize a POSIX path, resolving `.`/`..` segments. */
+function normalizeRel(path: string): string {
+  const parts: string[] = [];
+  for (const seg of path.split("/")) {
+    if (!seg || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
+}
+
+/**
+ * Walk `cwd` recursively and build the module call-graph across every Terraform
+ * file (root + subdir roots + nested modules). A local module's dir is resolved
+ * RELATIVE TO THE DECLARING FILE (`./modules/x` in `core/main.tf` → `core/modules/x`),
+ * not to `cwd`, so the graph is correct for multi-root repos.
+ */
 export function collectModuleGraph(cwd: string): ModuleGraph {
   const modules: ModuleBlock[] = [];
-  let files: string[] = [];
-  try {
-    files = readdirSync(cwd).filter((f) => f.endsWith(".tf"));
-  } catch {
-    return { modules: [], localModuleDirs: [], externalCount: 0 };
-  }
+  const files = walkTfFiles(cwd);
   for (const f of files) {
     let text: string;
     try {
@@ -203,12 +347,17 @@ export function collectModuleGraph(cwd: string): ModuleGraph {
       modules.push({ ...block, declaredIn: f });
     }
   }
-  // group local module dirs → caller files.
+  // group local module dirs → caller files. Resolve the source against the
+  // declaring file's directory so relative paths from a subdir root land right.
   const byDir = new Map<string, Set<string>>();
   let externalCount = 0;
   for (const mod of modules) {
     if (mod.kind === "local") {
-      const dir = mod.source.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+      const callerDir = mod.declaredIn.includes("/")
+        ? mod.declaredIn.slice(0, mod.declaredIn.lastIndexOf("/"))
+        : "";
+      const raw = mod.source.replace(/\\/g, "/");
+      const dir = normalizeRel(callerDir ? `${callerDir}/${raw}` : raw);
       const set = byDir.get(dir) ?? new Set<string>();
       set.add(mod.declaredIn);
       byDir.set(dir, set);
@@ -240,23 +389,37 @@ export function ListModulesTool(ctx: ToolContext) {
   return tool({
     name: "list_modules",
     description:
-      "List the operator-approved module catalogue (the `module_catalogue` input). PREFER one of these " +
-      "modules — a public registry module (e.g. `terraform-aws-modules/vpc/aws`) or one of the org's own " +
-      "house modules at a local path — over hand-rolling raw resources when one cleanly fits the fix or " +
-      "generation, using its exact variable names and pinning its `version`. Returns an empty list when no " +
-      "catalogue is configured (then fall back to well-formed raw resources / a well-maintained public " +
-      "registry module).",
+      "List the modules to PREFER over hand-rolling raw resources. Combines the operator-approved " +
+      "`module_catalogue` input (registry modules like `terraform-aws-modules/vpc/aws` or house modules at " +
+      "a local path) with `discovered_house_modules` — local modules already used in THIS repo (e.g. " +
+      "`modules/cloudwatch_logs`), auto-detected from the call-graph so an existing house module is reused " +
+      "with its real interface rather than re-implemented. Use a module's exact variable names and pin its " +
+      "`version` (a git module's pin is its `?ref=`). When nothing is configured or discovered, fall back to " +
+      "a well-maintained public registry module (pinned) or well-formed raw resources.",
     parameters: ListModulesParams,
     execute: execute(async () => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
       const entries = parseModuleCatalogue(ctx.payload.moduleCatalogue);
-      log.info(`» list_modules: ${entries.length} catalogue module(s)`);
+      // auto-discover house modules already used in this repo (the convention
+      // hepcare-style repos follow: `modules/<name>` referenced from the root).
+      const graph = collectModuleGraph(cwd);
+      const discovered = graph.localModuleDirs.map((d) => ({
+        name: d.dir.split("/").pop() ?? d.dir,
+        path: d.dir,
+        callers: d.callers,
+        exists: moduleDirExists(cwd, d.dir),
+      }));
+      log.info(
+        `» list_modules: ${entries.length} catalogue module(s), ${discovered.length} discovered house module(s)`
+      );
       return {
         configured: entries.length > 0,
         modules: entries,
+        discovered_house_modules: discovered,
         note:
-          entries.length > 0
-            ? "Prefer these modules (use the exact variable names; pin the version). They are operator-approved."
-            : "No module catalogue configured. Prefer a well-maintained public registry module (pinned) or well-formed raw resources.",
+          entries.length > 0 || discovered.length > 0
+            ? "Prefer these modules (exact variable names; pin the version). Reuse a discovered house module with its real interface rather than re-implementing it."
+            : "No catalogue or house modules. Prefer a well-maintained public registry module (pinned) or well-formed raw resources.",
       };
     }),
   });
@@ -283,7 +446,14 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
           `${graph.localModuleDirs.length} local dir(s), ${graph.externalCount} external`
       );
       return {
-        modules: graph.modules.map((m) => ({ name: m.name, source: m.source, version: m.version, kind: m.kind, declared_in: m.declaredIn })),
+        modules: graph.modules.map((m) => ({
+          name: m.name,
+          source: m.source,
+          version: m.version,
+          subdir: m.subdir,
+          kind: m.kind,
+          declared_in: m.declaredIn,
+        })),
         local_module_dirs: graph.localModuleDirs,
         external_module_count: graph.externalCount,
       };

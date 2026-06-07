@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
+import { walkTfFiles } from "#app/mcp/modules";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 
@@ -323,21 +324,17 @@ export function parseRequiredProviders(hcl: string): ProviderRequirement[] {
   return out;
 }
 
-/** read the root module's `*.tf` files and parse their pinned provider
- * requirements (best-effort; an unreadable dir yields none). */
+/** read the repo's `*.tf` files (recursively — root + subdir roots + nested
+ * modules) and parse their pinned provider requirements (best-effort; an
+ * unreadable tree yields none). First declaration of a provider wins. */
 export function collectProviderRequirements(cwd: string): ProviderRequirement[] {
   let text = "";
-  try {
-    for (const f of readdirSync(cwd)) {
-      if (!f.endsWith(".tf")) continue;
-      try {
-        text += `${readFileSync(join(cwd, f), "utf8")}\n`;
-      } catch {
-        /* skip unreadable file */
-      }
+  for (const f of walkTfFiles(cwd)) {
+    try {
+      text += `${readFileSync(join(cwd, f), "utf8")}\n`;
+    } catch {
+      /* skip unreadable file */
     }
-  } catch {
-    return [];
   }
   return parseRequiredProviders(text);
 }

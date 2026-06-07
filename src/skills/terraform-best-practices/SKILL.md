@@ -222,25 +222,50 @@ or `local`, never a literal baked into a resource:
   literal credential is itself a finding (and the secret-scan guardrail will
   block the push). Reference a variable or a secrets data source.
 
-## Using Terraform modules (registry + your own)
+## Using Terraform modules (registry, private git libraries, your own)
 
 Prefer a well-formed module over a pile of raw resources when one cleanly fits —
-it carries the secure defaults for you. **Always call `list_modules` first.**
+it carries the secure defaults for you. **Always call `list_modules` first**; it
+returns three things: the operator's `module_catalogue`, the
+`discovered_house_modules` (local modules already used in THIS repo), and a note.
 
-- **Operator-approved catalogue.** When `list_modules` returns entries, use those
-  — they're the org's blessed modules (a public registry module like
-  `terraform-aws-modules/vpc/aws`, or one of the org's own/house modules at a
-  local path). Use the module's **exact variable names**, set the secure-relevant
-  inputs the concern is about, and **pin the `version`** for a registry module.
-- **No catalogue configured.** Prefer a well-maintained public registry module
-  (e.g. the [terraform-aws-modules](https://registry.terraform.io/namespaces/terraform-aws-modules)
-  collection — `vpc`, `s3-bucket`, `rds`, `eks`, …), pinned with `~>`, over a
-  hand-rolled resource — but only when it cleanly fits; do NOT swap a working raw
-  resource for a module as a side effect of an unrelated fix.
-- **Don't introduce a module mid-remediation just to "improve" things.** Using a
-  module is right when *generating* new infra or when the fix is genuinely a
-  module swap; for a one-line security fix on an existing raw resource, fix the
-  resource in place.
+Three source kinds you'll encounter, each pinned differently:
+
+- **Public registry module** — `terraform-aws-modules/vpc/aws`. Pin with a
+  `version = "~> 5.0"` argument. The big public collections
+  ([terraform-aws-modules](https://registry.terraform.io/namespaces/terraform-aws-modules):
+  `vpc`, `s3-bucket`, `rds`, `eks`, …) are the default when nothing is configured.
+  A registry submodule is `…/aws//modules/log-group`.
+- **Private git module library** — e.g.
+  `git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2`. The
+  `//aws/s3` selects the module within the repo and **`?ref=s3-v0.1.2` IS the
+  version pin** (git modules have no `version` argument). Keep the exact `ref`;
+  never float it. Many orgs (e.g. UKHSA's `data-integration-terraform-modules`)
+  ship a whole library this way, tagged per-module.
+- **House module** — one of the repo's own `modules/<name>` dirs. `list_modules`
+  surfaces these under `discovered_house_modules` with their caller files — reuse
+  the existing one with its **real variable names** (read its `variables.tf`)
+  rather than re-implementing it.
+
+Rules: use the module's **exact variable names**, set the secure-relevant inputs
+the concern is about, and keep the version **pinned**. Don't introduce a module
+mid-remediation just to "improve" things — using a module is right when
+*generating* new infra or when the fix is genuinely a module swap; for a one-line
+security fix on an existing raw resource, fix the resource in place.
+
+### Authoring a reusable module (standard layout)
+
+When you GENERATE a reusable module, follow the conventional layout real module
+libraries use so it's drop-in familiar:
+
+- `main.tf` (resources), `variables.tf` (every input typed, with a `description`
+  and a `validation` block where it helps), `outputs.tf`, `versions.tf` /
+  `providers.tf` (`required_version` + `required_providers` pinned), `README.md`
+  (usage + inputs/outputs), and a `CHANGELOG.md` if the repo versions modules.
+- At least one `examples/basic/main.tf` that consumes the module with a provider
+  block + pinned version — and an `examples/complete/` when the module has many
+  options. These examples are the module's living documentation AND its test
+  surface (see below).
 
 ### Module-source-aware fixes (§4.14)
 
@@ -256,25 +281,29 @@ lives in the module call-graph:
   the module or fork it inline. Instead report it (open an issue / PR comment)
   naming the upstream module + version and the concern, so a human routes it.
 
-## Tests & examples for modules (Terratest, §28)
+## Tests & examples for modules (§28)
 
-When your change is to a **reusable module** (it lives under a local module dir
-with callers, or it's a module you're generating), keep its tests/examples in
-step — a module change with no updated example or test is incomplete:
+A reusable-module change with no updated example or test is incomplete. Keep them
+in step. There are **two conventions**, and you should match whichever the repo
+already uses:
 
-- **`examples/`** — if the module ships an `examples/<name>/` fixture, update it
-  so it still validates against the changed interface (new required variable,
-  renamed output). Add a minimal example when generating a new module.
-- **Terratest** — if the module has a Go [Terratest](https://terratest.gruntwork.io/)
-  suite (`test/*_test.go` calling `terraform.InitAndPlan`/`Apply`), update the
-  options/assertions to match the new interface (don't delete a test to make it
-  pass). Terramend does **not** run Terratest itself (it needs Go + real cloud to
-  `apply`); it keeps the test source consistent and flags in the PR that the
-  suite should be run. Never weaken an assertion just to go green.
-- These touch `*.tf` (examples) and Go test files — the example `.tf` edits ride
-  the normal guardrail; a Go test edit is allowed only when `allowed_paths` is
-  widened to include it (otherwise leave a clear PR note that the test needs a
-  matching update).
+- **Examples-based (the common default).** Most module libraries test by shipping
+  working `examples/basic` / `examples/complete` fixtures (no Go required). When
+  you change a module's interface, update its examples so they still consume it
+  correctly (new required variable, renamed output); when generating a module,
+  add at least an `examples/basic/main.tf`. These are plain `*.tf` — they ride the
+  normal guardrail.
+- **Terratest (opt-in).** When the `terratest` input is enabled, call
+  `scaffold_terratest` (module name + dir) to generate a plan-only Go
+  [Terratest](https://terratest.gruntwork.io/) smoke test (`test/<name>_test.go`)
+  alongside the example, and write the returned files (the input also widens
+  `allowed_paths` to permit them). If the repo already has a Terratest suite,
+  update its options/assertions to match the new interface instead.
+
+In both cases: Terramend **never runs** the tests — it holds no cloud credentials,
+and Terratest needs Go + a real `apply`. It keeps the test/example source
+consistent with the module and flags in the PR that the suite should be run in the
+user's pipeline. **Never weaken an assertion or delete a test to go green.**
 
 ## Hard rules
 

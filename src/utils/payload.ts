@@ -69,6 +69,7 @@ export const Inputs = type({
   "gitleaks?": type.string.or("undefined"),
   "cost_increase_block_usd?": type.string.or("undefined"),
   "module_catalogue?": type.string.or("undefined"),
+  "terratest?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -127,6 +128,7 @@ function resolveNonPromptInputs() {
     gitleaks: core.getInput("gitleaks") || undefined,
     cost_increase_block_usd: core.getInput("cost_increase_block_usd") || undefined,
     module_catalogue: core.getInput("module_catalogue") || undefined,
+    terratest: core.getInput("terratest") || undefined,
   });
 }
 
@@ -309,6 +311,10 @@ export function resolvePayload(
     // should prefer; raw string, structured by `parseModuleCatalogue` in the
     // `list_modules` tool.
     moduleCatalogue: inputs.module_catalogue,
+    // §28 — opt in to scaffolding a Go Terratest smoke test + examples fixture
+    // when generating a reusable module; also widens the push allow-list so the
+    // test/example files can be written.
+    terratest: parseBooleanInput(inputs.terratest),
     // §3.12 — a `@terramend fix …` command parsed from the triggering comment
     // body (the prompt), scoping the run to a specific concern/severity/file.
     // null when the prompt isn't a recognised command.

@@ -46,7 +46,8 @@ The model only *applies* fixes; the **tools decide** what's wrong. The finding s
 | `terraform_plan` | *(needs cloud creds)* Runs `init` + `plan`; reports add/change/destroy, the destructive set, blast-radius tier, and plan stability. Degrades green (skips) without credentials. |
 | `terraform_verify_remediation` | Re-runs the scanners and partitions the targeted `concern_ids` into `resolved` / `remaining` (the tamper-proof ✗→✓ proof), reports `regressions` the fix introduced, and a deterministic `confidence`. |
 | `terraform_module_graph` | Parses the repo's `module` blocks into a call-graph (local / registry / git / remote) so a concern inside a **local module** is fixed once at the source, and a concern in a **remote** module is flagged as out-of-repo. |
-| `list_modules` | Returns the operator-approved [`module_catalogue`](#inputs) so a fix/generation prefers a blessed registry or house module over raw resources. |
+| `list_modules` | Returns the [`module_catalogue`](#inputs) **plus** house modules auto-discovered in the repo (`discovered_house_modules`), so a fix/generation reuses a blessed registry, private-git, or house module over raw resources. |
+| `scaffold_terratest` | *(opt-in via `terratest`)* Generates a plan-only Go Terratest smoke test + `examples/` fixture for a newly generated module. |
 | `infracost_diff` | *(opt-in)* Monthly cost delta of the fix; escalates to `needs-human` when it crosses `cost_increase_block_usd`. |
 | `read_findings` | Loads concerns from a terraform-reviewer `findings.json` instead of scanning — same `{concerns, groups}` shape. |
 
@@ -168,7 +169,8 @@ an explicit value.
 | `autonomy_threshold` | `high` | Minimum severity at which a **security** finding is escalated to `needs-human`. A high blast radius always escalates. |
 | `gitleaks` | `false` | `true` to also run the external `gitleaks` binary as a secret scanner (on top of the built-in). Best-effort. |
 | `cost_increase_block_usd` | (none) | Monthly USD increase at/above which a fix is escalated to `needs-human` (when infracost runs). |
-| `module_catalogue` | (none) | Newline/comma list of approved modules to prefer, each `[name=]<source>[ <version>]` — a registry module (`terraform-aws-modules/vpc/aws ~> 5.0`) or a local/house module (`./modules/net`). |
+| `module_catalogue` | (none) | Newline/comma list of approved modules to prefer, each `[name=]<source>[ <version>]` — a registry module (`terraform-aws-modules/vpc/aws ~> 5.0`), a private git library (`git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2`), or a local/house module (`./modules/net`). |
+| `terratest` | `false` | `true` to scaffold a plan-only Go Terratest test + `examples/` fixture when generating a reusable module. Widens `allowed_paths` to permit the test/example files. |
 
 Standard agent inputs (`prompt`, `model`, `timeout`, `push`, `shell`, `token`, `output_schema`) are
 also available.

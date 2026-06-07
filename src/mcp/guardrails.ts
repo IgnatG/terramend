@@ -19,6 +19,11 @@ export const GENERATE_MODE = "GenerateTerraform";
 /** default paths these modes may modify/create: Terraform sources only. */
 export const DEFAULT_ALLOWED_PATHS = ["**/*.tf", "**/*.tfvars"] as const;
 
+/** §28 — extra paths the Terratest scaffold writes, allowed only when the
+ * `terratest` input is enabled (Go test files + example fixtures fall outside
+ * the Terraform-only default). */
+export const TERRATEST_ALLOWED_PATHS = ["**/*_test.go", "test/**", "tests/**", "examples/**", "go.mod", "go.sum"] as const;
+
 /** modes whose pushes/PRs are bounded by these guardrails. */
 const GUARDED_MODES: ReadonlySet<string> = new Set([REMEDIATE_MODE, GENERATE_MODE]);
 
@@ -28,7 +33,11 @@ function isGuardedMode(ctx: ToolContext): boolean {
 
 export function resolveAllowedPaths(ctx: ToolContext): string[] {
   const configured = ctx.payload.allowedPaths;
-  return configured && configured.length > 0 ? configured : [...DEFAULT_ALLOWED_PATHS];
+  const base = configured && configured.length > 0 ? [...configured] : [...DEFAULT_ALLOWED_PATHS];
+  // §28 — when Terratest scaffolding is opted in, also permit the Go test +
+  // example-fixture paths the scaffold writes (they're outside the .tf default).
+  if (ctx.payload.terratest) base.push(...TERRATEST_ALLOWED_PATHS);
+  return base;
 }
 
 /**
