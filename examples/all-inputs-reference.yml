@@ -1,0 +1,104 @@
+# REFERENCE: every Terramend action input + environment variable, in one place.
+#
+# This is NOT a minimal starter (use remediate.yml for that) — it's the kitchen
+# sink, so you can see everything available and copy only the lines you need.
+# Every input is OPTIONAL except `prompt`; the value shown is the DEFAULT (or a
+# representative example for free-form inputs). Anything you leave out falls back
+# to its default.
+
+name: terramend-all-inputs-reference
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the remediation branch
+  pull-requests: write # open / update the PR
+  # id-token: write        # only if you use the plan gate (OIDC cloud role)
+  # security-events: write # only if you upload SARIF to code scanning
+
+jobs:
+  terramend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6 # v6 runs on Node 24 (v4 triggers a deprecation notice)
+        with:
+          fetch-depth: 0 # full history — required for diff-scope + base-ref resolution
+
+      # Scanner toolchain — install the ones you want; a missing scanner is
+      # reported "skipped", never fatal.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false # the wrapper pollutes `validate -json` stdout
+      - uses: terraform-linters/setup-tflint@v4
+      - uses: aquasecurity/setup-trivy@v0.3.1
+      - run: pipx install checkov
+      # - run: |   # optional: conftest (OPA) for the policy_check gate
+      #     CONFTEST_VERSION=0.56.0
+      #     curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | sudo tar xz -C /usr/local/bin conftest
+      # - run: |   # optional: gitleaks for the deep secret-diff scan
+      #     curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz | sudo tar xz -C /usr/local/bin gitleaks
+
+      - name: Run Terramend
+        uses: <your-org>/terramend@v0
+        with:
+          # ── core ─────────────────────────────────────────────────────────────
+          prompt: "Bring this repository's Terraform up to best practice." # REQUIRED
+          mode: remediate # remediate | generateterraform (omit to let the agent choose)
+          model: anthropic/claude-sonnet-4-6 # a curated model alias (omit to use repo/account default)
+          timeout: 1h # max run duration, e.g. 10m / 1h30m (default 1h)
+          cwd: "" # working dir (default: the repo root / GITHUB_WORKSPACE)
+
+          # ── permissions ──────────────────────────────────────────────────────
+          push: enabled # disabled (read-only) | restricted (feature branches only) | enabled
+          shell: restricted # disabled | restricted (strips secrets from child env) | enabled
+          token: ${{ github.token }} # the GitHub token used to push + open the PR
+
+          # ── scan scope & volume ──────────────────────────────────────────────
+          scan_scope: full # full (whole workspace) | diff (only Terraform changed vs base)
+          severity_threshold: low # minimum severity to act on: critical|high|medium|low|info
+          max_prs: "1" # max remediation PRs opened per run
+
+          # ── safety / scoping guardrails ──────────────────────────────────────
+          allowed_paths: "**/*.tf,**/*.tfvars" # globs the agent may modify
+          protected_paths: "" # globs the fixer must NEVER touch (inverse of allowed_paths), e.g. "**/prod/**"
+          base_branch: "" # branch the PR targets (default: the repo default branch)
+          allow_replace: "" # resource addresses (or globs, or */all) permitted to be destroyed/replaced
+          autonomy_threshold: high # min severity at which a SECURITY fix is escalated to needs-human
+          gitleaks: "false" # "true" also runs the external gitleaks secret scanner before push
+          cost_increase_block_usd: "" # escalate to needs-human when monthly spend rises by ≥ $N (needs infracost)
+
+          # ── modules & generation ─────────────────────────────────────────────
+          module_catalogue: | # approved modules to PREFER over raw resources ([name=]<source>[ <version>])
+            terraform-aws-modules/vpc/aws ~> 5.0
+            git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2
+            ./modules/services/webserver-cluster
+          terratest: "false" # "true" scaffolds a plan-only Terratest + examples/ fixture for a generated module
+
+          # ── structured output (advanced) ─────────────────────────────────────
+          # output_schema: '{"type":"object","properties":{"summary":{"type":"string"}}}'
+
+        env:
+          # ── BYOK model key — supply ONE matching your `model`/provider ────────
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # OPENAI_API_KEY:   ${{ secrets.OPENAI_API_KEY }}
+          # GEMINI_API_KEY:   ${{ secrets.GEMINI_API_KEY }}
+          # (Bedrock / Vertex are also supported — see the README.)
+
+          # ── GitHub auth ──────────────────────────────────────────────────────
+          GITHUB_TOKEN: ${{ github.token }}
+
+          # ── optional lenses / gates ──────────────────────────────────────────
+          # INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}  # enables the cost lens + cost escalation
+          # AWS_*, ARM_*, GOOGLE_* (or an OIDC role) — unlock the terraform plan gate (plan-only, least-privilege)
+
+          # ── hosted (open-core) backend — leave unset for standalone BYOK ──────
+          # API_URL: ${{ secrets.API_URL }}   # enables learnings + human-edit-capture persistence
+
+      # Optional: publish the scan to the Security tab (the agent must call
+      # terraform_emit_sarif — ask for it in the prompt). Needs security-events: write.
+      # - name: Upload SARIF
+      #   if: always() && hashFiles('terramend.sarif') != ''
+      #   uses: github/codeql-action/upload-sarif@v3
+      #   with:
+      #     sarif_file: terramend.sarif

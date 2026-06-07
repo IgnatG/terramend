@@ -40,8 +40,6 @@ yarn-error.log*
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
-examples
-
 # Act temporary distribution directory
 .act-dist/
 

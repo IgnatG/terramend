@@ -1,0 +1,59 @@
+# Example: scheduled + on-demand Terraform remediation.
+#
+# Terramend scans the repo's Terraform, fixes the highest-severity concern with
+# the minimal correct change, validates it, and opens ONE scoped PR that proves
+# the fix ✗ → ✓ by re-scanning the branch. It never auto-merges.
+#
+# Copy this into .github/workflows/ and set the BYOK model secret (here
+# ANTHROPIC_API_KEY). Pin `uses:` to a release tag in your own setup.
+
+name: terramend-remediate
+
+on:
+  workflow_dispatch:
+    inputs:
+      severity_threshold:
+        description: "Minimum concern severity to act on (critical|high|medium|low|info)."
+        type: string
+        default: medium
+      max_prs:
+        description: "Max remediation PRs to open in one run."
+        type: string
+        default: "1"
+  schedule:
+    - cron: "0 6 * * 1" # weekly drift sweep, Mondays 06:00 UTC
+
+permissions:
+  contents: write # push the remediate/<group-id> branch
+  pull-requests: write # open the remediation PR
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history so base-ref / diff-scope resolution works
+
+      # Scanner toolchain — terraform_scan shells out to these. Any that's absent
+      # is reported "skipped", never fatal; install the ones you want.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false # the wrapper pollutes `validate -json` stdout
+      - uses: terraform-linters/setup-tflint@v4
+      - uses: aquasecurity/setup-trivy@v0.3.1
+      - run: pipx install checkov
+
+      - name: Run Terramend
+        uses: <your-org>/terramend@v0
+        with:
+          mode: remediate
+          prompt: "Bring this repository's Terraform up to best practice."
+          severity_threshold: ${{ inputs.severity_threshold || 'medium' }}
+          max_prs: ${{ inputs.max_prs || '1' }}
+          push: enabled
+          # protected_paths: "**/prod/**,**/state/**"  # never auto-modify these
+        env:
+          # BYOK — supply the key for your provider (Anthropic shown).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}

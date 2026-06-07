@@ -1,0 +1,81 @@
+# Example: remediation with the full safety + reporting stack.
+#
+# Adds, on top of the basic remediate flow:
+#   • SARIF emit + upload  → findings land in the repo's Security tab.
+#   • Plan gate via OIDC    → terraform plan runs before each push, unlocking the
+#                             destroy-block, blast-radius, and idempotency gates.
+#   • Policy-as-code gate   → conftest runs the repo's Rego (./policy) against the
+#                             plan; a denial blocks the fix.
+#
+# This is the "production" shape. The plan gate needs a least-privilege,
+# PLAN-ONLY cloud role (see the README's "Plan-gate: the minimal OIDC role").
+
+name: terramend-remediate-advanced
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: write # push the remediation branch
+  pull-requests: write # open the PR
+  id-token: write # mint the OIDC token for the plan-only cloud role
+  security-events: write # upload terramend.sarif into Security → Code scanning
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # Scanner toolchain.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: terraform-linters/setup-tflint@v4
+      - uses: aquasecurity/setup-trivy@v0.3.1
+      - run: pipx install checkov
+
+      # Policy-as-code engine (optional) — powers the `policy_check` gate against
+      # ./policy. Without it, policy_check just degrades green (skipped).
+      - name: Install conftest
+        run: |
+          CONFTEST_VERSION=0.56.0
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar xz -C /usr/local/bin conftest
+
+      # Plan-only cloud credentials via OIDC (AWS shown). The role is read-only +
+      # state-backend access ONLY — terraform plan never mutates infrastructure.
+      - name: Configure AWS credentials (plan-only)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<acct>:role/terramend-plan-readonly
+          aws-region: eu-west-2
+
+      - name: Run Terramend
+        uses: <your-org>/terramend@v0
+        with:
+          mode: remediate
+          prompt: >-
+            Bring this repository's Terraform up to best practice, then emit a
+            SARIF report of the scan so findings appear in the Security tab.
+          severity_threshold: medium
+          max_prs: "1"
+          push: enabled
+          autonomy_threshold: high # escalate high/critical security fixes to needs-human
+          # allow_replace: ""       # resource addresses permitted to be destroyed/replaced
+          # cost_increase_block_usd: "25"  # escalate big spend increases (needs infracost)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+          # INFRACOST_API_KEY: ${{ secrets.INFRACOST_API_KEY }}  # enables the cost lens
+
+      # Publish the scan to the Security tab (Terramend wrote ./terramend.sarif).
+      - name: Upload SARIF
+        if: always() && hashFiles('terramend.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: terramend.sarif
