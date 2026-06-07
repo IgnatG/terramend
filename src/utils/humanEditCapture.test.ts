@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { computeHumanEditDelta } from "#app/utils/humanEditCapture";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+  captureRemediationOutcome,
+  computeHumanEditDelta,
+  deriveRemediationOutcome,
+} from "#app/utils/humanEditCapture";
 
 describe("computeHumanEditDelta (§6.20)", () => {
   const diff = (...added: string[]) =>
@@ -37,5 +41,56 @@ describe("computeHumanEditDelta (§6.20)", () => {
       outcome: "rejected",
     });
     expect(r.humanIntervened).toBe(true);
+  });
+});
+
+describe("deriveRemediationOutcome (§6.20)", () => {
+  const diff = (...added: string[]) => added.map((l) => `+${l}`).join("\n");
+
+  it("classifies an unmerged close as rejected", () => {
+    expect(deriveRemediationOutcome(false, diff("x = 1"), "")).toBe("rejected");
+  });
+
+  it("classifies an identical merge as merged_clean", () => {
+    expect(deriveRemediationOutcome(true, diff("x = 1"), diff("x = 1"))).toBe("merged_clean");
+  });
+
+  it("classifies a merge with added lines as merged_with_edits", () => {
+    expect(deriveRemediationOutcome(true, diff("x = 1"), diff("x = 1", "y = 2"))).toBe("merged_with_edits");
+  });
+
+  it("classifies a merge that dropped a Terramend line as merged_with_edits", () => {
+    expect(deriveRemediationOutcome(true, diff("x = 1", "y = 2"), diff("x = 1"))).toBe("merged_with_edits");
+  });
+});
+
+describe("captureRemediationOutcome (§6.20 persistence seam)", () => {
+  const prevApiUrl = process.env.API_URL;
+  beforeEach(() => {
+    delete process.env.API_URL;
+  });
+  afterEach(() => {
+    if (prevApiUrl === undefined) delete process.env.API_URL;
+    else process.env.API_URL = prevApiUrl;
+  });
+
+  it("builds the record and no-ops persistence when no backend is configured", async () => {
+    const result = await captureRemediationOutcome({
+      repo: { owner: "acme", name: "infra" },
+      apiToken: "t",
+      event: {
+        prNumber: 42,
+        merged: true,
+        concernIds: ["c1"],
+        originalFixDiff: "+x = 1",
+        mergedDiff: "+x = 1\n+y = 2",
+      },
+    });
+    expect(result.persisted).toBe(false);
+    expect(result.reason).toBe("no_backend");
+    // the record is still built (the pure part runs regardless of persistence).
+    expect(result.record.outcome).toBe("merged_with_edits");
+    expect(result.record.humanIntervened).toBe(true);
+    expect(result.record.concernIds).toEqual(["c1"]);
   });
 });

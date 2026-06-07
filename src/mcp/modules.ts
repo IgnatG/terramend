@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { type } from "arktype";
 import { log } from "#app/utils/cli";
 import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
+import { execute, tool, toolOk } from "#app/mcp/shared";
 
 /**
  * Terraform module support (§4.14 + module catalogue). Two related capabilities:
@@ -371,6 +371,68 @@ export function collectModuleGraph(cwd: string): ModuleGraph {
   return { modules, localModuleDirs, externalCount };
 }
 
+/**
+ * §24 dependency-aware fix ordering. Order the repo's LOCAL module dirs so a
+ * module that others depend on is fixed BEFORE its dependents — sequencing
+ * remediation PRs so they don't conflict (a fix at a shared module source
+ * propagates to callers; fixing the caller first would be redundant or clash).
+ *
+ * Builds edges among local module dirs: a `module` block declared inside local
+ * dir A whose source resolves to local dir B means "A depends on B", so B must
+ * come first. Returns a stable topological order (Kahn's algorithm, ties broken
+ * by path) of the local module dirs; cycle-safe (any leftover nodes are appended
+ * in sorted order). Pure. The remaining non-module (root) files are fixed after
+ * every local module they call — the caller dirs are in each entry's `callers`.
+ */
+export function dependencyOrderedModuleDirs(graph: ModuleGraph): string[] {
+  const dirs = graph.localModuleDirs.map((d) => d.dir);
+  const dirSet = new Set(dirs);
+  // dependsOn[A] = set of local dirs A depends on (A's blocks point at them).
+  const dependsOn = new Map<string, Set<string>>();
+  for (const d of dirs) dependsOn.set(d, new Set());
+  for (const mod of graph.modules) {
+    if (mod.kind !== "local") continue;
+    // which local module dir does the DECLARING file live in? (else it's a root)
+    const declDir = mod.declaredIn.includes("/")
+      ? mod.declaredIn.slice(0, mod.declaredIn.lastIndexOf("/"))
+      : "";
+    // the MOST-SPECIFIC (longest) containing local module dir — not just the
+    // first match, or a block in a nested module (`modules/net/subnet`) would be
+    // mis-attributed to an outer one (`modules/net`), corrupting the order.
+    const ownerDir = [...dirSet]
+      .filter((d) => declDir === d || declDir.startsWith(`${d}/`))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!ownerDir) continue; // declared in a root, not inside a local module
+    // resolve the block's source dir (relative to the declaring file's dir).
+    const callerDir = declDir;
+    const raw = mod.source.replace(/\\/g, "/");
+    const targetDir = normalizeRel(callerDir ? `${callerDir}/${raw}` : raw);
+    if (dirSet.has(targetDir) && targetDir !== ownerDir) {
+      dependsOn.get(ownerDir)?.add(targetDir);
+    }
+  }
+  // Kahn: emit a dir once all dirs it depends on are emitted. Ties by path.
+  const emitted: string[] = [];
+  const done = new Set<string>();
+  const remaining = new Set(dirs);
+  while (remaining.size > 0) {
+    const ready = [...remaining]
+      .filter((d) => [...(dependsOn.get(d) ?? [])].every((dep) => done.has(dep)))
+      .sort((a, b) => a.localeCompare(b));
+    if (ready.length === 0) {
+      // a cycle — append the rest deterministically and stop.
+      for (const d of [...remaining].sort((a, b) => a.localeCompare(b))) emitted.push(d);
+      break;
+    }
+    for (const d of ready) {
+      emitted.push(d);
+      done.add(d);
+      remaining.delete(d);
+    }
+  }
+  return emitted;
+}
+
 /** true when `file` sits under one of the graph's local module dirs — i.e. a
  * concern there should be fixed at the module SOURCE (it propagates to callers). */
 export function isInLocalModule(file: string, graph: ModuleGraph): { dir: string; callers: string[] } | null {
@@ -527,7 +589,7 @@ export function ListModulesTool(ctx: ToolContext) {
       log.info(
         `» list_modules: ${entries.length} catalogue module(s), ${discovered.length} discovered house module(s)`
       );
-      return {
+      return toolOk({
         configured: entries.length > 0,
         modules: entries,
         discovered_house_modules: discovered,
@@ -535,7 +597,7 @@ export function ListModulesTool(ctx: ToolContext) {
           entries.length > 0 || discovered.length > 0
             ? "Prefer these modules (exact variable names; pin the version). Reuse a discovered house module with its real interface rather than re-implementing it."
             : "No catalogue or house modules. Prefer a well-maintained public registry module (pinned) or well-formed raw resources.",
-      };
+      });
     }),
   });
 }
@@ -560,7 +622,7 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
         `» terraform_module_graph: ${graph.modules.length} module block(s), ` +
           `${graph.localModuleDirs.length} local dir(s), ${graph.externalCount} external`
       );
-      return {
+      return toolOk({
         modules: graph.modules.map((m) => ({
           name: m.name,
           source: m.source,
@@ -571,7 +633,11 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
         })),
         local_module_dirs: graph.localModuleDirs,
         external_module_count: graph.externalCount,
-      };
+        // §24 — fix shared/depended-on modules BEFORE their dependents so
+        // sequenced remediation PRs don't conflict; advisory ordering of the
+        // local module dirs (a module others depend on comes first).
+        dependency_order: dependencyOrderedModuleDirs(graph),
+      });
     }),
   });
 }

@@ -44,6 +44,7 @@ import { addTools } from "#app/mcp/shared";
 import {
   InfracostDiffTool,
   ReadFindingsTool,
+  TerraformEmitSarifTool,
   TerraformPlanTool,
   TerraformScanTool,
   TerraformValidateTool,
@@ -54,6 +55,8 @@ import {
   TerraformModuleGraphTool,
   TerraformModuleInterfaceTool,
 } from "#app/mcp/modules";
+import { ComplianceCrosswalkTool } from "#app/mcp/crosswalk";
+import { PolicyCheckTool } from "#app/mcp/policy";
 import { TerraformProviderSchemaTool } from "#app/mcp/providerSchema";
 import { TerraformRootsTool } from "#app/mcp/roots";
 import { ScaffoldTerratestTool } from "#app/mcp/terratest";
@@ -166,6 +169,9 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     TerraformProviderSchemaTool(ctx),
     TerraformRootsTool(ctx),
     ScaffoldTerratestTool(ctx),
+    TerraformEmitSarifTool(ctx),
+    PolicyCheckTool(ctx),
+    ComplianceCrosswalkTool(ctx),
   ];
 
   const isStandalone = ctx.payload.event.trigger === "unknown";

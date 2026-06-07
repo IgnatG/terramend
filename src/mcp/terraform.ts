@@ -1,13 +1,33 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { type } from "arktype";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
 import { walkTfFiles } from "#app/mcp/modules";
+import { loadProvidersSchema, unknownArgsForResource } from "#app/mcp/providerSchema";
+import { discoverTerraformRoots } from "#app/mcp/roots";
 import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
+import { execute, tool, toolOk, toolSkip } from "#app/mcp/shared";
+
+/**
+ * A degrade-green skip result carrying the structured §3.5 envelope
+ * (`ok: false` + machine `code` + human `detail`) PLUS the legacy alias the tool
+ * returned before it converged on the envelope — `ran`/`found` and
+ * `skipped_reason`/`reason` — so existing prompt + test contracts keep working.
+ * Additive, never breaking. `extra` folds in any tool-specific fields (e.g.
+ * read_findings' empty `concerns`/`groups`).
+ */
+function skipResult(
+  code: string,
+  detail: string,
+  opts: { key?: "ran" | "found"; reasonKey?: "skipped_reason" | "reason"; extra?: Record<string, any> } = {}
+): Record<string, any> {
+  const key = opts.key ?? "ran";
+  const reasonKey = opts.reasonKey ?? "skipped_reason";
+  return { ...toolSkip(code, detail), [key]: false, [reasonKey]: detail, ...(opts.extra ?? {}) };
+}
 
 /**
  * Internal "concern" model — the Remediator's ground truth for "what is not
@@ -199,15 +219,86 @@ const VALIDATE_NOISE = [
   "could not load plugin",
 ];
 
-function scanValidate(cwd: string): ScannerOutcome {
-  ensureTerraformInit(cwd);
-  const r = run("terraform", ["validate", "-json"], cwd);
+// --- root resolution (multi-root awareness) --------------------------------
+
+export interface ResolvedRoot {
+  /** absolute dir the per-root command (init/plan/validate) runs in. */
+  absDir: string;
+  /** that root's path relative to the scan `cwd` ("" when the root IS cwd) —
+   * prepended to per-root concern files so they stay cwd-relative. */
+  relDir: string;
+}
+
+/**
+ * The Terraform root modules to operate on under `cwd`. A repo can hold several
+ * roots (hepcare: `terraform/` + `terraform/core/`); `terraform validate` /
+ * `plan` are per-root, so they must run in EACH. Falls back to `cwd` itself as a
+ * single root when none is detected — so a normal single-root repo behaves
+ * exactly as before (no rebasing, one iteration).
+ */
+export function resolveRoots(cwd: string): ResolvedRoot[] {
+  const discovered = discoverTerraformRoots(cwd);
+  if (discovered.length === 0) return [{ absDir: cwd, relDir: "" }];
+  return discovered.map((r) => ({ absDir: r.dir ? join(cwd, r.dir) : cwd, relDir: r.dir }));
+}
+
+/**
+ * Re-base a concern produced by a per-root command (its file is relative to the
+ * root dir) onto the scan `cwd` by prefixing the root's `relDir`, and recompute
+ * the content id so it stays consistent with the cwd-relative scanners (✗→✓).
+ * A no-op when `relDir` is "" (the root IS cwd).
+ */
+export function rebaseConcern(c: Concern, relDir: string): Concern {
+  if (!relDir) return c;
+  const file = `${relDir}/${c.location.file}`.replace(/\/+/g, "/");
+  const prefix = `${c.source}:`;
+  const bareRule = c.rule_id.startsWith(prefix) ? c.rule_id.slice(prefix.length) : c.rule_id;
+  return {
+    ...c,
+    location: { ...c.location, file },
+    id: concernId(c.source, bareRule, file, c.location.line),
+  };
+}
+
+/** run `terraform validate` in one root and return concerns re-based onto cwd. */
+function scanValidateRoot(root: ResolvedRoot): ScannerOutcome {
+  ensureTerraformInit(root.absDir);
+  const r = run("terraform", ["validate", "-json"], root.absDir);
   if (r.missing) return skipped("terraform-validate", "terraform not installed");
   try {
-    return { source: "terraform-validate", ran: true, concerns: parseValidateOutput(r.stdout, cwd) };
+    const concerns = parseValidateOutput(r.stdout, root.absDir).map((c) => rebaseConcern(c, root.relDir));
+    return { source: "terraform-validate", ran: true, concerns };
   } catch {
     return skipped("terraform-validate", "could not parse `terraform validate -json` output");
   }
+}
+
+/**
+ * Run `terraform validate` across EVERY root and aggregate. `validate` is the
+ * one scanner that's per-root (fmt/tflint/trivy/checkov are recursive over the
+ * whole tree), so a multi-root repo only catches subdir-root validate errors
+ * when we visit each root.
+ */
+function scanValidate(cwd: string): ScannerOutcome {
+  const roots = resolveRoots(cwd);
+  const concerns: Concern[] = [];
+  let anyRan = false;
+  let sawMissing = false;
+  for (const root of roots) {
+    const outcome = scanValidateRoot(root);
+    if (outcome.ran) {
+      anyRan = true;
+      concerns.push(...outcome.concerns);
+    } else if (outcome.skipped_reason?.includes("not installed")) {
+      sawMissing = true;
+    }
+  }
+  if (!anyRan) {
+    return sawMissing
+      ? skipped("terraform-validate", "terraform not installed")
+      : skipped("terraform-validate", "could not parse `terraform validate -json` output");
+  }
+  return { source: "terraform-validate", ran: true, concerns: dedupe(concerns) };
 }
 
 /** parse `terraform validate -json`; keeps real errors, drops uninitialized-dir noise. */
@@ -337,6 +428,248 @@ export function collectProviderRequirements(cwd: string): ProviderRequirement[] 
     }
   }
   return parseRequiredProviders(text);
+}
+
+// --- §4.15-next: argument-vs-schema validation ------------------------------
+
+/** the top-level arguments of a single `resource` block. */
+export interface ResourceArguments {
+  resourceType: string;
+  /** the resource's local name (`resource "aws_s3_bucket" "<name>"`). */
+  name: string;
+  /** top-level attribute + nested-block names (meta-arguments excluded). */
+  args: string[];
+}
+
+// Terraform meta-arguments are valid on EVERY resource and never appear in a
+// provider's schema — exclude them so they're not flagged as unknown. `dynamic`
+// is handled specially (its quoted label is the real block name).
+const RESOURCE_META_ARGUMENTS: ReadonlySet<string> = new Set([
+  "count",
+  "for_each",
+  "provider",
+  "depends_on",
+  "lifecycle",
+  "provisioner",
+  "connection",
+]);
+
+/**
+ * Parse every `resource "<type>" "<name>" { … }` block's TOP-LEVEL argument
+ * names (attributes assigned with `=` and nested block labels) from some HCL.
+ * Conservative by design — it skips `"…"` strings and `#`/`//` line comments so
+ * an interpolation's braces or a commented line can't corrupt the brace depth or
+ * fabricate an argument, and only reports depth-0 names. A `dynamic "x"` block
+ * contributes `x` (the generated block type). Used to cross-check written
+ * arguments against the installed provider schema; pure.
+ */
+export function parseResourceArguments(hcl: string): ResourceArguments[] {
+  const out: ResourceArguments[] = [];
+  const re = /(?:^|\n)\s*resource\s+"([^"]+)"\s+"([^"]+)"\s*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(hcl)) !== null) {
+    const resourceType = m[1];
+    const name = m[2];
+    const braceStart = hcl.indexOf("{", m.index);
+    if (braceStart === -1) break;
+    const body = matchBraceBody(hcl, braceStart);
+    if (!body) break;
+    re.lastIndex = body.end + 1;
+    out.push({ resourceType, name, args: topLevelArgNames(body.text) });
+  }
+  return out;
+}
+
+/**
+ * If position `i` begins a heredoc (`<<EOF` / `<<-EOF` / `<<~EOF`), return the
+ * index of the last char of its closing-delimiter line (so the scanner resumes
+ * after it); else null. Heredoc bodies are arbitrary text — they may contain
+ * unbalanced `{`/`}` and `key = value` lines — so they MUST be skipped wholesale
+ * or they corrupt brace depth and fabricate arguments.
+ */
+function skipHeredoc(s: string, i: number): number | null {
+  const m = /^<<[-~]?([A-Za-z_][A-Za-z0-9_]*)/.exec(s.slice(i, i + 80));
+  if (!m) return null;
+  const delim = m[1];
+  const openNl = s.indexOf("\n", i);
+  if (openNl === -1) return s.length - 1; // unterminated — consume the rest
+  // the closing delimiter sits alone on its own line (optionally indented).
+  const closeRe = new RegExp(`\\n[ \\t]*${delim}[ \\t]*(?=\\n|$)`);
+  const after = s.slice(openNl);
+  const cm = closeRe.exec(after);
+  if (!cm) return s.length - 1;
+  return openNl + cm.index + cm[0].length - 1;
+}
+
+/** brace-match from an opening `{` at `open`; returns the inner text + end index
+ * (the matching `}`), string/comment/heredoc-aware so interpolation braces, a
+ * commented `}`, or a heredoc body don't fool it. */
+function matchBraceBody(hcl: string, open: string | number): { text: string; end: number } | null {
+  const start = typeof open === "number" ? open : -1;
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start; i < hcl.length; i++) {
+    const ch = hcl[i];
+    // skip a double-quoted string (with escapes) so `${…}` braces don't count.
+    if (ch === '"') {
+      i++;
+      while (i < hcl.length && hcl[i] !== '"') {
+        if (hcl[i] === "\\") i++;
+        i++;
+      }
+      continue;
+    }
+    // skip a heredoc body (may hold unbalanced braces).
+    if (ch === "<" && hcl[i + 1] === "<") {
+      const end = skipHeredoc(hcl, i);
+      if (end !== null) {
+        i = end;
+        continue;
+      }
+    }
+    // skip a `#` or `//` line comment.
+    if (ch === "#" || (ch === "/" && hcl[i + 1] === "/")) {
+      const nl = hcl.indexOf("\n", i);
+      if (nl === -1) return null;
+      i = nl;
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return { text: hcl.slice(start + 1, i), end: i };
+    }
+  }
+  return null;
+}
+
+/** extract the depth-0 argument names from a resource block body (string- and
+ * comment-aware), excluding meta-arguments. */
+function topLevelArgNames(body: string): string[] {
+  const names = new Set<string>();
+  let depth = 0;
+  let atStmtStart = true;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === '"') {
+      i++;
+      while (i < body.length && body[i] !== '"') {
+        if (body[i] === "\\") i++;
+        i++;
+      }
+      atStmtStart = false;
+      continue;
+    }
+    // skip a heredoc body (arbitrary text — may hold `key = value` lines that
+    // would otherwise be misread as arguments).
+    if (ch === "<" && body[i + 1] === "<") {
+      const end = skipHeredoc(body, i);
+      if (end !== null) {
+        i = end;
+        atStmtStart = true;
+        continue;
+      }
+    }
+    if (ch === "#" || (ch === "/" && body[i + 1] === "/")) {
+      const nl = body.indexOf("\n", i);
+      if (nl === -1) break;
+      i = nl;
+      atStmtStart = true;
+      continue;
+    }
+    if (ch === "{") {
+      depth++;
+      atStmtStart = false;
+      continue;
+    }
+    if (ch === "}") {
+      depth--;
+      atStmtStart = false;
+      continue;
+    }
+    if (ch === "\n") {
+      atStmtStart = true;
+      continue;
+    }
+    if (ch === " " || ch === "\t" || ch === "\r") continue;
+    // a non-space char that starts a statement at depth 0 → read an identifier.
+    if (depth === 0 && atStmtStart && /[A-Za-z_]/.test(ch)) {
+      let j = i;
+      while (j < body.length && /[A-Za-z0-9_-]/.test(body[j])) j++;
+      const ident = body.slice(i, j);
+      // skip whitespace after the identifier to classify it.
+      let k = j;
+      while (k < body.length && (body[k] === " " || body[k] === "\t")) k++;
+      const next = body[k];
+      if (next === "=" && body[k + 1] !== "=") {
+        // attribute assignment: `name = …`
+        if (!RESOURCE_META_ARGUMENTS.has(ident)) names.add(ident);
+      } else if (next === "{") {
+        // nested block: `name { … }`
+        if (!RESOURCE_META_ARGUMENTS.has(ident)) names.add(ident);
+      } else if (next === '"') {
+        // labeled block: `dynamic "x" {` → the generated block is `x`;
+        // other labeled blocks (`provisioner "remote-exec"`) are meta.
+        if (ident === "dynamic") {
+          const labelEnd = body.indexOf('"', k + 1);
+          if (labelEnd !== -1) names.add(body.slice(k + 1, labelEnd));
+        }
+      }
+      i = j - 1;
+      atStmtStart = false;
+      continue;
+    }
+    atStmtStart = false;
+  }
+  return [...names];
+}
+
+export interface UnknownArgument {
+  resource_type: string;
+  /** the resource's local name. */
+  name: string;
+  /** repo-relative file the resource is declared in. */
+  file: string;
+  /** the argument names not present in the installed provider's schema. */
+  unknown: string[];
+}
+
+/**
+ * §4.15-next — cross-check every resource's written arguments against the
+ * INSTALLED provider's schema, so an argument that's invalid for the pinned
+ * provider major (a "correct" fix for the wrong version) is caught at validate
+ * time, not as a later `plan` failure. Degrades green: returns
+ * `{ checked: false }` when the schema is unavailable (terraform not installed /
+ * dir not init-ed). A resource type absent from the schema is skipped (can't
+ * judge), never flagged.
+ */
+export function checkArgumentsAgainstSchema(cwd: string): {
+  checked: boolean;
+  unknown_arguments: UnknownArgument[];
+} {
+  const schema = loadProvidersSchema(cwd);
+  if (!schema) return { checked: false, unknown_arguments: [] };
+  const out: UnknownArgument[] = [];
+  for (const f of walkTfFiles(cwd)) {
+    let text: string;
+    try {
+      text = readFileSync(join(cwd, f), "utf8");
+    } catch {
+      continue;
+    }
+    for (const block of parseResourceArguments(text)) {
+      const verdict = unknownArgsForResource(schema, block.resourceType, block.args);
+      if (!verdict.unknownResourceType && verdict.unknown.length > 0) {
+        out.push({
+          resource_type: block.resourceType,
+          name: block.name,
+          file: f,
+          unknown: verdict.unknown,
+        });
+      }
+    }
+  }
+  return { checked: true, unknown_arguments: out };
 }
 
 // --- tflint ---------------------------------------------------------------
@@ -1143,7 +1476,7 @@ export function TerraformScanTool(ctx: ToolContext) {
           (skippedScanners.length ? ` (skipped: ${skippedScanners.map((s) => s.source).join(", ")})` : "")
       );
 
-      return {
+      return toolOk({
         scanned_dir: cwd,
         scope: changed === null ? "full" : "diff",
         ...(scopeNote ? { scope_note: scopeNote } : {}),
@@ -1158,7 +1491,7 @@ export function TerraformScanTool(ctx: ToolContext) {
         refusal_candidates: refusalCandidates,
         prevention,
         concerns: all.map((c) => ({ ...c, doc_url: ruleDocUrl(c) })),
-      };
+      });
     }),
   });
 }
@@ -1173,7 +1506,8 @@ export function TerraformValidateTool(ctx: ToolContext) {
   return tool({
     name: "terraform_validate",
     description:
-      "Fast pre-PR gate. Runs `terraform fmt -check`, `terraform validate`, and `tflint` over the " +
+      "Fast pre-PR gate. Runs `terraform fmt -check`, `terraform validate` (per Terraform root — " +
+      "multi-root aware, see `roots_validated`), and `tflint` over the " +
       "workspace and returns whether the Terraform is well-formed and idiomatic. Also reports `providers` " +
       "— the pinned provider requirements (name + source + version constraint + resolved `major`, §4.15): " +
       "honour the pinned major when writing a fix, because argument names and valid blocks differ across " +
@@ -1182,18 +1516,41 @@ export function TerraformValidateTool(ctx: ToolContext) {
     parameters: TerraformValidateParams,
     execute: execute(async () => {
       const cwd = ctx.payload.cwd ?? process.cwd();
+      // `terraform validate` runs per-root (multi-root aware); fmt + tflint are
+      // recursive over the whole tree.
       const checks = [scanFmt(cwd), scanValidate(cwd), scanTflint(cwd)];
       const remaining = sortConcerns(dedupe(checks.flatMap((c) => c.concerns)));
       const ran = checks.filter((c) => c.ran).map((c) => c.source);
       // §4.15 — surface the pinned provider majors so the fix targets the right
       // argument schema (deterministic, read straight from required_providers).
       const providers = collectProviderRequirements(cwd);
-      return {
+      const roots = resolveRoots(cwd).map((r) => r.relDir || ".");
+      // §4.15-next — cross-check the arguments actually written in the workspace
+      // against the INSTALLED provider's schema, so an argument that's invalid
+      // for the pinned provider major (a "correct" fix for the wrong version) is
+      // caught here, before the PR, instead of surfacing as a `plan` failure.
+      // Deterministic and degrades green (omitted) when the schema isn't
+      // available (terraform not installed / dir not init-ed).
+      const schemaCheck = checkArgumentsAgainstSchema(cwd);
+      return toolOk({
+        // `passed` stays gated on fmt + validate + tflint only — those are
+        // authoritative. The schema cross-check is a high-signal ADVISORY (a
+        // conservative HCL parse), surfaced separately so a parser edge case can
+        // never wrongly block a valid fix.
         passed: remaining.length === 0,
         checks_ran: ran,
         remaining_issues: remaining,
         providers,
-      };
+        // §4.15-next — arguments written in the workspace that are NOT in the
+        // installed provider's schema (would break `plan` on the pinned major).
+        // `schema_checked` is false when the schema was unavailable (terraform
+        // not installed / dir not init-ed) — then `unknown_arguments` is empty
+        // and you should rely on `terraform_plan` to catch a bad argument.
+        schema_checked: schemaCheck.checked,
+        unknown_arguments: schemaCheck.unknown_arguments,
+        // the Terraform roots `validate` covered (each was init+validate'd).
+        roots_validated: roots,
+      });
     }),
   });
 }
@@ -1250,7 +1607,7 @@ export function TerraformVerifyRemediationTool(ctx: ToolContext) {
           (regressionsKnown ? `, ${regressions.length} regression(s)` : "") +
           `) — confidence: ${confidence.level} — from [${ran.join(", ")}]`
       );
-      return {
+      return toolOk({
         verified: verdict.verified,
         resolved_count: verdict.resolved.length,
         remaining_count: verdict.remaining.length,
@@ -1266,7 +1623,7 @@ export function TerraformVerifyRemediationTool(ctx: ToolContext) {
         confidence: confidence.level,
         confidence_reasons: confidence.reasons,
         scanners_ran: ran,
-      };
+      });
     }),
   });
 }
@@ -1288,21 +1645,21 @@ export function InfracostDiffTool(ctx: ToolContext) {
       const cwd = ctx.payload.cwd ?? process.cwd();
       const key = process.env.INFRACOST_API_KEY || undefined;
       if (!key) {
-        return { ran: false, skipped_reason: "INFRACOST_API_KEY not set — cost analysis is opt-in" };
+        return skipResult("infracost_key_unset", "INFRACOST_API_KEY not set — cost analysis is opt-in");
       }
       const cur = runInfracostBreakdown(cwd, key);
-      if (cur.missing) return { ran: false, skipped_reason: "infracost not installed" };
+      if (cur.missing) return skipResult("infracost_not_installed", "infracost not installed");
       if (cur.status !== 0) {
-        return {
-          ran: false,
-          skipped_reason: `infracost breakdown failed: ${cur.stderr.trim().slice(0, 300) || "unknown error"}`,
-        };
+        return skipResult(
+          "infracost_failed",
+          `infracost breakdown failed: ${cur.stderr.trim().slice(0, 300) || "unknown error"}`
+        );
       }
       let current: CostBreakdown;
       try {
         current = parseInfracostBreakdown(cur.stdout);
       } catch {
-        return { ran: false, skipped_reason: "could not parse infracost json output" };
+        return skipResult("infracost_parse_error", "could not parse infracost json output");
       }
       const baseline = infracostBaseline(cwd, key, ctx.tmpdir);
       const delta = computeCostDelta(baseline, current);
@@ -1320,7 +1677,7 @@ export function InfracostDiffTool(ctx: ToolContext) {
             : " (no baseline)") +
           (escalation.escalate ? " ⚠ COST ESCALATION (needs-human)" : "")
       );
-      return {
+      return toolOk({
         ran: true,
         currency: delta.currency,
         current_monthly_cost: delta.currentMonthly,
@@ -1337,7 +1694,7 @@ export function InfracostDiffTool(ctx: ToolContext) {
               note: "Baseline cost unavailable (no base ref or unpriced) — reporting current monthly cost only.",
             }
           : {}),
-      };
+      });
     }),
   });
 }
@@ -1586,6 +1943,138 @@ export function parseFindingsFile(json: string, cwd = ""): Concern[] {
     return [];
   }
   return isSarif(parsed) ? parseSarifFindings(json, cwd) : parseReviewerFindings(json, cwd);
+}
+
+// --- SARIF emit (GitHub code-scanning) ------------------------------------
+
+/** Concern severity → SARIF `level`. SARIF has only error/warning/note, so
+ * critical+high collapse to `error`, medium → `warning`, low+info → `note`. The
+ * finer grade survives in the `security-severity` property below. */
+function severityToSarifLevel(s: Severity): "error" | "warning" | "note" {
+  switch (s) {
+    case "critical":
+    case "high":
+      return "error";
+    case "medium":
+      return "warning";
+    default:
+      return "note";
+  }
+}
+
+/** Concern severity → the numeric `security-severity` GitHub reads to colour the
+ * alert (0–10 CVSS-like scale). */
+function securitySeverityScore(s: Severity): string {
+  switch (s) {
+    case "critical":
+      return "9.5";
+    case "high":
+      return "8.0";
+    case "medium":
+      return "5.0";
+    case "low":
+      return "2.0";
+    default:
+      return "0.0";
+  }
+}
+
+/**
+ * Emit a set of concerns as a SARIF 2.1.0 report for GitHub code-scanning (the
+ * inverse of `parseSarifFindings` — close the loop so a Terramend scan can
+ * populate the repo's Security tab via `github/codeql-action/upload-sarif`). One
+ * `run` with the `terramend` driver, a deduped `rules` array (each rule's
+ * `helpUri` from `ruleDocUrl`), and one `result` per concern carrying its
+ * `level`, `security-severity`, message, and `file:line`. Pure + deterministic
+ * (rules sorted, stable partialFingerprints from the content id) so re-emitting
+ * an unchanged scan yields a byte-identical report.
+ */
+export function buildSarifReport(concerns: Concern[]): SarifReport {
+  // deduped rule metadata, keyed by the namespaced rule_id (the SARIF ruleId).
+  const rulesById = new Map<string, SarifRule>();
+  for (const c of concerns) {
+    if (rulesById.has(c.rule_id)) continue;
+    const helpUri = ruleDocUrl(c);
+    rulesById.set(c.rule_id, {
+      id: c.rule_id,
+      ...(helpUri ? { helpUri } : {}),
+      shortDescription: { text: c.evidence.slice(0, 200) },
+    });
+  }
+  const rules = [...rulesById.values()].sort((a, b) => (a.id ?? "").localeCompare(b.id ?? ""));
+  const results: SarifResult[] = concerns.map((c) => ({
+    ruleId: c.rule_id,
+    level: severityToSarifLevel(c.severity),
+    message: { text: c.evidence },
+    properties: { "security-severity": securitySeverityScore(c.severity) },
+    locations: [
+      {
+        physicalLocation: {
+          artifactLocation: { uri: c.location.file },
+          ...(c.location.line ? { region: { startLine: c.location.line } } : {}),
+        },
+      },
+    ],
+  }));
+  return {
+    version: "2.1.0",
+    $schema: "https://json.schemastore.org/sarif-2.1.0.json",
+    runs: [{ tool: { driver: { name: "terramend", rules } }, results }],
+  };
+}
+
+export const TerraformEmitSarifParams = type({
+  "output_path?": type.string.describe(
+    "where to write the SARIF file (default: ./terramend.sarif in the workspace). Upload it with github/codeql-action/upload-sarif to populate the repo's Security tab."
+  ),
+  "severity_threshold?": type("'critical' | 'high' | 'medium' | 'low' | 'info'").describe(
+    "minimum severity to include (default: the run's configured threshold, else low)."
+  ),
+});
+
+export function TerraformEmitSarifTool(ctx: ToolContext) {
+  return tool({
+    name: "terraform_emit_sarif",
+    description:
+      "Emit the current best-practice scan as a SARIF 2.1.0 file for GitHub code-scanning (§3.5). Re-runs " +
+      "the scanners and writes a SARIF report (default `terramend.sarif`) that a later workflow step uploads " +
+      "with `github/codeql-action/upload-sarif`, surfacing every concern in the repo's Security tab with the " +
+      "right severity + doc link. This is the EMIT side (the inverse of `read_findings`' SARIF INGEST) — use " +
+      "it when the goal is to REPORT findings to code-scanning rather than open a remediation PR. Degrades " +
+      "green: writes an empty-result report when the tree is clean.",
+    parameters: TerraformEmitSarifParams,
+    execute: execute(async ({ output_path, severity_threshold }) => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      const configured = ctx.payload.severityThreshold as Severity | undefined;
+      const threshold: Severity = severity_threshold ?? configured ?? "low";
+      const minRank = SEVERITY_RANK[threshold];
+      const outcomes = runScanners(cwd);
+      const concerns = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
+        .filter(isTerraformConcern)
+        .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
+      const report = buildSarifReport(concerns);
+      const target = output_path
+        ? isAbsolute(output_path)
+          ? output_path
+          : join(cwd, output_path)
+        : join(cwd, "terramend.sarif");
+      try {
+        writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      } catch (e) {
+        return skipResult(
+          "sarif_write_failed",
+          `could not write SARIF to ${target}: ${e instanceof Error ? e.message : String(e)}`
+        );
+      }
+      log.info(`» terraform_emit_sarif: ${concerns.length} result(s) → ${target}`);
+      return toolOk({
+        sarif_path: target,
+        result_count: concerns.length,
+        rule_count: report.runs?.[0]?.tool?.driver?.rules?.length ?? 0,
+        note: "Upload with github/codeql-action/upload-sarif to populate the repo's Security tab.",
+      });
+    }),
+  });
 }
 
 // --- terraform plan (the safety gate) -------------------------------------
@@ -2155,6 +2644,96 @@ export function comparePlanStability(first: PlanSummary, second: PlanSummary): S
   };
 }
 
+// --- multi-root plan aggregation -------------------------------------------
+
+export interface RootPlan {
+  /** display label for the root ("." for the top-level root). */
+  dir: string;
+  summary: PlanSummary;
+  stable: boolean;
+}
+
+export interface AggregatedPlan {
+  add: number;
+  change: number;
+  destroy: number;
+  changed: { address: string; action: string }[];
+  destructive: { address: string; action: string }[];
+  hasDestroyOrReplace: boolean;
+  idempotent: boolean;
+}
+
+/**
+ * Aggregate per-root plan results into one view: SUM the add/change/destroy
+ * counts, UNION the changed + destructive sets (so blast-radius and the
+ * destroy-block see every root's effect), and treat the whole run as
+ * non-idempotent if ANY root's plan was unstable. Pure. Single-root input passes
+ * straight through (identical to the pre-multi-root behaviour).
+ */
+export function aggregatePlans(roots: RootPlan[]): AggregatedPlan {
+  let add = 0;
+  let change = 0;
+  let destroy = 0;
+  let idempotent = true;
+  const changed: { address: string; action: string }[] = [];
+  const destructive: { address: string; action: string }[] = [];
+  for (const r of roots) {
+    add += r.summary.add;
+    change += r.summary.change;
+    destroy += r.summary.destroy;
+    changed.push(...r.summary.changed);
+    destructive.push(...r.summary.destructive);
+    if (!r.stable) idempotent = false;
+  }
+  return { add, change, destroy, changed, destructive, hasDestroyOrReplace: destructive.length > 0, idempotent };
+}
+
+const PLAN_JSON_ARGS = ["plan", "-input=false", "-no-color", "-lock=false", "-json"];
+
+interface RootPlanOutcome {
+  ran: boolean;
+  skipReason?: string | undefined;
+  summary?: PlanSummary | undefined;
+  stable?: boolean | undefined;
+  stabilityReason?: string | undefined;
+  planText?: string | undefined;
+}
+
+/** init + plan (+ a stability re-plan + a human-readable plan) in a SINGLE root.
+ * Used by terraform_plan once per discovered root. */
+function planOneRoot(absDir: string, creds: Record<string, string>): RootPlanOutcome {
+  const init = run("terraform", ["init", "-input=false", "-no-color"], absDir, creds);
+  if (init.missing) return { ran: false, skipReason: "terraform not installed" };
+  if (init.status !== 0) {
+    return { ran: false, skipReason: `terraform init failed: ${init.stderr.trim().slice(0, 200) || "unknown error"}` };
+  }
+  const plan = run("terraform", PLAN_JSON_ARGS, absDir, creds);
+  if (plan.status !== 0) {
+    return { ran: false, skipReason: `terraform plan failed: ${plan.stderr.trim().slice(0, 200) || "unknown error"}` };
+  }
+  const summary = parseTerraformPlanJson(plan.stdout);
+  const hasChanges = summary.add + summary.change + summary.destroy > 0 || summary.changed.length > 0;
+
+  // §1.3 stability: re-plan once and compare (only when there's a change).
+  let stable = true;
+  let stabilityReason: string | undefined;
+  if (hasChanges) {
+    const plan2 = run("terraform", PLAN_JSON_ARGS, absDir, creds);
+    if (plan2.status === 0) {
+      const s = comparePlanStability(summary, parseTerraformPlanJson(plan2.stdout));
+      stable = s.stable;
+      stabilityReason = s.reason;
+    }
+  }
+  // §1.2 human-readable plan for the PR <details> block (separate non-json run).
+  let planText: string | undefined;
+  if (hasChanges) {
+    const readable = run("terraform", ["plan", "-input=false", "-no-color", "-lock=false"], absDir, creds);
+    if (readable.status === 0 && readable.stdout.trim()) planText = readable.stdout.trim().slice(0, 12_000);
+  }
+  return { ran: true, summary, stable, stabilityReason, planText };
+}
+
 // env vars that signal a cloud provider credential is present — terraform plan
 // needs live provider/backend access, so we only attempt it when one is set.
 const CLOUD_CRED_SIGNALS = [
@@ -2229,74 +2808,58 @@ export function TerraformPlanTool(ctx: ToolContext) {
       "Opt-in and degrades green — it auto-skips (returns `ran: false`, never fails the run) when no cloud " +
       "credentials are detected, terraform is not installed, or init/plan can't complete (plan needs live " +
       "provider/backend access). Call it after a fix to attach the real-world effect to the PR and surface " +
-      "destructive changes for human review. Returns `plan_text` (the full human-readable plan, for a " +
-      "collapsed <details> block in the PR) and `needs_human` (true when a high blast radius, a stateful " +
-      "destroy/replace, or a non-deterministic plan means a human must review).",
+      "destructive changes for human review. **Multi-root aware:** it plans EVERY Terraform root in the repo " +
+      "(`roots_planned`) and aggregates — counts summed, destructive/blast unioned — so you don't loop " +
+      "yourself. Returns `plan_text` (the full human-readable plan(s), for a collapsed <details> block) and " +
+      "`needs_human` (true when a high blast radius, a stateful destroy/replace, or a non-deterministic plan " +
+      "means a human must review).",
     parameters: TerraformPlanParams,
     execute: execute(async () => {
       const cwd = ctx.payload.cwd ?? process.cwd();
       if (!hasCloudCredentials()) {
-        return {
-          ran: false,
-          skipped_reason:
-            "no cloud credentials detected — terraform plan needs provider/backend access; skipped (add AWS/Azure/GCP creds or an OIDC role to enable it)",
-        };
+        return skipResult(
+          "no_cloud_credentials",
+          "no cloud credentials detected — terraform plan needs provider/backend access; skipped (add AWS/Azure/GCP creds or an OIDC role to enable it)"
+        );
       }
       const creds = collectCloudCredentials();
-      const init = run("terraform", ["init", "-input=false", "-no-color"], cwd, creds);
-      if (init.missing) return { ran: false, skipped_reason: "terraform not installed" };
-      if (init.status !== 0) {
-        return {
-          ran: false,
-          skipped_reason: `terraform init failed — plan skipped: ${init.stderr.trim().slice(0, 300) || "unknown error"}`,
-        };
+
+      // multi-root: plan EACH root (hepcare: terraform/ + terraform/core/) and
+      // aggregate. resolveRoots falls back to [cwd] for a single-root repo, so
+      // behaviour there is identical to before.
+      const roots = resolveRoots(cwd);
+      const perRoot = roots.map((r) => ({ dir: r.relDir || ".", outcome: planOneRoot(r.absDir, creds) }));
+      const ran = perRoot.filter((p) => p.outcome.ran);
+      if (ran.length === 0) {
+        // every root skipped — surface the first reason (e.g. not installed / init failed).
+        const reason = perRoot[0]?.outcome.skipReason ?? "no terraform root could be planned";
+        const code = reason.includes("not installed")
+          ? "terraform_not_installed"
+          : reason.includes("init failed")
+            ? "terraform_init_failed"
+            : "terraform_plan_failed";
+        return skipResult(code, `terraform plan skipped — ${reason}`);
       }
-      const planArgs = ["plan", "-input=false", "-no-color", "-lock=false", "-json"];
-      const plan = run("terraform", planArgs, cwd, creds);
-      if (plan.status !== 0) {
-        return {
-          ran: false,
-          skipped_reason: `terraform plan failed — skipped: ${plan.stderr.trim().slice(0, 300) || "unknown error"}`,
-        };
-      }
-      const summary = parseTerraformPlanJson(plan.stdout);
-      const classified = classifyDestructive(summary.destructive);
-      const blastRadius = computeBlastRadius(summary.changed);
-      // record what the plan showed so the push-time destroy-block guardrail
-      // (mcp/guardrails.ts) acts on this evidence, not on the agent's word.
+
+      const rootPlans: RootPlan[] = ran.map((p) => ({ dir: p.dir, summary: p.outcome.summary!, stable: p.outcome.stable! }));
+      const agg = aggregatePlans(rootPlans);
+      const classified = classifyDestructive(agg.destructive);
+      const blastRadius = computeBlastRadius(agg.changed);
+      // record the UNION across roots so the push-time destroy-block guardrail
+      // blocks if ANY root would destroy/replace a stateful resource.
       ctx.toolState.plannedDestroy = { stateful: classified.stateful, ephemeral: classified.ephemeral };
-      // §5.19 — record the blast tier so the confidence label aggregates it.
+      // §5.19 — record the blast tier + idempotency for the confidence label.
       ctx.toolState.lastBlastTier = blastRadius.tier;
+      ctx.toolState.lastIdempotent = agg.idempotent;
 
-      // §1.3 plan stability: re-plan once (init is already done) and confirm the
-      // change set is identical. Only worth it when there IS a change — an empty
-      // plan is trivially stable, so skip the second run.
-      let stability: StabilityResult = { stable: true };
-      const hasChanges = summary.add + summary.change + summary.destroy > 0 || summary.changed.length > 0;
-      if (hasChanges) {
-        const plan2 = run("terraform", planArgs, cwd, creds);
-        if (plan2.status === 0) {
-          stability = comparePlanStability(summary, parseTerraformPlanJson(plan2.stdout));
-        }
-        // a failed second plan is not evidence of instability — leave stable:true.
-      }
-      // §5.19 — record idempotency for the confidence label.
-      ctx.toolState.lastIdempotent = stability.stable;
+      // §1.2 — per-root human-readable plans, headed by root, for the PR <details>.
+      const planTextParts = ran
+        .filter((p) => p.outcome.planText)
+        .map((p) => (ran.length > 1 ? `### Root: ${p.dir}\n${p.outcome.planText}` : p.outcome.planText));
+      const planText = planTextParts.length ? planTextParts.join("\n\n").slice(0, 20_000) : undefined;
+      const idempotencyWarning = ran.find((p) => !p.outcome.stable)?.outcome.stabilityReason;
 
-      // §1.2 next — a human-readable plan to attach to the PR as a collapsed
-      // <details> block. A separate non-`-json` run (the `-json` stream isn't
-      // human-readable); best-effort and truncated so a huge plan can't bloat
-      // the PR. Skipped when there's nothing to show.
-      let planText: string | undefined;
-      if (hasChanges) {
-        const readable = run("terraform", ["plan", "-input=false", "-no-color", "-lock=false"], cwd, creds);
-        if (readable.status === 0 && readable.stdout.trim()) {
-          planText = readable.stdout.trim().slice(0, 12_000);
-        }
-      }
-
-      // §2.6 → §3.9 — a high blast radius or a stateful destroy is a deterministic
-      // escalation to human review, mirroring the cost-escalation `needs_human`.
+      // §2.6 → §3.9 — deterministic escalation to human review.
       const escalationReasons: string[] = [];
       if (blastRadius.tier === "high") {
         escalationReasons.push(`high blast radius (${blastRadius.resourceCount} resources / ${blastRadius.modules.length} modules)`);
@@ -2304,38 +2867,43 @@ export function TerraformPlanTool(ctx: ToolContext) {
       if (classified.stateful.length > 0) {
         escalationReasons.push(`${classified.stateful.length} stateful resource(s) would be destroyed/replaced`);
       }
-      if (!stability.stable) escalationReasons.push("non-deterministic plan (perpetual-diff smell)");
+      if (!agg.idempotent) escalationReasons.push("non-deterministic plan (perpetual-diff smell)");
 
       log.info(
-        `» terraform_plan: +${summary.add} ~${summary.change} -${summary.destroy} ` +
+        `» terraform_plan: +${agg.add} ~${agg.change} -${agg.destroy} across ${ran.length} root(s) ` +
           `[blast: ${blastRadius.tier}, ${blastRadius.resourceCount} res / ${blastRadius.modules.length} mod]` +
-          (summary.hasDestroyOrReplace
-            ? ` (DESTRUCTIVE: ${summary.destructive.length}, stateful: ${classified.stateful.length})`
+          (agg.hasDestroyOrReplace
+            ? ` (DESTRUCTIVE: ${agg.destructive.length}, stateful: ${classified.stateful.length})`
             : "") +
-          (stability.stable ? "" : " ⚠ UNSTABLE (non-deterministic plan)") +
+          (agg.idempotent ? "" : " ⚠ UNSTABLE (non-deterministic plan)") +
           (escalationReasons.length ? " ⚠ needs-human" : "")
       );
-      return {
+      return toolOk({
         ran: true,
-        to_add: summary.add,
-        to_change: summary.change,
-        to_destroy: summary.destroy,
-        has_destroy_or_replace: summary.hasDestroyOrReplace,
-        destructive: summary.destructive,
+        roots_planned: ran.map((p) => p.dir),
+        to_add: agg.add,
+        to_change: agg.change,
+        to_destroy: agg.destroy,
+        has_destroy_or_replace: agg.hasDestroyOrReplace,
+        destructive: agg.destructive,
         // data-bearing resources that would be lost — these block the push
         // unless allowed via `allow_replace`.
         stateful_destructive: classified.stateful,
         // §2.6 — how much this fix touches; `high` should force human review.
         blast_radius: blastRadius,
-        // §1.3 — false when a second plan disagreed (perpetual-diff smell).
-        idempotent: stability.stable,
-        idempotency_warning: stability.reason,
+        // §1.3 — false when any root's second plan disagreed (perpetual-diff smell).
+        idempotent: agg.idempotent,
+        idempotency_warning: idempotencyWarning,
         // §2.6 → §3.9 — deterministic escalation to human review.
         needs_human: escalationReasons.length > 0,
         ...(escalationReasons.length ? { needs_human_reasons: escalationReasons } : {}),
-        // §1.2 next — full human-readable plan for a collapsed <details> block.
+        // §1.2 — full human-readable plan(s) for a collapsed <details> block.
         ...(planText ? { plan_text: planText } : {}),
-      };
+        // roots where plan couldn't run (no backend creds for that root, etc.).
+        ...(perRoot.some((p) => !p.outcome.ran)
+          ? { roots_skipped: perRoot.filter((p) => !p.outcome.ran).map((p) => ({ dir: p.dir, reason: p.outcome.skipReason })) }
+          : {}),
+      });
     }),
   });
 }
@@ -2371,12 +2939,11 @@ export function ReadFindingsTool(ctx: ToolContext) {
       try {
         raw = readFileSync(findingsPath, "utf8");
       } catch {
-        return {
-          found: false,
-          reason: `no findings.json at ${findingsPath} (set the path arg or $TERRAMEND_FINDINGS_PATH)`,
-          concerns: [],
-          groups: [],
-        };
+        return skipResult(
+          "findings_not_found",
+          `no findings.json at ${findingsPath} (set the path arg or $TERRAMEND_FINDINGS_PATH)`,
+          { key: "found", reasonKey: "reason", extra: { concerns: [], groups: [] } }
+        );
       }
       let parsed: Concern[];
       try {
@@ -2384,7 +2951,11 @@ export function ReadFindingsTool(ctx: ToolContext) {
         // report (Trivy/Checkov/tflint -o sarif) — the dispatcher detects which.
         parsed = parseFindingsFile(raw, cwd);
       } catch {
-        return { found: false, reason: `could not parse findings file at ${findingsPath}`, concerns: [], groups: [] };
+        return skipResult("findings_parse_error", `could not parse findings file at ${findingsPath}`, {
+          key: "found",
+          reasonKey: "reason",
+          extra: { concerns: [], groups: [] },
+        });
       }
 
       const configured = ctx.payload.severityThreshold as Severity | undefined;
@@ -2414,7 +2985,7 @@ export function ReadFindingsTool(ctx: ToolContext) {
 
       log.info(`» read_findings: ${all.length} concern(s) ≥ ${threshold} from ${findingsPath} (${groups.length} ${grouping}-group(s))`);
 
-      return {
+      return toolOk({
         found: true,
         source_file: findingsPath,
         grouping,
@@ -2422,7 +2993,7 @@ export function ReadFindingsTool(ctx: ToolContext) {
         groups: groups.map((g) => ({ ...g, doc_urls: docUrlsForGroup(g, all) })),
         batch_plan: batchPlan,
         concerns: all.map((c) => ({ ...c, doc_url: ruleDocUrl(c) })),
-      };
+      });
     }),
   });
 }

@@ -17,6 +17,32 @@ export interface ToolResult {
   isError?: boolean;
 }
 
+/**
+ * Structured tool-outcome envelope (§3.5 "Structured tool errors"). Every tool
+ * that can be unavailable, skipped, or degrade green returns the SAME shape so a
+ * caller (the agent, or a downstream parser) can branch deterministically:
+ *   - success: `{ ok: true, … }`
+ *   - skip / unavailable / soft failure: `{ ok: false, code, detail }`
+ * where `code` is a stable machine token (snake_case) and `detail` a human
+ * sentence. The newer tools (terraform_roots / terraform_module_interface /
+ * terraform_provider_schema / policy_check) emit this natively; the older
+ * degrade-green tools historically returned `{ ran|found: false,
+ * skipped_reason|reason }`. Those keep their legacy aliases ALONGSIDE the new
+ * fields (the call site spreads `toolSkip(...)` into its existing object) so
+ * prompt + test contracts keep working while the surface converges — additive,
+ * never breaking.
+ */
+export type ToolOk<T extends Record<string, any>> = T & { ok: true };
+
+/** wrap a success payload with `ok: true`. */
+export const toolOk = <T extends Record<string, any>>(data: T): ToolOk<T> => ({ ok: true, ...data });
+
+/** the structured skip/unavailable envelope: `{ ok: false, code, detail }`. */
+export const toolSkip = (
+  code: string,
+  detail: string
+): { ok: false; code: string; detail: string } => ({ ok: false, code, detail });
+
 export const handleToolSuccess = (data: Record<string, any> | string): ToolResult => {
   const text = typeof data === "string" ? data : toonEncode(data);
   return {

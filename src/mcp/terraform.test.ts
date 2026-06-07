@@ -1,7 +1,12 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  aggregatePlans,
   annotateGroups,
   buildRefusalReport,
+  buildSarifReport,
   classifyAutonomy,
   classifyCostEscalation,
   classifyDestructive,
@@ -26,6 +31,7 @@ import {
   parseInfracostBreakdown,
   parseInfracostResources,
   parseRequiredProviders,
+  parseResourceArguments,
   parseReviewerFindings,
   parseSarifFindings,
   parseTerraformPlanJson,
@@ -34,7 +40,10 @@ import {
   parseValidateOutput,
   planBatches,
   preventiveControlFor,
+  rebaseConcern,
+  resolveRoots,
   resourceTypeOf,
+  type RootPlan,
   ruleDocUrl,
   shouldSuggestInline,
 } from "#app/mcp/terraform";
@@ -526,6 +535,95 @@ describe("classifyCostEscalation (§4.16-next)", () => {
     expect(classifyCostEscalation(-30, 25).escalate).toBe(false);
     expect(classifyCostEscalation(100, undefined).escalate).toBe(false);
     expect(classifyCostEscalation(null, 25).escalate).toBe(false);
+  });
+});
+
+describe("rebaseConcern (multi-root — re-base a per-root concern onto cwd)", () => {
+  const concern = (file: string): Concern => ({
+    id: "orig",
+    source: "terraform-validate",
+    rule_id: "terraform-validate:Reference to undeclared resource",
+    severity: "high",
+    category: "correctness",
+    evidence: "e",
+    location: { file, line: 12 },
+    remediation_hint: null,
+  });
+
+  it("prefixes the root's relDir and recomputes the id (so ✗→✓ stays consistent)", () => {
+    const c = rebaseConcern(concern("main.tf"), "terraform/core");
+    expect(c.location.file).toBe("terraform/core/main.tf");
+    expect(c.id).not.toBe("orig");
+    // deterministic: re-basing the same input yields the same id.
+    expect(rebaseConcern(concern("main.tf"), "terraform/core").id).toBe(c.id);
+  });
+
+  it("is a no-op when the root IS cwd (relDir empty)", () => {
+    const c = concern("main.tf");
+    expect(rebaseConcern(c, "")).toBe(c);
+  });
+});
+
+describe("aggregatePlans (multi-root plan aggregation)", () => {
+  const ps = (over: Partial<ReturnType<typeof parseTerraformPlanJson>>) =>
+    ({ add: 0, change: 0, destroy: 0, changed: [], destructive: [], hasDestroyOrReplace: false, ...over }) as ReturnType<
+      typeof parseTerraformPlanJson
+    >;
+
+  it("sums counts and unions changed/destructive across roots", () => {
+    const roots: RootPlan[] = [
+      { dir: "terraform", summary: ps({ add: 1, changed: [{ address: "aws_s3_bucket.a", action: "create" }] }), stable: true },
+      {
+        dir: "terraform/core",
+        summary: ps({
+          destroy: 1,
+          changed: [{ address: "aws_db_instance.db", action: "delete" }],
+          destructive: [{ address: "aws_db_instance.db", action: "delete" }],
+          hasDestroyOrReplace: true,
+        }),
+        stable: true,
+      },
+    ];
+    const agg = aggregatePlans(roots);
+    expect(agg).toMatchObject({ add: 1, destroy: 1, hasDestroyOrReplace: true });
+    expect(agg.changed).toHaveLength(2);
+    expect(agg.destructive).toEqual([{ address: "aws_db_instance.db", action: "delete" }]);
+  });
+
+  it("is non-idempotent if ANY root's plan was unstable", () => {
+    expect(aggregatePlans([{ dir: "a", summary: ps({}), stable: true }]).idempotent).toBe(true);
+    expect(
+      aggregatePlans([
+        { dir: "a", summary: ps({}), stable: true },
+        { dir: "b", summary: ps({ change: 1 }), stable: false },
+      ]).idempotent
+    ).toBe(false);
+  });
+
+  it("passes a single root straight through", () => {
+    const agg = aggregatePlans([{ dir: ".", summary: ps({ add: 3, change: 2 }), stable: true }]);
+    expect(agg).toMatchObject({ add: 3, change: 2, destroy: 0, idempotent: true });
+  });
+});
+
+describe("resolveRoots (multi-root discovery → operate list)", () => {
+  it("returns one root per provider/backend dir, with relDir + absDir", () => {
+    const root = mkdtempSync(join(tmpdir(), "tf-resolve-"));
+    mkdirSync(join(root, "terraform"), { recursive: true });
+    mkdirSync(join(root, "terraform", "core"), { recursive: true });
+    writeFileSync(join(root, "terraform", "providers.tf"), 'provider "aws" {}');
+    writeFileSync(join(root, "terraform", "core", "providers.tf"), 'provider "aws" {}');
+    const roots = resolveRoots(root);
+    expect(roots.map((r) => r.relDir)).toEqual(["terraform", "terraform/core"]);
+    expect(roots[0].absDir).toBe(join(root, "terraform"));
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("falls back to cwd itself as a single root when none is detected", () => {
+    const root = mkdtempSync(join(tmpdir(), "tf-resolve-none-"));
+    writeFileSync(join(root, "main.tf"), 'resource "aws_s3_bucket" "b" {}');
+    expect(resolveRoots(root)).toEqual([{ absDir: root, relDir: "" }]);
+    rmSync(root, { recursive: true, force: true });
   });
 });
 
@@ -1340,5 +1438,155 @@ describe("computeCostDelta", () => {
     expect(
       computeCostDelta({ totalMonthlyCost: 5, currency: "GBP" }, { totalMonthlyCost: null, currency: "" })
     ).toMatchObject({ currency: "GBP", deltaMonthly: null, direction: "unknown" });
+  });
+});
+
+describe("parseResourceArguments (§4.15-next)", () => {
+  it("extracts top-level attribute + nested-block names, excluding meta-args", () => {
+    const hcl = `
+      resource "aws_s3_bucket" "b" {
+        bucket = "my-bucket"
+        count  = 2
+        tags   = { Env = "prod" }
+        versioning {
+          enabled = true
+        }
+        lifecycle {
+          prevent_destroy = true
+        }
+      }`;
+    const [r] = parseResourceArguments(hcl);
+    expect(r.resourceType).toBe("aws_s3_bucket");
+    expect(r.name).toBe("b");
+    expect([...r.args].sort()).toEqual(["bucket", "tags", "versioning"]);
+    // count + lifecycle are meta-arguments, never schema args.
+    expect(r.args).not.toContain("count");
+    expect(r.args).not.toContain("lifecycle");
+  });
+
+  it("reads a dynamic block's label as the generated block name", () => {
+    const hcl = `
+      resource "aws_security_group" "sg" {
+        name = "sg"
+        dynamic "ingress" {
+          for_each = var.rules
+          content { from_port = ingress.value.port }
+        }
+      }`;
+    const [r] = parseResourceArguments(hcl);
+    expect(r.args).toContain("ingress");
+    expect(r.args).toContain("name");
+    expect(r.args).not.toContain("dynamic");
+  });
+
+  it("is not fooled by interpolation braces or commented lines", () => {
+    const hcl = `
+      resource "aws_instance" "i" {
+        ami           = "\${data.aws_ami.x.id}"
+        # bogus = "commented out"
+        instance_type = "t3.micro"
+      }`;
+    const [r] = parseResourceArguments(hcl);
+    expect([...r.args].sort()).toEqual(["ami", "instance_type"]);
+    expect(r.args).not.toContain("bogus");
+  });
+
+  it("does not pick up nested-block attributes as top-level args", () => {
+    const hcl = `
+      resource "aws_s3_bucket" "b" {
+        bucket = "x"
+        server_side_encryption_configuration {
+          rule {
+            apply_server_side_encryption_by_default {
+              sse_algorithm = "aws:kms"
+            }
+          }
+        }
+      }`;
+    const [r] = parseResourceArguments(hcl);
+    expect(r.args).toContain("bucket");
+    expect(r.args).toContain("server_side_encryption_configuration");
+    expect(r.args).not.toContain("sse_algorithm");
+    expect(r.args).not.toContain("rule");
+  });
+
+  it("handles multiple resources and ignores non-resource blocks", () => {
+    const hcl = `
+      variable "x" { type = string }
+      resource "aws_s3_bucket" "a" { bucket = "a" }
+      resource "aws_s3_bucket" "b" { bucket = "b" }`;
+    const rs = parseResourceArguments(hcl);
+    expect(rs.map((r) => r.name)).toEqual(["a", "b"]);
+  });
+
+  it("skips a heredoc body (no fabricated args, no brace corruption)", () => {
+    const hcl = `
+      resource "aws_iam_role" "r" {
+        name               = "r"
+        assume_role_policy = <<-EOT
+          {
+            "Version": "2012-10-17",
+            "fake_arg": "should not be parsed"
+          }
+        EOT
+        tags = { Env = "prod" }
+      }`;
+    const [r] = parseResourceArguments(hcl);
+    expect([...r.args].sort()).toEqual(["assume_role_policy", "name", "tags"]);
+    expect(r.args).not.toContain("fake_arg");
+    expect(r.args).not.toContain("Version");
+  });
+});
+
+describe("buildSarifReport (SARIF emit)", () => {
+  const concern = (over: Partial<Concern> = {}): Concern => ({
+    id: "abc123",
+    source: "trivy",
+    rule_id: "trivy:AVD-AWS-0088",
+    severity: "high",
+    category: "security",
+    evidence: "S3 bucket is not encrypted",
+    location: { file: "main.tf", line: 12 },
+    remediation_hint: null,
+    ...over,
+  });
+
+  it("emits a valid SARIF 2.1.0 shape with a terramend driver", () => {
+    const report = buildSarifReport([concern()]);
+    expect(report.version).toBe("2.1.0");
+    expect(report.runs?.[0]?.tool?.driver?.name).toBe("terramend");
+    const result = report.runs?.[0]?.results?.[0];
+    expect(result?.ruleId).toBe("trivy:AVD-AWS-0088");
+    expect(result?.level).toBe("error"); // high → error
+    expect(result?.locations?.[0]?.physicalLocation?.artifactLocation?.uri).toBe("main.tf");
+    expect(result?.locations?.[0]?.physicalLocation?.region?.startLine).toBe(12);
+    expect(result?.properties?.["security-severity"]).toBe("8.0");
+  });
+
+  it("maps severities to SARIF levels", () => {
+    const levels = (["critical", "high", "medium", "low", "info"] as const).map(
+      (severity) => buildSarifReport([concern({ severity })]).runs?.[0]?.results?.[0]?.level
+    );
+    expect(levels).toEqual(["error", "error", "warning", "note", "note"]);
+  });
+
+  it("dedupes rules and sorts them by id", () => {
+    const report = buildSarifReport([
+      concern({ rule_id: "trivy:Z", id: "1" }),
+      concern({ rule_id: "trivy:A", id: "2" }),
+      concern({ rule_id: "trivy:Z", id: "3", location: { file: "b.tf", line: 1 } }),
+    ]);
+    const ruleIds = report.runs?.[0]?.tool?.driver?.rules?.map((r) => r.id);
+    expect(ruleIds).toEqual(["trivy:A", "trivy:Z"]);
+  });
+
+  it("omits the region when the concern has no line", () => {
+    const report = buildSarifReport([concern({ location: { file: "main.tf", line: null } })]);
+    expect(report.runs?.[0]?.results?.[0]?.locations?.[0]?.physicalLocation?.region).toBeUndefined();
+  });
+
+  it("is deterministic (re-emit is identical)", () => {
+    const cs = [concern(), concern({ rule_id: "checkov:CKV_AWS_19", id: "x" })];
+    expect(JSON.stringify(buildSarifReport(cs))).toBe(JSON.stringify(buildSarifReport(cs)));
   });
 });

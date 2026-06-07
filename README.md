@@ -2,10 +2,7 @@
 
 **Terramend brings your Terraform up to best practice — automatically, as reviewable pull requests.**
 
-Terramend is an open-source ([AGPL-3.0](#licence)) GitHub Action and agent runtime. Point it at a
-repository and it scans the Terraform with the standard deterministic tools, then opens **one scoped,
-reviewable pull request per concern** that fixes the issue and **proves it fixed** by re-scanning the
-branch (✗ → ✓). It never auto-merges; a human always reviews.
+Terramend is an open-source ([AGPL-3.0](#licence)) GitHub Action and agent runtime. Point it at a repository and it scans the Terraform with the standard deterministic tools, then opens **one scoped, reviewable pull request per concern** that fixes the issue and **proves it fixed** by re-scanning the branch (✗ → ✓). It never auto-merges; a human always reviews.
 
 > **Scope (first instance): Terraform only.** Terramend deliberately focuses on Terraform — security
 > misconfiguration, idiomatic style, correctness, and cost. Other technologies (CI bootstrap,
@@ -42,17 +39,23 @@ The model only *applies* fixes; the **tools decide** what's wrong. The finding s
 | MCP tool | What it does |
 |----------|--------------|
 | `terraform_scan` | Runs fmt / validate / tflint / trivy / checkov over the workspace → a severity-ranked list of `concerns`, rolled into `groups`. Only `*.tf`/`*.tfvars` are reported. Supports `scan_scope: full \| diff`, `severity_threshold`, and `group_by: file \| rule` (one PR per rule across files). Returns a `batch_plan`, per-group autonomy, and per-concern `doc_url`. Absent scanners are reported *skipped* — never fatal. |
-| `terraform_validate` | Fast pre-PR gate (fmt + validate + tflint). Also reports the pinned `providers` (name + version + resolved major) so a fix targets the right provider schema. |
-| `terraform_plan` | *(needs cloud creds)* Runs `init` + `plan`; reports add/change/destroy, the destructive set, blast-radius tier, and plan stability. Degrades green (skips) without credentials. |
+| `terraform_validate` | Fast pre-PR gate (fmt + validate + tflint). **Multi-root aware** — validates every Terraform root (`roots_validated`). Reports the pinned `providers` (name + version + resolved major) and `unknown_arguments` — written arguments not in the **installed** provider's schema that would break `plan` (advisory; `schema_checked: false` when the schema is unavailable). |
+| `terraform_plan` | *(needs cloud creds)* **Multi-root aware** — plans every root (`roots_planned`) and aggregates add/change/destroy, the destructive set, blast-radius tier, and plan stability. Degrades green (skips) without credentials. |
 | `terraform_verify_remediation` | Re-runs the scanners and partitions the targeted `concern_ids` into `resolved` / `remaining` (the tamper-proof ✗→✓ proof), reports `regressions` the fix introduced, and a deterministic `confidence`. |
 | `terraform_module_graph` | Parses the repo's `module` blocks into a call-graph (local / registry / git / remote) so a concern inside a **local module** is fixed once at the source, and a concern in a **remote** module is flagged as out-of-repo. |
 | `list_modules` | Returns the [`module_catalogue`](#inputs) **plus** house modules auto-discovered in the repo (`discovered_house_modules`), so a fix/generation reuses a blessed registry, private-git, or house module over raw resources. |
 | `terraform_module_interface` | Parses a module's `variable`s (name/type/required) + `output`s so a `module` block uses the module's real interface. |
-| `terraform_roots` | Discovers the repo's Terraform **root modules** (dirs with a `provider`/`backend`) so plan/validate run per-root in multi-root repos. |
+| `terraform_roots` | Discovers the repo's Terraform **root modules** (dirs with a `provider`/`backend`) so plan/validate run per-root in multi-root repos. Also returns `environment_twins` — parallel `dev`/`staging`/`prod` (or per-region) stacks, so a fix can be offered for every twin (§22). |
 | `terraform_provider_schema` | After `init`, returns a resource type's valid attributes/blocks for the **installed provider**, flagging args that would break `plan`. Cached per run. |
+| `terraform_module_graph` *(`dependency_order`)* | The call-graph also returns `dependency_order` — fix a depended-on local module **before** its dependents so sequenced PRs don't conflict (§24). |
+| `terraform_emit_sarif` | Writes the scan as a **SARIF 2.1.0** file (default `terramend.sarif`) for `github/codeql-action/upload-sarif` — surfaces every concern in the repo's Security tab. The emit side of `read_findings`' SARIF ingest. |
+| `policy_check` | *(opt-in)* Runs the repo's own **policy-as-code** (Rego) via the external `conftest` (OPA) binary against the plan JSON. A `passed: false` is a stop-sign (treated like a failed validate). Degrades green when conftest / a policy dir is absent. |
+| `terraform_compliance_crosswalk` | Maps a scan's concerns → the **UK + general compliance controls** they touch (NCSC Cloud Principles, Cyber Essentials, NHS DSPT, GDS Secure by Design, CIS, SOC 2) for an auditor-facing PR note. Indicative, versioned rule-pack — alignment guidance, not an audit verdict (§23). |
 | `scaffold_terratest` | *(opt-in via `terratest`)* Generates a plan-only Go Terratest test **+** a native `tests/*.tftest.hcl` **+** `examples/` fixture for a newly generated module. |
 | `infracost_diff` | *(opt-in)* Monthly cost delta of the fix; escalates to `needs-human` when it crosses `cost_increase_block_usd`. |
-| `read_findings` | Loads concerns from a terraform-reviewer `findings.json` instead of scanning — same `{concerns, groups}` shape. |
+| `read_findings` | Loads concerns from a terraform-reviewer `findings.json` **or a SARIF report** instead of scanning — same `{concerns, groups}` shape. |
+
+Every tool returns a consistent structured envelope: success → `{ ok: true, … }`, skip/unavailable → `{ ok: false, code, detail }` (with a stable machine `code`), so a run can branch on outcomes deterministically.
 
 These run alongside Terramend's git/GitHub tools (checkout, branch, commit, push, open PR, comment).
 
@@ -69,6 +72,7 @@ Terramend **shells out** to these binaries; put the ones you want on the runner'
 | `checkov` | `terraform_scan` | Optional | `checkov -d . --framework terraform -o json`. |
 | `infracost` | `infracost_diff` | Optional | `infracost breakdown --format json`; needs `INFRACOST_API_KEY`. |
 | `gitleaks` | secret-scan guardrail | Optional | `gitleaks detect` over the run's commits when `gitleaks: true` (on top of the always-on built-in scanner). |
+| `conftest` | `policy_check` | Optional | `conftest test --output json -p <policy-dir>` against the plan JSON; opt-in policy-as-code gate. |
 
 ---
 
@@ -185,12 +189,65 @@ role) and Terramend runs `terraform plan` before each push — enabling the dest
 and plan-stability gates. Only cloud-prefixed env is passed to the `terraform` subprocess; your LLM key
 is never leaked into it. Without credentials these gates degrade green (skipped, never failed).
 
+#### Plan-gate: the minimal OIDC role
+
+`terraform plan` needs only to **read** state and provider data — never to create, modify, or destroy.
+Grant the narrowest role that lets a plan complete, via short-lived OIDC (no static keys):
+
+- **AWS** — a role assumed via GitHub OIDC (`token.actions.githubusercontent.com`) with **read-only**
+  data access (`ReadOnlyAccess`, or a tighter policy covering just the resource types in your config),
+  **plus** read/write to the **state backend only** (the S3 state bucket + the DynamoDB lock table).
+  Nothing else. Plan never mutates infrastructure, so no `Create*`/`Delete*`/`Put*` on real resources.
+- **Azure** — a workload-identity federation app with the **Reader** role on the subscription/RG, plus
+  Storage Blob Data Reader/Contributor on the state container. Set `ARM_USE_OIDC=true`.
+- **GCP** — Workload Identity Federation with **`roles/viewer`** plus object access to the GCS state
+  bucket.
+
+Wire it in the workflow with `permissions: id-token: write` and the cloud's OIDC login action before the
+Terramend step:
+
+```yaml
+permissions:
+  id-token: write   # mint the OIDC token
+  contents: write   # open the remediation branch/PR
+steps:
+  - uses: actions/checkout@v4
+  - uses: aws-actions/configure-aws-credentials@v4
+    with:
+      role-to-assume: arn:aws:iam::<acct>:role/terramend-plan-readonly
+      aws-region: eu-west-2
+  - uses: terramend/terramend@v1
+    with:
+      mode: remediate
+```
+
+Keep the role **plan-only**: Terramend never `apply`s, and the push-time destroy-block + `allow_replace`
+guardrails are the second line of defence even if a plan shows a destructive change.
+
 ### Bring your own key (BYOK)
 
 Terramend runs the LLM behind a swappable backend. **BYOK is the default** — supply your provider key
 (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, …) as a workflow secret, pointed at an
 approved endpoint where data-residency matters. No external service is required for the core
 remediation flow.
+
+### Report findings to GitHub code-scanning (SARIF)
+
+Beyond opening fix PRs, Terramend can publish its scan to the repo's **Security tab**. Have the agent
+call `terraform_emit_sarif` (writes `terramend.sarif`), then upload it:
+
+```yaml
+- uses: terramend/terramend@v1
+  with:
+    mode: remediate
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with:
+    sarif_file: terramend.sarif
+```
+
+Each concern lands as a code-scanning alert with the right severity and a doc link — the **emit** side of
+the same SARIF schema `read_findings` **ingests**.
 
 ---
 

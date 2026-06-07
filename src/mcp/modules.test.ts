@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   classifyModuleSource,
   collectModuleGraph,
+  dependencyOrderedModuleDirs,
   isInLocalModule,
   type ModuleGraph,
   parseModuleBlocks,
@@ -262,5 +263,80 @@ describe("walkTfFiles + collectModuleGraph (recursive, multi-root)", () => {
     expect(graph.externalCount).toBe(1); // the git bootstrap module in core/
     // a concern in the house module is fixable at source:
     expect(isInLocalModule("modules/cloudwatch_logs/main.tf", graph)?.callers).toEqual(["api_gateway.tf"]);
+  });
+});
+
+describe("dependencyOrderedModuleDirs (§24)", () => {
+  const graph = (
+    localModuleDirs: { dir: string; callers: string[] }[],
+    modules: { source: string; declaredIn: string; kind?: string }[]
+  ): ModuleGraph => ({
+    localModuleDirs,
+    externalCount: 0,
+    modules: modules.map((m) => ({
+      name: "m",
+      source: m.source,
+      version: null,
+      subdir: null,
+      kind: (m.kind ?? "local") as ModuleGraph["modules"][number]["kind"],
+      declaredIn: m.declaredIn,
+    })),
+  });
+
+  it("orders a depended-on module before its dependent", () => {
+    // modules/a calls ../b → a depends on b → b must be fixed first.
+    const g = graph(
+      [{ dir: "modules/a", callers: [] }, { dir: "modules/b", callers: [] }],
+      [{ source: "../b", declaredIn: "modules/a/main.tf" }]
+    );
+    expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/b", "modules/a"]);
+  });
+
+  it("breaks ties between independent modules by path", () => {
+    const g = graph(
+      [{ dir: "modules/z", callers: [] }, { dir: "modules/a", callers: [] }],
+      []
+    );
+    expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/a", "modules/z"]);
+  });
+
+  it("ignores module calls declared in a root (not inside a local module)", () => {
+    // the call lives in the repo root, so neither module depends on the other.
+    const g = graph(
+      [{ dir: "modules/a", callers: ["main.tf"] }, { dir: "modules/b", callers: ["main.tf"] }],
+      [{ source: "./modules/a", declaredIn: "main.tf" }, { source: "./modules/b", declaredIn: "main.tf" }]
+    );
+    expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/a", "modules/b"]);
+  });
+
+  it("attributes a block to the MOST-SPECIFIC (nested) owner module", () => {
+    // a block in modules/network/subnet calls ../../shared → subnet depends on
+    // shared, so shared must precede subnet (the outer modules/network must NOT
+    // be credited with the edge).
+    const g = graph(
+      [
+        { dir: "modules/network", callers: [] },
+        { dir: "modules/network/subnet", callers: [] },
+        { dir: "modules/shared", callers: [] },
+      ],
+      [{ source: "../../shared", declaredIn: "modules/network/subnet/main.tf" }]
+    );
+    const order = dependencyOrderedModuleDirs(g);
+    expect(order.indexOf("modules/shared")).toBeLessThan(order.indexOf("modules/network/subnet"));
+  });
+
+  it("is cycle-safe (appends remaining nodes deterministically)", () => {
+    const g = graph(
+      [{ dir: "modules/a", callers: [] }, { dir: "modules/b", callers: [] }],
+      [
+        { source: "../b", declaredIn: "modules/a/main.tf" },
+        { source: "../a", declaredIn: "modules/b/main.tf" },
+      ]
+    );
+    expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/a", "modules/b"]);
+  });
+
+  it("returns an empty list for no local modules", () => {
+    expect(dependencyOrderedModuleDirs(graph([], []))).toEqual([]);
   });
 });

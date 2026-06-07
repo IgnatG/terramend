@@ -90,7 +90,7 @@ export function unknownArgsForResource(
 const schemaCache = new Map<string, ProvidersSchema | null>();
 
 /** fetch + cache the providers schema for `cwd`. null when unavailable. */
-function loadProvidersSchema(cwd: string): ProvidersSchema | null {
+export function loadProvidersSchema(cwd: string): ProvidersSchema | null {
   if (schemaCache.has(cwd)) return schemaCache.get(cwd) ?? null;
   const r = spawnSync("terraform", ["providers", "schema", "-json"], {
     cwd,

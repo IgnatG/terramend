@@ -159,6 +159,97 @@ Inline comments use the same severity framing as body \`### \` sections, scaled 
 - **Pull file/commit counts from \`checkout_pr\` metadata** — never count manually.
 - **Legacy headings REMOVED.** Do not use \`### Key changes\`, \`### Issues found\`, \`<b>TL;DR</b>\`, or \`<sub><b>Summary</b>\`. The new structure subsumes them.`;
 
+// Canonical body format for a Terramend REMEDIATION / GENERATION pull request.
+// Distinct from PR_SUMMARY_FORMAT (which shapes a *review* body): this is the
+// body of a PR Terramend OPENS. Every field maps to a deterministic tool result
+// (terraform_scan / _validate / _plan / _verify_remediation / infracost_diff),
+// so the body is evidence-built, never self-reported. Append this to the
+// Remediate + GenerateTerraform prompts so every Terramend PR looks identical
+// and a reviewer can scan it top-to-bottom in seconds.
+export const REMEDIATION_PR_FORMAT = `### Remediation PR format
+
+Build the PR body in this EXACT order. Every line is backed by a tool result — never write a status you didn't get from a tool. Omit a whole section only when its tool didn't run (e.g. no plan without cloud creds); never fabricate it. Keep a blank line between every block-level element (GitHub needs it to render).
+
+#### 1. Status banner (first line)
+
+One GitHub alert blockquote that sets the reviewer's expectation, picked from the verification evidence:
+
+- \`> [!CAUTION]\` — a \`needs-human\` signal fired: a regression (\`has_regressions\`), a stateful destroy/replace, a high blast radius, a non-deterministic plan, or a cost escalation. One sentence naming the reason.
+- \`> [!WARNING]\` — verified but with a caveat (medium blast radius, a still-\`remaining\` concern, baseline-unavailable cost).
+- \`> [!NOTE]\` — clean: \`verified: true\`, no regressions, low blast radius. One sentence: what was hardened.
+
+#### 2. Title line + badges
+
+A single bolded sentence naming the file/group and what was fixed, then a one-line badge row built from the tool results (drop any badge whose tool didn't run):
+
+\`\`\`
+**Hardened \\\`main.tf\\\` — S3 encryption + public-access block.**
+
+\`Confidence: high\` · \`Blast radius: low (1 resource)\` · \`Plan: +0 ~1 -0\` · \`Idempotent: yes\` · \`Cost: +$0.00/mo\`
+\`\`\`
+
+Render \`Confidence\` verbatim from \`terraform_verify_remediation.confidence\` — never inflate it. Use \`·\` separators, backtick-wrap each badge.
+
+#### 3. \`## What changed\`
+
+One \`### \` subsection per resolved concern (or one per rule for a by-rule group), each with the §5.17 three-line micro-template and the rule linked to its docs (\`doc_url\`, else \`remediation_hint\`):
+
+\`\`\`
+### 🔒 [\\\`trivy:AVD-AWS-0088\\\`](https://avd.aquasec.com/misconfig/avd-aws-0088) — S3 bucket not encrypted
+
+- **Was** — {the scanner's \`evidence\`, in plain English}.
+- **Changed** — {what the fix did, one sentence}.
+- **Safe because** — {why it's correct and non-breaking}.
+\`\`\`
+
+Lead each heading with a severity emoji (🚨 critical · ⚠️ high · 🔒 security · ℹ️ low/info). Backtick-wrap every identifier. No raw diff dumps — the Files tab shows the diff.
+
+#### 4. \`## Validation (✗ → ✓)\`
+
+Built ONLY from \`terraform_verify_remediation\`'s result — this is the proof, not a self-report. One line per id in \`resolved\`, then any still-open id honestly:
+
+\`\`\`
+## Validation (✗ → ✓)
+
+- ✗ → ✓ \\\`trivy:AVD-AWS-0088\\\` resolved
+- ✗ → ✓ \\\`checkov:CKV_AWS_19\\\` resolved
+- ⚠️ still open: \\\`tflint:...\\\` — {why it couldn't be cleared}
+\`\`\`
+
+If \`has_regressions\` is true, add a \`> [!CAUTION]\` **Regression** callout listing each new concern id BEFORE this list, and ensure the \`needs-human\` label is set. Never mark an id ✓ unless the tool returned it in \`resolved\`.
+
+#### 5. \`<details><summary>Plan</summary>\` (when \`terraform_plan\` ran)
+
+Attach the full \`plan_text\` in a collapsed code block so a reviewer sees the exact change without re-running it:
+
+\`\`\`
+<details><summary>Terraform plan</summary>
+
+\\\`\\\`\\\`
+{plan_text}
+\\\`\\\`\\\`
+
+</details>
+\`\`\`
+
+When \`needs_human\` is true, surface \`needs_human_reasons\` as a visible bullet list above the \`<details>\` — don't bury an escalation in a collapsed block.
+
+#### 6. \`## 🛡️ Prevent recurrence\` (optional follow-up)
+
+From the scan's \`prevention\` map — the CI guardrail that stops this class of concern coming back. Clearly marked **not part of this PR's diff**: a short intro sentence then the \`mechanism\` + a fenced \`snippet\`. One entry per distinct rule.
+
+#### 7. \`## Compliance\` (optional, when a crosswalk was run)
+
+When \`terraform_compliance_crosswalk\` was called, add a short auditor-facing note: the frameworks/controls this fix touches (from \`by_framework\`), prefixed "Indicative alignment (crosswalk v{version}) — not an audit verdict." Skip entirely when the crosswalk wasn't run.
+
+#### Body-wide rules
+
+- **Evidence-built, never self-reported** — every badge, ✓, and count comes from a tool result. If a tool didn't run, omit its section; don't guess.
+- **Blank line between ALL block-level elements** (callouts, headings, lists, code fences, \`<details>\`) — GitHub renders markdown as literal text otherwise.
+- **Backtick-wrap** every file, rule id, resource address, and identifier.
+- **No raw \`+N/-M\` diff stats, no horizontal rules (\`---\`), no changelog section.** The footer is appended automatically — don't add your own.
+- **One scoped group per PR.** The body describes this group's fix only.`;
+
 export function computeModes(agentId: AgentId): Mode[] {
   const t = (toolName: string) => formatMcpToolRef(agentId, toolName);
   return [
@@ -594,11 +685,13 @@ ${PR_SUMMARY_FORMAT}`,
 
    *Alternative concern source:* if the Assessor (terraform-reviewer) has already produced a \`findings.json\` **or a SARIF report** (Trivy/Checkov/tflint \`-o sarif\`) for this repo (one exists in the workspace, or \`$TERRAMEND_FINDINGS_PATH\` is set), call \`${t("read_findings")}\` instead — it auto-detects the format and returns the **same** \`{concerns, groups}\` shape, so the rest of this checklist is unchanged. Default to \`${t("terraform_scan")}\`; only use \`${t("read_findings")}\` when such a file is present (it returns \`found: false\` otherwise). Note that reviewer-exclusive findings (source \`reviewer\`) can't be re-verified by Terramend's scanners — see the prove-it step.
 
-   *Multi-root repos (§MCP):* call \`${t("terraform_roots")}\` — when it reports more than one root (e.g. \`terraform/\` and \`terraform/core/\`), each is a separate \`init\`/\`plan\` target. \`${t("terraform_scan")}\` already covers the whole tree, but run \`${t("terraform_validate")}\` / \`${t("terraform_plan")}\` once **per root** (set \`cwd\` to each) so each root's validity + real-world effect is checked, not just the default one.
+   *Multi-root repos (§MCP):* \`${t("terraform_validate")}\` and \`${t("terraform_plan")}\` are now **multi-root aware** — they automatically validate/plan **every** Terraform root in the repo (e.g. hepcare's \`terraform/\` + \`terraform/core/\`) and aggregate the result (see \`roots_validated\` / \`roots_planned\`), so you do **not** need to loop per-root yourself. Call \`${t("terraform_roots")}\` only when you want to see the root layout (or fix a concern that lives in one specific root).
 
 3. **pick scope**: act on **one group per PR** (a group is all of one file's concerns — different scanners flag the same defect under different rules, so fixing per-file avoids a flood of near-duplicate PRs). Take the **highest-severity group first**. Unless the task explicitly asks for more, open **at most one PR this run**. Skip groups whose severity is only \`info\` unless asked. Use the \`terraform-best-practices\` skill for how to read each concern and apply the *minimal* fix.
 
    **Autonomy (§3.9)**: each group carries an \`autonomy\` field — \`auto\` (fix and open a normal PR) or \`needs-human\` (a security finding at/above the \`autonomy_threshold\`, or — once plan runs — a high blast radius). You still fix and open a PR for a \`needs-human\` group, but you MUST add the \`needs-human\` label (\`${t("add_labels")}\`), open the PR with \`approved: false\` framing, and put a prominent **⚠️ Needs human review** callout at the top of the body listing the group's \`autonomy_reasons\`. Never batch a \`needs-human\` group with others.
+
+   **Dependency order & environment twins (§24 / §22)**: when a repo has local modules, \`${t("terraform_module_graph")}\` returns \`dependency_order\` — fix a shared/depended-on module BEFORE its dependents so sequenced PRs don't conflict. \`${t("terraform_roots")}\` returns \`environment_twins\` — parallel \`dev\`/\`staging\`/\`prod\` (or per-region) stacks that differ only by an environment segment; when the fixed file is one twin, note in the PR that the same fix should be offered for its twins (a separate PR per twin, honouring \`max_prs\`).
 
    **Grouping & batching (§3.11 / §3.10)**: groups default to one-per-file. When a single rule dominates across many files (e.g. "add \`tags\` everywhere"), re-scan with \`group_by: "rule"\` so it becomes ONE coherent group/PR instead of many. The scan's \`batch_plan\` tells you which low-risk groups are \`batchable\` (combine them into the single \`batch_plan.batch_branch\` PR when \`max_prs\` would otherwise be exceeded) and which are \`isolated\` (each gets its own PR for independent review/revert). Still honour \`max_prs\` and never batch a \`needs-human\` group.
 
@@ -610,7 +703,8 @@ ${PR_SUMMARY_FORMAT}`,
    - **branch**: create \`remediate/<group-id>\` from the **current HEAD** (the checkout that was just scanned) via \`${t("git")}\` (\`git checkout -b remediate/<group-id>\`). Do NOT switch to a different base first — branching from the scanned checkout keeps the PR diff to exactly your fix.
    - **honest refusal (§29 — decide BEFORE fixing)**: if the group's concerns appear in the scan's \`refusal_candidates\` (the fix needs a human decision — narrowing an IAM wildcard, a KMS key policy, a real ingress CIDR), do **not** guess a fix that could break the stack. Instead open a structured issue (\`${t("create_issue")}\`) describing the concern, why it isn't auto-fixed, and what a human should do, and skip the PR for that group. A proven fix or an honest refusal — never a guessed, unverifiable PR.
    - **fix**: edit the group's file(s), using your native file tools. For a by-file group that's the single \`file\`; for a **by-rule group (§3.11)** it's every entry in \`files\` (fix the one rule everywhere it fires). Resolve **every** concern in the group — when the scan's \`co_located\` shows several scanners flagged the same \`file:line\` (§30), they're one underlying defect: write ONE canonical fix and one explanation, not separate edits. **Only touch \`*.tf\` / \`*.tfvars\` files.** Make the smallest changes that clear the concerns — do NOT reformat or refactor unrelated code (see *SYSTEM* surgical-change rules). **Module-source awareness (§4.14):** call \`${t("terraform_module_graph")}\` first — if the concern's file is inside a \`local_module_dir\`, fix it ONCE at the module source (it propagates to all callers; note them in the PR); if the fix would require editing a registry/git/remote module, you can't fix it here — report it (open an issue naming the upstream module + version) instead. **Approved modules (§4.14):** call \`${t("list_modules")}\` and prefer a catalogue module (registry or house, pinned) when the fix is genuinely a module swap — but for a one-line fix on an existing raw resource, fix it in place. **Provider-major awareness (§4.15):** before introducing an argument or block, check \`terraform_validate\`'s \`providers\` list for the pinned \`major\` — argument names and valid blocks differ across majors. After the dir is init-ed (validate/plan ran), you can **verify an argument exists** for the installed provider with \`${t("terraform_provider_schema")}\` (pass the resource type + the arg names you added; it returns any \`unknown_args\` that would break \`plan\`). **Reusing a module?** call \`${t("terraform_module_interface")}\` on its dir to get its real \`variable\` names + which are required, so the \`module\` block you write is correct.
-   - **validate**: call \`${t("terraform_validate")}\`. If it does not pass, fix what it reports or abandon this group — **never open a PR whose validate did not pass**. Its \`providers\` field carries the pinned provider majors (use them as above).
+   - **validate**: call \`${t("terraform_validate")}\`. If it does not pass, fix what it reports or abandon this group — **never open a PR whose validate did not pass**. Its \`providers\` field carries the pinned provider majors (use them as above). It also returns \`unknown_arguments\` (§4.15-next): arguments you wrote that are NOT in the installed provider's schema and would break \`plan\` — treat any entry as a must-fix (correct the argument for the pinned major) even though \`passed\` doesn't gate on it. \`schema_checked: false\` means the schema wasn't available (rely on \`${t("terraform_plan")}\` then).
+   - **policy gate (optional, §3.5)**: if the repo ships policy-as-code (a \`policy/\`, \`policies/\`, or \`.conftest\` dir of Rego), call \`${t("policy_check")}\` — it runs \`conftest\` against the plan JSON. It degrades green (\`ok: false\`) when conftest or a policy dir is absent. When it returns \`passed: false\`, treat it exactly like a failed validate: fix the violation (listed in \`failures\`) or label the PR \`needs-human\` and surface it — never push past a policy denial.
    - **plan (safety gate — do this BEFORE pushing)**: call \`${t("terraform_plan")}\`. It auto-skips (returns \`ran: false\`) when no cloud credentials / the terraform CLI are present, or init/plan can't complete — then carry on. When it returns \`ran: true\`, add a one-line **Plan** note to the PR body (e.g. \`Plan: +0 ~1 -0\`) and act on three signals:
      - **destroy/replace (\`has_destroy_or_replace\`)**: treat it as a stop sign — a best-practice remediation should rarely destroy or replace a resource. Any entry in \`stateful_destructive\` (a data-bearing resource: RDS, S3, EBS, a SQL database, …) will be **hard-blocked at \`${t("push_branch")}\`** by a code-level guardrail unless the operator set the \`allow_replace\` input for that address — so do not rely on narration: if the change would destroy/replace a stateful resource and that is not clearly intended, **abandon this group** and report it rather than attempting the push. List the \`destructive\` resources in your report either way.
      - **blast radius (\`blast_radius.tier\`)**: add it to the PR body (e.g. \`Blast radius: low (1 resource)\`). When the tier is \`high\` (more than 10 resources, or the change spans more than one module), add a prominent **⚠️ Large blast radius — review carefully** callout to the PR body so a reviewer knows this is not a one-line change.
@@ -618,17 +712,22 @@ ${PR_SUMMARY_FORMAT}`,
      - **needs-human (\`needs_human\`, §2.6→§3.9)**: when \`true\`, the plan crossed a deterministic escalation line (high blast radius, a stateful destroy/replace, or a non-deterministic plan — see \`needs_human_reasons\`). Add the \`needs-human\` label (\`${t("add_labels")}\`) and a louder callout.
      - **full plan (\`plan_text\`, §1.2)**: when present, attach it to the PR body as a collapsed \`<details><summary>Plan</summary>\\n\\n\\\`\\\`\\\`\\n…\\n\\\`\\\`\\\`\\n</details>\` block so a reviewer can see the exact planned change without re-running it.
    - **commit + push**: \`git add\` only the file you changed, commit with a message naming the file and the key rules (e.g. \`fix(tf): harden main.tf — S3 encryption + block public access\`), then \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
-   - **open PR**: \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above) with a body that cites the group's \`file\`, its \`rule_ids\`, the \`evidence\`, and what the fixes do in plain English.
+   - **open PR**: \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above). Build the body using the **Remediation PR format** at the end of this checklist — status banner, title + badges, \`## What changed\` (the §5.17 three-line note per concern), then the sections below as their tools run. Cite the group's \`file\`, its \`rule_ids\`, and the \`evidence\` in plain English.
    - **prove it (✗→✓)**: call \`${t("terraform_verify_remediation")}\` with the group's \`concern_ids\`. It re-runs the scanners and returns the authoritative \`resolved\` / \`remaining\` sets and a \`verified\` flag — this is the proof, do NOT eyeball a scan or self-report. Then \`${t("update_pull_request_body")}\` to add a "Validation" section built **from that result**: one \`✗ → ✓ <rule_id> resolved\` line per id in \`resolved\`, and list every id in \`remaining\` honestly as still-open. Never mark a concern ✓ unless the tool returned it in \`resolved\`. Act on two more fields it returns:
      - **regressions (§1.4)**: when \`has_regressions\` is true, the fix INTRODUCED new concerns (listed in \`regressions\`) that weren't there before — it traded one defect for another. Add a prominent **⚠️ Regression** callout listing them, add the \`needs-human\` label (\`${t("add_labels")}\`), and prefer reworking the fix to remove the regression before relying on the PR.
      - **confidence (§5.19)**: render the returned \`confidence\` (high/medium/low) as a one-line badge in the PR body (e.g. \`Confidence: high\`) with its \`confidence_reasons\`. It is computed deterministically from the verification evidence (verified + no regressions + plan idempotency + blast radius + cost) — report it verbatim, do NOT inflate it.
    - **per-finding explanation (§5.17)**: in the PR body, give each resolved concern a short three-line note — **Was** (what the scanner flagged, from its \`evidence\`), **Changed** (what your fix did), **Safe because** (why it's correct/non-breaking) — and hyperlink the \`rule_id\` to its documentation. The scan output carries a \`doc_url\` per concern (and \`doc_urls\` per group); use it, falling back to the concern's \`remediation_hint\` when no \`doc_url\` is present.
+   - **compliance crosswalk (optional, §23)**: for a security-relevant fix, call \`${t("terraform_compliance_crosswalk")}\` with the group's \`concerns\` to get the UK/general frameworks + controls it touches (NCSC Cloud Principles, Cyber Essentials, NHS DSPT, GDS Secure by Design, CIS, SOC 2). Add a short **## Compliance** note from \`by_framework\`, prefixed "Indicative alignment (crosswalk v{version}) — not an audit verdict." Skip when nothing maps.
    - **prevent recurrence (§21)**: the scan's \`prevention\` map gives a CI guardrail per \`rule_id\` (a Checkov hard-fail entry, a tflint rule, a \`trivy config\` gate, an \`fmt -check\` step). Add a short **🛡️ Prevent recurrence** note to the PR body with the suggested \`mechanism\` + \`snippet\` so the team can stop this class of concern coming back — clearly marked as an optional follow-up, not part of this PR's diff.
    - **cost impact (optional)**: call \`${t("infracost_diff")}\` to estimate the monthly cost change the fix introduces. It auto-skips (returns \`ran: false\`) when \`INFRACOST_API_KEY\` or the infracost CLI is absent — in that case add nothing. When it returns \`ran: true\`, add a one-line **Cost impact** note to the PR body from its result: e.g. \`💰 Cost impact: +$12.40/mo\` for an increase, \`-$3.10/mo\` for a decrease, \`no change\` when \`monthly_delta\` is 0, or \`~$X/mo (baseline unavailable)\` when \`monthly_delta\` is null. When it returns \`needs_human: true\` (§4.16 — the increase crossed the \`cost_increase_block_usd\` threshold), add the \`needs-human\` label (\`${t("add_labels")}\`) and surface \`cost_escalation_reason\` prominently so a large spend increase isn't merged blindly.
 
 5. **guardrails** (always): one scoped PR per group, never a mega-PR spanning multiple files; **never auto-merge** and always leave the PR for human review; never modify files outside \`*.tf\` / \`*.tfvars\`.
 
-6. **finalize**: call \`${t("report_progress")}\` once with a summary — which file/group was fixed, the PR link, and the ✗→✓ result (or the exact tool error if push/PR creation failed).`,
+6. **finalize**: call \`${t("report_progress")}\` once with a summary — which file/group was fixed, the PR link, and the ✗→✓ result (or the exact tool error if push/PR creation failed).
+
+   **SARIF for code-scanning (optional, §3.5)**: when the workflow has a SARIF upload step (it grants \`security-events: write\` and runs \`github/codeql-action/upload-sarif\` on a \`terramend.sarif\`), call \`${t("terraform_emit_sarif")}\` once at the end so the full scan also lands in the repo's Security tab — complementary to the fix PR, not a replacement for it.
+
+${REMEDIATION_PR_FORMAT}`,
     },
     {
       name: "GenerateTerraform",
@@ -658,9 +757,11 @@ ${PR_SUMMARY_FORMAT}`,
 
 8. **finalize**:
    - confirm a clean working tree (only your new \`*.tf\`/\`*.tfvars\` files), then push via \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
-   - open a PR via \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above) whose body states the requirement, what was generated, the key best-practice choices (security defaults, parameters, modules, pinned versions), any assumptions made, that \`terraform_validate\` passed and \`terraform_scan\` is clean, plus the cost note if available.
+   - open a PR via \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above). Use the **Remediation PR format** conventions (the same status banner + badge row + \`## What changed\` shape, and the body-wide rules) ADAPTED for generation: the body states the requirement, what was generated, the key best-practice choices (security defaults, parameters, modules, pinned versions) and any assumptions; the badge row carries \`Plan\`/\`Cost\` when those tools ran; and in place of the \`## Validation (✗ → ✓)\` section put a \`## Validation\` line stating \`terraform_validate\` passed and \`terraform_scan\` is clean (self-scan: 0 concerns).
    - **never auto-merge** — leave the PR for human review.
-   - call \`${t("report_progress")}\` once with the PR link (or the exact tool error if push/PR creation failed).`,
+   - call \`${t("report_progress")}\` once with the PR link (or the exact tool error if push/PR creation failed).
+
+${REMEDIATION_PR_FORMAT}`,
     },
     {
       name: "Task",
