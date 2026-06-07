@@ -8,7 +8,12 @@ import { log } from "#app/utils/cli";
 import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
 import { executeLifecycleHook, type LifecycleHookFailure } from "#app/utils/lifecycle";
 import { $ } from "#app/utils/shell";
-import { assertNoBlockedDestroy, enforceRemediationPaths } from "#app/mcp/guardrails";
+import {
+  assertNoBlockedDestroy,
+  assertNoSecretsInDiff,
+  enforceProtectedPaths,
+  enforceRemediationPaths,
+} from "#app/mcp/guardrails";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 
@@ -307,6 +312,14 @@ export function PushBranchTool(ctx: ToolContext) {
       // change would destroy/replace a stateful (data-bearing) resource, unless
       // the operator allowed it via `allow_replace`. No-op when no plan ran.
       assertNoBlockedDestroy(ctx);
+
+      // §2.7 — refuse to push if the run touched a path the operator marked
+      // never-auto-modify via `protected_paths`. No-op when unset.
+      enforceProtectedPaths(ctx);
+
+      // §2.8 — refuse to push if the diff inlines a literal secret (a fix must
+      // reference a variable/secret store, never paste the value).
+      assertNoSecretsInDiff(ctx);
 
       // validate push destination matches expected URL
       const pushDest = validatePushDestination(ctx, branch);

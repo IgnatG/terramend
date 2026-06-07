@@ -63,6 +63,8 @@ export const Inputs = type({
   "allowed_paths?": type.string.or("undefined"),
   "base_branch?": type.string.or("undefined"),
   "allow_replace?": type.string.or("undefined"),
+  "protected_paths?": type.string.or("undefined"),
+  "autonomy_threshold?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -116,6 +118,8 @@ function resolveNonPromptInputs() {
     allowed_paths: core.getInput("allowed_paths") || undefined,
     base_branch: core.getInput("base_branch") || undefined,
     allow_replace: core.getInput("allow_replace") || undefined,
+    protected_paths: core.getInput("protected_paths") || undefined,
+    autonomy_threshold: core.getInput("autonomy_threshold") || undefined,
   });
 }
 
@@ -162,8 +166,9 @@ function parseMaxPrs(raw: string | undefined): number | undefined {
   return Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
-/** parse the comma-separated allowed_paths glob list; undefined when unset. */
-function parseAllowedPaths(raw: string | undefined): string[] | undefined {
+/** parse a comma-separated glob list (allowed_paths / protected_paths);
+ * undefined when unset or empty after trimming. */
+function parseGlobList(raw: string | undefined): string[] | undefined {
   if (!raw) return undefined;
   const globs = raw
     .split(",")
@@ -267,7 +272,11 @@ export function resolvePayload(
     scanScope: parseScanScope(inputs.scan_scope),
     severityThreshold: parseSeverityThreshold(inputs.severity_threshold),
     maxPrs: parseMaxPrs(inputs.max_prs),
-    allowedPaths: parseAllowedPaths(inputs.allowed_paths),
+    allowedPaths: parseGlobList(inputs.allowed_paths),
+    // §2.7 — globs the fixer must never auto-modify (inverse of allowed_paths).
+    protectedPaths: parseGlobList(inputs.protected_paths),
+    // §3.9 — minimum severity at which a security concern escalates to a human.
+    autonomyThreshold: parseSeverityThreshold(inputs.autonomy_threshold),
     // explicit base-branch override; when unset the effective base is resolved
     // at PR time (run-start branch → repo default) — see resolveBaseBranch.
     baseBranch: parseBaseBranch(inputs.base_branch),

@@ -81,14 +81,11 @@ function runStartSha(ctx: ToolContext): string | null {
 function changedFilesSinceRunStart(ctx: ToolContext): string[] {
   const base = runStartSha(ctx);
   if (!base) return [];
-  let out = "";
-  $("git", ["diff", "--name-only", base, "HEAD"], {
-    log: false,
-    onError: (r) => {
-      out = r.stdout;
-    },
-  });
-  if (!out) out = $("git", ["diff", "--name-only", base, "HEAD"], { log: false });
+  // `$` returns trimmed stdout on success and throws on a non-zero exit (no
+  // onError handler) — so a genuine git failure here propagates and the caller
+  // fails closed (the push is refused) rather than treating an errored diff as
+  // "nothing changed". `git diff --name-only` exits 0 on a clean diff.
+  const out = $("git", ["diff", "--name-only", base, "HEAD"], { log: false });
   return out
     .split("\n")
     .map((l) => l.trim())
@@ -124,6 +121,146 @@ export function enforceRemediationPaths(ctx: ToolContext): void {
     );
   }
   log.info(`» Terraform-only path guardrail ok (${changed.length} file(s), all within [${allowed.join(", ")}])`);
+}
+
+// --- §2.7 protected-resource allowlist -------------------------------------
+
+/** glob patterns marking files the fixer must NEVER auto-modify (prod state,
+ * data stores, anything sensitive). The inverse of `allowed_paths`. */
+export function resolveProtectedPaths(ctx: ToolContext): string[] {
+  return ctx.payload.protectedPaths ?? [];
+}
+
+/**
+ * Block a push that touched any file matching `protected_paths`. This is the
+ * inverse of the allow-list: a changed file matching a protected glob fails the
+ * push, even though it's a `.tf`/`.tfvars` the allow-list would otherwise permit.
+ * No-op when `protected_paths` is unset or outside a guarded mode. Fails closed:
+ * if the run-start baseline can't be established it refuses, same as
+ * `enforceRemediationPaths`.
+ */
+export function enforceProtectedPaths(ctx: ToolContext): void {
+  if (!isGuardedMode(ctx)) return;
+  const protectedGlobs = resolveProtectedPaths(ctx);
+  if (protectedGlobs.length === 0) return;
+
+  const base = runStartSha(ctx);
+  if (!base) {
+    throw new Error(
+      "push blocked (protected-paths guardrail): could not establish the run-start commit to verify no protected path was modified. " +
+        "Ensure the run started from a clean checkout."
+    );
+  }
+
+  const changed = changedFilesSinceRunStart(ctx);
+  const violations = changed.filter((f) => isPathAllowed(f, protectedGlobs));
+  if (violations.length > 0) {
+    throw new Error(
+      `push blocked (protected-paths guardrail): this run modified files matching the protected_paths globs [${protectedGlobs.join(", ")}], ` +
+        `which are marked never-auto-modify. Revert these and leave them for a human:\n` +
+        violations.map((v) => `  - ${v}`).join("\n")
+    );
+  }
+  log.info(`» protected-paths guardrail ok (no change matched [${protectedGlobs.join(", ")}])`);
+}
+
+// --- §2.8 secrets-safe diff scan -------------------------------------------
+
+export interface SecretHit {
+  file: string;
+  line: number;
+  rule: string;
+}
+
+/**
+ * High-signal secret detectors applied to lines a fix ADDED. Kept deliberately
+ * narrow (low false-positive) — the goal is to stop a "fix" that hardcodes a
+ * literal credential (e.g. resolving a "use a variable" finding by pasting the
+ * secret), not to be a general-purpose scanner. Each entry is [rule, regex].
+ */
+const SECRET_VALUE_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
+  ["aws-access-key-id", /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[0-9A-Z]{16}\b/],
+  ["pem-private-key", /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/],
+  ["gcp-api-key", /\bAIza[0-9A-Za-z_\-]{35}\b/],
+  ["github-token", /\bgh[pousr]_[0-9A-Za-z]{36,}\b/],
+  ["slack-token", /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/],
+  ["private-key-pem-block", /-----BEGIN PRIVATE KEY-----/],
+];
+
+// an HCL/tfvars assignment of a STRING LITERAL to a secret-named attribute, e.g.
+// `password = "hunter2"` or `secret_access_key = "AKIA..."`. Excludes references
+// (`= var.x`, `= "${...}"`, `= local.y`) and empty strings — only a real inlined
+// literal trips it.
+const SENSITIVE_ASSIGNMENT =
+  /\b(?:password|passwd|secret|secret_key|secret_access_key|access_key|api_key|apikey|auth_token|access_token|private_key|client_secret|credential|connection_string)\b\s*[=:]\s*"([^"$][^"]*)"/i;
+
+/**
+ * Scan a unified `git diff` for inlined secrets on ADDED lines only. Tracks the
+ * current file from `+++ b/<path>` headers and the new-side line number from
+ * `@@` hunk headers, so each hit carries an accurate `file:line`. Pure — the
+ * guardrail feeds it `git diff` output. Removed/context lines are ignored (a
+ * secret already in the base isn't this run's doing).
+ */
+export function scanDiffForSecrets(diff: string): SecretHit[] {
+  const hits: SecretHit[] = [];
+  let file = "(unknown)";
+  let newLine = 0;
+  for (const raw of diff.split("\n")) {
+    if (raw.startsWith("+++ ")) {
+      const path = raw.slice(4).trim().replace(/^b\//, "");
+      file = path === "/dev/null" ? "(deleted)" : path;
+      continue;
+    }
+    if (raw.startsWith("--- ") || raw.startsWith("diff --git") || raw.startsWith("index ")) continue;
+    const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (hunk) {
+      newLine = Number(hunk[1]);
+      continue;
+    }
+    if (raw.startsWith("+")) {
+      const content = raw.slice(1);
+      for (const [rule, re] of SECRET_VALUE_PATTERNS) {
+        if (re.test(content)) hits.push({ file, line: newLine, rule });
+      }
+      if (SENSITIVE_ASSIGNMENT.test(content)) {
+        hits.push({ file, line: newLine, rule: "hardcoded-secret-assignment" });
+      }
+      newLine++;
+    } else if (raw.startsWith("-")) {
+      // removed line — does not advance the new-side counter
+    } else {
+      // context line (leading space) or blank — advances the new-side counter
+      newLine++;
+    }
+  }
+  return hits;
+}
+
+/**
+ * Block a push whose diff (since run start) inlines a secret. Reuses the same
+ * run-start baseline as the path guardrail. No-op outside a guarded mode. Fails
+ * closed on a missing baseline. The diff is read with `$` (restricted env), so
+ * no secret leaks into the subprocess.
+ */
+export function assertNoSecretsInDiff(ctx: ToolContext): void {
+  if (!isGuardedMode(ctx)) return;
+  const base = runStartSha(ctx);
+  if (!base) {
+    throw new Error(
+      "push blocked (secret-scan guardrail): could not establish the run-start commit to scan the diff for inlined secrets. " +
+        "Ensure the run started from a clean checkout."
+    );
+  }
+  const diff = $("git", ["diff", base, "HEAD"], { log: false });
+  const hits = scanDiffForSecrets(diff);
+  if (hits.length > 0) {
+    throw new Error(
+      `push blocked (secret-scan guardrail): the change appears to inline ${hits.length} secret(s) — a fix must reference a variable/secret store, never paste a literal. ` +
+        `Remove or parameterise these and re-push:\n` +
+        hits.map((h) => `  - ${h.file}:${h.line} (${h.rule})`).join("\n")
+    );
+  }
+  log.info("» secret-scan guardrail ok (no inlined secrets in the diff)");
 }
 
 /** resource addresses the operator has explicitly allowed to be destroyed/replaced. */

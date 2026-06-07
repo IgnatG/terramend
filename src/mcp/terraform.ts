@@ -502,6 +502,12 @@ export interface ConcernGroup {
   rule_ids: string[];
   /** the concern ids the re-scan must confirm are gone to call this ✓. */
   concern_ids: string[];
+  /** §3.9 — `auto` (open a normal PR) or `needs-human` (escalate). attached by
+   * the scan tool from the group's concerns, not by `groupConcerns` (which has
+   * no autonomy threshold). undefined until the scan tool annotates it. */
+  autonomy?: Autonomy;
+  /** §3.9 — why the group was escalated (empty/absent for `auto`). */
+  autonomy_reasons?: string[];
 }
 
 function groupId(file: string): string {
@@ -560,10 +566,26 @@ function changedTerraformFiles(cwd: string): Set<string> | null {
   const from = mergeBase.status === 0 && mergeBase.stdout.trim() ? mergeBase.stdout.trim() : base;
   const diff = run("git", ["diff", "--name-only", from, "HEAD"], cwd);
   if (diff.status !== 0) return null;
-  const files = diff.stdout
-    .split("\n")
-    .map((l) => l.trim().replace(/^\.\//, ""))
-    .filter((f) => f.endsWith(".tf") || f.endsWith(".tfvars"));
+  // `git diff` reports paths relative to the repo ROOT, but a concern's
+  // `location.file` is relative to the scan `cwd` (toRepoRelative). When `cwd`
+  // is a repo SUBDIRECTORY (the `cwd` action input resolved under
+  // GITHUB_WORKSPACE) the two path spaces disagree — e.g. git says
+  // `infra/main.tf` while the concern says `main.tf` — and the in-scope check
+  // would silently drop every concern. Re-base the diff paths onto `cwd` by
+  // stripping the cwd→root prefix and discarding anything outside it, so both
+  // sides are cwd-relative.
+  const prefixResult = run("git", ["rev-parse", "--show-prefix"], cwd);
+  const prefix = prefixResult.status === 0 ? prefixResult.stdout.trim().replace(/\\/g, "/") : "";
+  const files: string[] = [];
+  for (const raw of diff.stdout.split("\n")) {
+    let f = raw.trim().replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!f) continue;
+    if (prefix) {
+      if (!f.startsWith(prefix)) continue; // changed file lives outside the scanned subdir
+      f = f.slice(prefix.length);
+    }
+    if (f.endsWith(".tf") || f.endsWith(".tfvars")) files.push(f);
+  }
   return new Set(files);
 }
 
@@ -601,6 +623,31 @@ export function computeRemediationVerdict(
     else resolved.push(id);
   }
   return { verified: remaining.length === 0, resolved, remaining };
+}
+
+/**
+ * §1.4 Regression guard. The full re-scan (`terraform_verify_remediation`)
+ * already sees the whole workspace, so a concern the fix *introduced* shows up
+ * in the current scan. Regressions are exactly the content ids present after the
+ * fix that were not in the pre-fix baseline — `current − baseline`. A non-empty
+ * result means the fix traded one defect for another (e.g. an encryption block
+ * that trips a different tflint rule) and must downgrade the PR to needs-human.
+ *
+ * Both id sets are computed the same way (the deduped union of every scanner's
+ * concern ids, unfiltered by severity) so the diff is apples-to-apples — a
+ * regression at ANY severity is caught, not just ones above the run threshold.
+ * Returns sorted ids for a stable PR body.
+ */
+export function computeRegressions(
+  baselineConcernIds: Iterable<string>,
+  currentConcernIds: Iterable<string>
+): string[] {
+  const baseline = new Set(baselineConcernIds);
+  const regressions = new Set<string>();
+  for (const id of currentConcernIds) {
+    if (!baseline.has(id)) regressions.add(id);
+  }
+  return [...regressions].sort();
 }
 
 // --- infracost (cost lens) ------------------------------------------------
@@ -732,12 +779,26 @@ export function TerraformScanTool(ctx: ToolContext) {
           ? true
           : changed.has(c.location.file.replace(/\\/g, "/").replace(/^\.\//, ""));
 
+      // §1.4 baseline: the full, severity-unfiltered concern-id set, captured
+      // BEFORE any fix and computed identically to verify's `current` set so the
+      // later regression diff (current − baseline) is apples-to-apples.
+      ctx.toolState.baselineConcernIds = dedupe(outcomes.flatMap((o) => o.concerns)).map((c) => c.id);
+
       const all = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
         .filter(isTerraformConcern)
         .filter(inScope)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
 
-      const groups = groupConcerns(all);
+      // §3.9 autonomy: annotate each group from its concerns. blast radius isn't
+      // known until terraform_plan runs, so it can only escalate later (the plan
+      // tool + prompt apply the `high`-blast override); at scan time autonomy is
+      // severity/category-driven only.
+      const autonomyThreshold = (ctx.payload.autonomyThreshold as Severity | undefined) ?? "high";
+      const groups = groupConcerns(all).map((g) => {
+        const groupConcernList = all.filter((c) => c.location.file === g.file);
+        const decision = classifyAutonomy(groupConcernList, autonomyThreshold);
+        return { ...g, autonomy: decision.autonomy, autonomy_reasons: decision.reasons };
+      });
 
       const by_severity: Record<string, number> = {};
       for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
@@ -806,19 +867,45 @@ export function TerraformVerifyRemediationTool(ctx: ToolContext) {
     description:
       "Deterministic ✗→✓ proof for a remediation. Re-runs the scanners and partitions the given " +
       "`concern_ids` into `resolved` (gone from the re-scan) and `remaining` (still present), with a " +
-      "`verified` flag that is true ONLY when every id is gone. Call this AFTER pushing the fix branch " +
-      "and build the PR's Validation section from its result — do NOT eyeball a scan or self-report " +
-      "resolution. A concern may be listed as ✓ resolved only if it appears in `resolved`.",
+      "`verified` flag that is true ONLY when every id is gone. Also reports `regressions` — NEW concern " +
+      "ids the fix introduced that were not in the pre-fix scan (§1.4): when `has_regressions` is true the " +
+      "PR must be labelled `needs-human` and the new concerns listed. Finally returns a deterministic " +
+      "`confidence` (high/medium/low, §5.19) computed from the verification evidence (verified + no " +
+      "regressions + plan idempotency + blast radius + cost direction) — render it as a PR label/badge. " +
+      "Call this AFTER pushing the fix branch and build the PR's Validation section from its result — do " +
+      "NOT eyeball a scan or self-report resolution. A concern may be listed as ✓ resolved only if it " +
+      "appears in `resolved`.",
     parameters: TerraformVerifyRemediationParams,
     execute: execute(async ({ concern_ids }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
       const outcomes = runScanners(cwd);
-      const current = new Set(dedupe(outcomes.flatMap((o) => o.concerns)).map((c) => c.id));
+      const currentIds = dedupe(outcomes.flatMap((o) => o.concerns)).map((c) => c.id);
+      const current = new Set(currentIds);
       const verdict = computeRemediationVerdict(concern_ids, current);
+
+      // §1.4 — concern ids the fix INTRODUCED (present now, absent from the
+      // pre-fix baseline). Only computable when terraform_scan captured a
+      // baseline this run; absent that, regressions are reported as unknown
+      // rather than falsely empty.
+      const baseline = ctx.toolState.baselineConcernIds;
+      const regressions = baseline ? computeRegressions(baseline, currentIds) : [];
+      const regressionsKnown = baseline !== undefined;
+
+      // §5.19 — deterministic confidence from the evidence on hand.
+      const confidence = computeConfidence({
+        verified: verdict.verified,
+        regressionCount: regressions.length,
+        idempotent: ctx.toolState.lastIdempotent,
+        blastTier: ctx.toolState.lastBlastTier,
+        costDirection: ctx.toolState.lastCostDirection,
+      });
+
       const ran = outcomes.filter((o) => o.ran).map((o) => o.source);
       log.info(
         `» terraform_verify_remediation: ${verdict.resolved.length}/${concern_ids.length} resolved` +
-          ` (${verdict.remaining.length} still present) from [${ran.join(", ")}]`
+          ` (${verdict.remaining.length} still present` +
+          (regressionsKnown ? `, ${regressions.length} regression(s)` : "") +
+          `) — confidence: ${confidence.level} — from [${ran.join(", ")}]`
       );
       return {
         verified: verdict.verified,
@@ -826,6 +913,15 @@ export function TerraformVerifyRemediationTool(ctx: ToolContext) {
         remaining_count: verdict.remaining.length,
         resolved: verdict.resolved,
         remaining: verdict.remaining,
+        // §1.4 regression guard
+        has_regressions: regressions.length > 0,
+        regressions,
+        ...(regressionsKnown
+          ? {}
+          : { regressions_note: "no pre-fix baseline captured (run terraform_scan first) — regressions not checked" }),
+        // §5.19 confidence label
+        confidence: confidence.level,
+        confidence_reasons: confidence.reasons,
         scanners_ran: ran,
       };
     }),
@@ -867,6 +963,8 @@ export function InfracostDiffTool(ctx: ToolContext) {
       }
       const baseline = infracostBaseline(cwd, key, ctx.tmpdir);
       const delta = computeCostDelta(baseline, current);
+      // §5.19 — record the cost direction for the confidence label.
+      ctx.toolState.lastCostDirection = delta.direction;
       log.info(
         `» infracost_diff: current ${delta.currentMonthly ?? "?"} ${delta.currency}/mo` +
           (delta.deltaMonthly !== null
@@ -1018,10 +1116,27 @@ export interface PlanSummary {
  * Parse `terraform plan -json` (newline-delimited JSON). `change_summary` gives
  * the add/change/destroy totals; each `planned_change` with a real action is
  * collected into `changed`, and the delete/replace subset into `destructive`
- * (the high-risk set a reviewer must scrutinise). `no-op` / `read` actions are
+ * (the high-risk set a reviewer must scrutinise). Non-mutating actions are
  * ignored, as are non-JSON / non-plan lines, so a noisy stream (provider logs,
  * diagnostics) parses cleanly.
+ *
+ * NB on the action enum: terraform's machine-readable UI (the `-json` stream)
+ * spells no-op as `"noop"` — NOT `"no-op"` — and also emits `"move"` / `"import"`
+ * / `"forget"` for state-only operations that don't mutate live infrastructure.
+ * None of those should count toward `changed` (they'd inflate the blast radius
+ * §2.6). We skip them explicitly; `"no-op"` is tolerated too in case a wrapper
+ * or older format hyphenates it. See
+ * https://developer.hashicorp.com/terraform/internals/machine-readable-ui.
  */
+const NON_MUTATING_PLAN_ACTIONS: ReadonlySet<string> = new Set([
+  "noop",
+  "no-op",
+  "read",
+  "move",
+  "import",
+  "forget",
+]);
+
 export function parseTerraformPlanJson(stdout: string): PlanSummary {
   let add = 0;
   let change = 0;
@@ -1047,7 +1162,7 @@ export function parseTerraformPlanJson(stdout: string): PlanSummary {
       destroy = Number(msg.changes.remove) || 0;
     } else if (msg.type === "planned_change" && msg.change) {
       const action = String(msg.change.action ?? "");
-      if (!action || action === "no-op" || action === "read") continue;
+      if (!action || NON_MUTATING_PLAN_ACTIONS.has(action)) continue;
       const address = msg.change.resource?.addr || msg.change.resource?.resource || "(unknown)";
       changed.push({ address, action });
       // "delete", "replace", and the "*-then-delete" / "delete-then-*" forms.
@@ -1188,6 +1303,117 @@ export function computeBlastRadius(changed: { address: string }[]): BlastRadius 
   else if (resourceCount >= 3) tier = "medium";
   else tier = "low";
   return { tier, resourceCount, modules };
+}
+
+// --- severity-driven autonomy (§3.9) ---------------------------------------
+
+export type Autonomy = "auto" | "needs-human";
+
+export interface AutonomyDecision {
+  autonomy: Autonomy;
+  /** human-readable reasons a group was escalated (empty for `auto`). */
+  reasons: string[];
+}
+
+/**
+ * Decide whether a group of concerns can be auto-fixed and opened as a normal
+ * PR (`auto`), or must be flagged for human review (`needs-human`). Trivial
+ * findings (style/correctness, deprecated args, missing tags, formatting) open
+ * as normal; high-severity SECURITY findings escalate by default, as does a
+ * `high` blast radius regardless of finding severity (§2.6 overrides upward).
+ *
+ * `threshold` is the minimum severity at which a *security* concern escalates
+ * (default `high`, so critical/high security → human; medium/low → auto). The
+ * decision is deterministic and computed from the `Concern` model's existing
+ * `severity` + `category` — no model self-assessment.
+ */
+export function classifyAutonomy(
+  concerns: Pick<Concern, "severity" | "category">[],
+  threshold: Severity = "high",
+  blastTier?: BlastTier
+): AutonomyDecision {
+  const reasons: string[] = [];
+  const minRank = SEVERITY_RANK[threshold];
+  const escalating = concerns.filter(
+    (c) => c.category === "security" && SEVERITY_RANK[c.severity] >= minRank
+  );
+  if (escalating.length > 0) {
+    const top = escalating.reduce((max, c) =>
+      SEVERITY_RANK[c.severity] > SEVERITY_RANK[max.severity] ? c : max
+    );
+    reasons.push(
+      `${escalating.length} security concern(s) at/above the ${threshold} autonomy threshold (highest: ${top.severity})`
+    );
+  }
+  if (blastTier === "high") {
+    reasons.push("high blast radius — the fix touches more than 10 resources or spans more than one module");
+  }
+  return { autonomy: reasons.length > 0 ? "needs-human" : "auto", reasons };
+}
+
+// --- confidence labeling (§5.19) -------------------------------------------
+
+export type Confidence = "high" | "medium" | "low";
+
+export interface ConfidenceSignals {
+  /** §1.1 — every targeted concern id was cleared by the re-scan. */
+  verified: boolean;
+  /** §1.4 — count of NEW concern ids the fix introduced (0 is good). */
+  regressionCount: number;
+  /** §1.3 — second plan matched the first. undefined when plan didn't run. */
+  idempotent?: boolean | undefined;
+  /** §2.6 — blast tier. undefined when plan didn't run. */
+  blastTier?: BlastTier | undefined;
+  /** §4.16 — cost direction. undefined when infracost didn't run. */
+  costDirection?: CostDelta["direction"] | undefined;
+}
+
+export interface ConfidenceResult {
+  level: Confidence;
+  reasons: string[];
+}
+
+/**
+ * Derive a fix's confidence DETERMINISTICALLY from the verification evidence
+ * already gathered — never a model self-assessment, which keeps it honest.
+ *
+ * - A fix that didn't verify (§1.1) or introduced a regression (§1.4) is `low`:
+ *   the proof failed, full stop.
+ * - Otherwise it starts `high` and is capped to `medium` by any weaker signal:
+ *   a non-deterministic plan (§1.3 `idempotent: false`), a `high` blast radius
+ *   (§2.6), a cost increase (§4.16), or a signal that was *skipped* (plan /
+ *   infracost didn't run, so we have less proof — `high` requires the full
+ *   stack). A skipped signal lowers confidence but does not, by itself, make a
+ *   verified, regression-free fix `low`.
+ */
+export function computeConfidence(signals: ConfidenceSignals): ConfidenceResult {
+  const reasons: string[] = [];
+  if (!signals.verified) {
+    return { level: "low", reasons: ["the re-scan did not confirm every targeted concern was resolved (§1.1)"] };
+  }
+  if (signals.regressionCount > 0) {
+    return {
+      level: "low",
+      reasons: [`the fix introduced ${signals.regressionCount} new concern(s) (§1.4 regression)`],
+    };
+  }
+  reasons.push("re-scan verified every targeted concern resolved (§1.1) with no regressions (§1.4)");
+
+  let level: Confidence = "high";
+  const capMedium = (reason: string) => {
+    if (level === "high") level = "medium";
+    reasons.push(reason);
+  };
+  if (signals.idempotent === false) capMedium("plan is non-deterministic (§1.3) — a perpetual-diff smell");
+  if (signals.blastTier === "high") capMedium("high blast radius (§2.6) — review carefully");
+  if (signals.costDirection === "increase") capMedium("the fix increases monthly cost (§4.16)");
+  if (signals.idempotent === undefined || signals.blastTier === undefined) {
+    capMedium("no terraform plan evidence (no cloud credentials) — idempotency and blast radius unproven");
+  }
+  if (signals.costDirection === undefined) {
+    capMedium("no cost evidence (infracost did not run)");
+  }
+  return { level, reasons };
 }
 
 // --- plan stability / idempotency (§1.3) -----------------------------------
@@ -1336,6 +1562,8 @@ export function TerraformPlanTool(ctx: ToolContext) {
       // record what the plan showed so the push-time destroy-block guardrail
       // (mcp/guardrails.ts) acts on this evidence, not on the agent's word.
       ctx.toolState.plannedDestroy = { stateful: classified.stateful, ephemeral: classified.ephemeral };
+      // §5.19 — record the blast tier so the confidence label aggregates it.
+      ctx.toolState.lastBlastTier = blastRadius.tier;
 
       // §1.3 plan stability: re-plan once (init is already done) and confirm the
       // change set is identical. Only worth it when there IS a change — an empty
@@ -1349,6 +1577,8 @@ export function TerraformPlanTool(ctx: ToolContext) {
         }
         // a failed second plan is not evidence of instability — leave stable:true.
       }
+      // §5.19 — record idempotency for the confidence label.
+      ctx.toolState.lastIdempotent = stability.stable;
 
       log.info(
         `» terraform_plan: +${summary.add} ~${summary.change} -${summary.destroy} ` +
@@ -1424,10 +1654,20 @@ export function ReadFindingsTool(ctx: ToolContext) {
       const threshold: Severity = severity_threshold ?? configured ?? "low";
       const minRank = SEVERITY_RANK[threshold];
 
+      // §1.4 baseline — same role as terraform_scan's, so a regression check
+      // after a reviewer-sourced fix has a baseline to diff against.
+      ctx.toolState.baselineConcernIds = dedupe(parsed).map((c) => c.id);
+
       const all = sortConcerns(dedupe(parsed))
         .filter(isTerraformConcern)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
-      const groups = groupConcerns(all);
+      // §3.9 autonomy — annotate groups identically to terraform_scan.
+      const autonomyThreshold = (ctx.payload.autonomyThreshold as Severity | undefined) ?? "high";
+      const groups = groupConcerns(all).map((g) => {
+        const groupConcernList = all.filter((c) => c.location.file === g.file);
+        const decision = classifyAutonomy(groupConcernList, autonomyThreshold);
+        return { ...g, autonomy: decision.autonomy, autonomy_reasons: decision.reasons };
+      });
       const by_severity: Record<string, number> = {};
       for (const c of all) by_severity[c.severity] = (by_severity[c.severity] ?? 0) + 1;
 

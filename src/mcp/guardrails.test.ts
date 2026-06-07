@@ -4,11 +4,13 @@ import {
   assertNoBlockedDestroy,
   assertUnderPrCap,
   DEFAULT_ALLOWED_PATHS,
+  enforceProtectedPaths,
   GENERATE_MODE,
   globToRegex,
   isPathAllowed,
   recordRemediationPrOpened,
   REMEDIATE_MODE,
+  scanDiffForSecrets,
 } from "#app/mcp/guardrails";
 
 describe("globToRegex", () => {
@@ -138,5 +140,85 @@ describe("destroy-block guardrail (§2.5 — never delete/replace a stateful res
     expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, undefined))).not.toThrow();
     expect(() => assertNoBlockedDestroy(ctx("Build", statefulDestroy))).not.toThrow();
     expect(() => assertNoBlockedDestroy(ctx(undefined, statefulDestroy))).not.toThrow();
+  });
+});
+
+describe("protected-paths guardrail (§2.7) — gating", () => {
+  // enforceProtectedPaths reaches git only AFTER the mode + empty-list gates,
+  // so these no-op cases exercise the gate without any git I/O.
+  const ctx = (selectedMode: string | undefined, protectedPaths?: string[]) =>
+    ({
+      toolState: { selectedMode },
+      payload: { protectedPaths },
+    }) as unknown as ToolContext;
+
+  it("no-ops outside a guarded mode (even with protected paths set)", () => {
+    expect(() => enforceProtectedPaths(ctx("Build", ["prod/**"]))).not.toThrow();
+    expect(() => enforceProtectedPaths(ctx(undefined, ["prod/**"]))).not.toThrow();
+  });
+
+  it("no-ops in a guarded mode when no protected paths are configured", () => {
+    expect(() => enforceProtectedPaths(ctx(REMEDIATE_MODE, undefined))).not.toThrow();
+    expect(() => enforceProtectedPaths(ctx(REMEDIATE_MODE, []))).not.toThrow();
+  });
+
+  it("a protected glob matches via the same engine as allowed_paths (inverse semantics)", () => {
+    // matching a protected glob means BLOCKED — verify the matcher the guardrail
+    // uses (isPathAllowed) behaves as expected for the protected-list direction.
+    expect(isPathAllowed("prod/main.tf", ["prod/**"])).toBe(true);
+    expect(isPathAllowed("dev/main.tf", ["prod/**"])).toBe(false);
+    expect(isPathAllowed("modules/db/main.tf", ["**/db/**"])).toBe(true);
+  });
+});
+
+describe("scanDiffForSecrets (§2.8)", () => {
+  const diff = (...lines: string[]) => lines.join("\n");
+
+  it("flags an inlined AWS access key id on an added line, with file:line", () => {
+    const d = diff(
+      "diff --git a/main.tf b/main.tf",
+      "--- a/main.tf",
+      "+++ b/main.tf",
+      "@@ -1,2 +1,3 @@",
+      " resource \"aws_iam_user\" \"x\" {",
+      "+  access_key = \"AKIAIOSFODNN7EXAMPLE\"",
+      " }"
+    );
+    const hits = scanDiffForSecrets(d);
+    expect(hits).toHaveLength(2); // AKIA value pattern + sensitive-assignment
+    expect(hits.some((h) => h.rule === "aws-access-key-id")).toBe(true);
+    expect(hits[0].file).toBe("main.tf");
+    expect(hits[0].line).toBe(2); // second new-side line in the hunk
+  });
+
+  it("flags a hardcoded password literal but NOT a variable reference", () => {
+    const literal = diff("+++ b/x.tf", "@@ -0,0 +1 @@", '+  password = "hunter2"');
+    expect(scanDiffForSecrets(literal).map((h) => h.rule)).toContain("hardcoded-secret-assignment");
+
+    const ref = diff("+++ b/x.tf", "@@ -0,0 +1 @@", "+  password = var.db_password");
+    expect(scanDiffForSecrets(ref)).toEqual([]);
+
+    const interp = diff("+++ b/x.tf", "@@ -0,0 +1 @@", '+  password = "${var.db_password}"');
+    expect(scanDiffForSecrets(interp)).toEqual([]);
+  });
+
+  it("flags a PEM private-key header", () => {
+    const d = diff("+++ b/key.tf", "@@ -0,0 +1 @@", "+  key = \"-----BEGIN RSA PRIVATE KEY-----\"");
+    expect(scanDiffForSecrets(d).some((h) => h.rule === "pem-private-key")).toBe(true);
+  });
+
+  it("ignores secrets on removed/context lines (only ADDED lines count)", () => {
+    const d = diff(
+      "+++ b/main.tf",
+      "@@ -1,2 +1,1 @@",
+      '-  password = "hunter2"', // removed — pre-existing, not this run's doing
+      ' resource "x" "y" {}'
+    );
+    expect(scanDiffForSecrets(d)).toEqual([]);
+  });
+
+  it("returns nothing for a clean diff", () => {
+    const d = diff("+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.bucket_name");
+    expect(scanDiffForSecrets(d)).toEqual([]);
   });
 });

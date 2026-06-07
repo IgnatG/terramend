@@ -114,6 +114,19 @@ export interface ToolState {
     stateful: { address: string; action: string; type: string }[];
     ephemeral: { address: string; action: string; type: string }[];
   };
+  // full pre-fix scan id set (the deduped union of every scanner's concern ids,
+  // unfiltered by severity), captured by terraform_scan. read by
+  // terraform_verify_remediation to compute §1.4 regressions = current −
+  // baseline (concern ids the fix INTRODUCED). undefined until the first scan.
+  baselineConcernIds?: string[];
+  // verification signals the confidence label (§5.19) aggregates, each recorded
+  // by the tool that produced it: terraform_plan sets blastTier + idempotent
+  // (undefined when no plan ran), infracost_diff sets costDirection. read by
+  // terraform_verify_remediation's computeConfidence so the PR's confidence is
+  // computed from real evidence, not the agent's word.
+  lastBlastTier?: "low" | "medium" | "high";
+  lastIdempotent?: boolean;
+  lastCostDirection?: "increase" | "decrease" | "no-change" | "unknown";
   // number of prepush hook failures this run. push_branch runs the hook
   // while this is 0 and skips it once non-zero; never decremented within
   // a run.

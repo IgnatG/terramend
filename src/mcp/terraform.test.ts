@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  classifyAutonomy,
   classifyDestructive,
   collectCloudCredentials,
   comparePlanStability,
   computeBlastRadius,
+  computeConfidence,
   type Concern,
   computeCostDelta,
+  computeRegressions,
   computeRemediationVerdict,
   groupConcerns,
   isTerraformConcern,
@@ -638,6 +641,120 @@ describe("parseTerraformPlanJson", () => {
       { address: "aws_s3_bucket.a", action: "create" },
       { address: "aws_instance.web", action: "update" },
     ]);
+  });
+
+  it("ignores terraform's REAL no-op spelling `noop` (bug: was checking `no-op` only)", () => {
+    // the machine-readable UI emits `"noop"` (no hyphen) for unchanged resources;
+    // a `move` / `import` / `forget` is a state-only op that doesn't mutate live
+    // infra. None should land in `changed` (they'd inflate the blast radius §2.6).
+    const out = lines(
+      { type: "planned_change", change: { action: "noop", resource: { addr: "aws_vpc.main" } } },
+      { type: "planned_change", change: { action: "move", resource: { addr: "aws_s3_bucket.a" } } },
+      { type: "planned_change", change: { action: "import", resource: { addr: "aws_s3_bucket.b" } } },
+      { type: "planned_change", change: { action: "forget", resource: { addr: "aws_s3_bucket.c" } } },
+      { type: "planned_change", change: { action: "update", resource: { addr: "aws_instance.web" } } }
+    );
+    expect(parseTerraformPlanJson(out).changed).toEqual([
+      { address: "aws_instance.web", action: "update" },
+    ]);
+  });
+});
+
+describe("computeRegressions (§1.4)", () => {
+  it("returns ids present now but absent from the baseline (current − baseline)", () => {
+    expect(computeRegressions(["a", "b"], ["b", "c", "d"])).toEqual(["c", "d"]);
+  });
+
+  it("is empty when the fix introduced nothing new (even if it didn't resolve everything)", () => {
+    expect(computeRegressions(["a", "b", "c"], ["a", "b"])).toEqual([]);
+  });
+
+  it("sorts and de-dups its output for a stable PR body", () => {
+    expect(computeRegressions(new Set(["a"]), ["z", "c", "c", "m"])).toEqual(["c", "m", "z"]);
+  });
+
+  it("treats an empty baseline as everything-new", () => {
+    expect(computeRegressions([], ["a", "b"])).toEqual(["a", "b"]);
+  });
+});
+
+describe("classifyAutonomy (§3.9)", () => {
+  const c = (severity: Concern["severity"], category: Concern["category"]) => ({ severity, category });
+
+  it("auto-fixes trivial style/correctness findings", () => {
+    const d = classifyAutonomy([c("low", "style"), c("medium", "correctness")]);
+    expect(d.autonomy).toBe("auto");
+    expect(d.reasons).toEqual([]);
+  });
+
+  it("escalates a high/critical security finding (default threshold high)", () => {
+    expect(classifyAutonomy([c("high", "security")]).autonomy).toBe("needs-human");
+    expect(classifyAutonomy([c("critical", "security")]).autonomy).toBe("needs-human");
+  });
+
+  it("does NOT escalate a medium/low security finding at the default threshold", () => {
+    expect(classifyAutonomy([c("medium", "security")]).autonomy).toBe("auto");
+    expect(classifyAutonomy([c("low", "security")]).autonomy).toBe("auto");
+  });
+
+  it("respects a lowered threshold", () => {
+    expect(classifyAutonomy([c("medium", "security")], "medium").autonomy).toBe("needs-human");
+  });
+
+  it("a non-security finding never escalates on severity alone", () => {
+    expect(classifyAutonomy([c("critical", "correctness")]).autonomy).toBe("auto");
+  });
+
+  it("a high blast radius escalates regardless of severity (§2.6 override)", () => {
+    const d = classifyAutonomy([c("low", "style")], "high", "high");
+    expect(d.autonomy).toBe("needs-human");
+    expect(d.reasons.join(" ")).toMatch(/blast radius/);
+  });
+
+  it("medium/low blast radius does not escalate", () => {
+    expect(classifyAutonomy([c("low", "style")], "high", "medium").autonomy).toBe("auto");
+  });
+});
+
+describe("computeConfidence (§5.19)", () => {
+  it("is high for a fully-proven fix (verified, no regressions, idempotent, low blast, no cost rise)", () => {
+    expect(
+      computeConfidence({
+        verified: true,
+        regressionCount: 0,
+        idempotent: true,
+        blastTier: "low",
+        costDirection: "no-change",
+      }).level
+    ).toBe("high");
+  });
+
+  it("is low when the fix did not verify", () => {
+    expect(computeConfidence({ verified: false, regressionCount: 0 }).level).toBe("low");
+  });
+
+  it("is low when the fix introduced a regression, even if verified", () => {
+    expect(computeConfidence({ verified: true, regressionCount: 2 }).level).toBe("low");
+  });
+
+  it("caps at medium for a non-deterministic plan", () => {
+    expect(
+      computeConfidence({ verified: true, regressionCount: 0, idempotent: false, blastTier: "low", costDirection: "no-change" }).level
+    ).toBe("medium");
+  });
+
+  it("caps at medium for a high blast radius or a cost increase", () => {
+    expect(
+      computeConfidence({ verified: true, regressionCount: 0, idempotent: true, blastTier: "high", costDirection: "no-change" }).level
+    ).toBe("medium");
+    expect(
+      computeConfidence({ verified: true, regressionCount: 0, idempotent: true, blastTier: "low", costDirection: "increase" }).level
+    ).toBe("medium");
+  });
+
+  it("caps at medium when plan/cost evidence is missing (no cloud creds) — high needs the full stack", () => {
+    // verified + no regressions but no plan/infracost ran: honest medium, not high.
+    expect(computeConfidence({ verified: true, regressionCount: 0 }).level).toBe("medium");
   });
 });
 

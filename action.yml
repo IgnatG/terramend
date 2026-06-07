@@ -45,6 +45,12 @@ inputs:
   allow_replace:
     description: "Terraform remediation: comma-separated resource addresses (or globs, or '*'/'all') allowed to be destroyed/replaced. By default a fix that terraform_plan shows would delete/replace a stateful resource (RDS, S3, EBS, a SQL database, …) is blocked at push to prevent data loss. Requires cloud credentials for the plan to run."
     required: false
+  protected_paths:
+    description: "Terraform remediation: comma-separated globs the fixer must NEVER auto-modify (e.g. prod state, data-store modules). A push that touched any matching file is blocked — the inverse of allowed_paths. Default: none."
+    required: false
+  autonomy_threshold:
+    description: "Terraform remediation: minimum severity at which a SECURITY finding is escalated to human review (needs-human label) rather than auto-fixed (critical|high|medium|low|info). A high blast radius always escalates. Default: high."
+    required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
     required: false
