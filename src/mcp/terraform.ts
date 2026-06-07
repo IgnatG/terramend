@@ -481,24 +481,46 @@ export function parseResourceArguments(hcl: string): ResourceArguments[] {
 }
 
 /**
- * If position `i` begins a heredoc (`<<EOF` / `<<-EOF` / `<<~EOF`), return the
- * index of the last char of its closing-delimiter line (so the scanner resumes
- * after it); else null. Heredoc bodies are arbitrary text — they may contain
- * unbalanced `{`/`}` and `key = value` lines — so they MUST be skipped wholesale
- * or they corrupt brace depth and fabricate arguments.
+ * A non-code span in HCL — a `"…"` string, a `#`/`//` line comment, or a
+ * `<<EOF` heredoc — that the brace/argument scanners must skip wholesale (an
+ * interpolation's `${…}`, a commented `}`, or a heredoc's `key = value` lines
+ * would otherwise corrupt brace depth or fabricate arguments). Returned for a
+ * span starting at `i`: `end` is the index of its LAST char (caller resumes at
+ * `end + 1`), and `endsLine` is true when the span finished at a line boundary
+ * (comment / heredoc — the next token begins a fresh statement). null when `i`
+ * isn't the start of a non-code span. Single source of truth for both scanners.
  */
-function skipHeredoc(s: string, i: number): number | null {
-  const m = /^<<[-~]?([A-Za-z_][A-Za-z0-9_]*)/.exec(s.slice(i, i + 80));
-  if (!m) return null;
-  const delim = m[1];
-  const openNl = s.indexOf("\n", i);
-  if (openNl === -1) return s.length - 1; // unterminated — consume the rest
-  // the closing delimiter sits alone on its own line (optionally indented).
-  const closeRe = new RegExp(`\\n[ \\t]*${delim}[ \\t]*(?=\\n|$)`);
-  const after = s.slice(openNl);
-  const cm = closeRe.exec(after);
-  if (!cm) return s.length - 1;
-  return openNl + cm.index + cm[0].length - 1;
+function skipNonCode(s: string, i: number): { end: number; endsLine: boolean } | null {
+  const ch = s[i];
+  // double-quoted string (with `\` escapes). Ends mid-line.
+  if (ch === '"') {
+    let j = i + 1;
+    while (j < s.length && s[j] !== '"') {
+      if (s[j] === "\\") j++;
+      j++;
+    }
+    return { end: j, endsLine: false };
+  }
+  // heredoc body (`<<EOF` / `<<-EOF` / `<<~EOF`) — arbitrary text.
+  if (ch === "<" && s[i + 1] === "<") {
+    const m = /^<<[-~]?([A-Za-z_][A-Za-z0-9_]*)/.exec(s.slice(i, i + 80));
+    if (m) {
+      const delim = m[1];
+      const openNl = s.indexOf("\n", i);
+      if (openNl === -1) return { end: s.length - 1, endsLine: true };
+      // the closing delimiter sits alone on its own line (optionally indented).
+      const closeRe = new RegExp(`\\n[ \\t]*${delim}[ \\t]*(?=\\n|$)`);
+      const cm = closeRe.exec(s.slice(openNl));
+      const end = cm ? openNl + cm.index + cm[0].length - 1 : s.length - 1;
+      return { end, endsLine: true };
+    }
+  }
+  // `#` or `//` line comment.
+  if (ch === "#" || (ch === "/" && s[i + 1] === "/")) {
+    const nl = s.indexOf("\n", i);
+    return { end: nl === -1 ? s.length - 1 : nl, endsLine: true };
+  }
+  return null;
 }
 
 /** brace-match from an opening `{` at `open`; returns the inner text + end index
@@ -509,31 +531,12 @@ function matchBraceBody(hcl: string, open: string | number): { text: string; end
   if (start < 0) return null;
   let depth = 0;
   for (let i = start; i < hcl.length; i++) {
+    const span = skipNonCode(hcl, i);
+    if (span) {
+      i = span.end;
+      continue;
+    }
     const ch = hcl[i];
-    // skip a double-quoted string (with escapes) so `${…}` braces don't count.
-    if (ch === '"') {
-      i++;
-      while (i < hcl.length && hcl[i] !== '"') {
-        if (hcl[i] === "\\") i++;
-        i++;
-      }
-      continue;
-    }
-    // skip a heredoc body (may hold unbalanced braces).
-    if (ch === "<" && hcl[i + 1] === "<") {
-      const end = skipHeredoc(hcl, i);
-      if (end !== null) {
-        i = end;
-        continue;
-      }
-    }
-    // skip a `#` or `//` line comment.
-    if (ch === "#" || (ch === "/" && hcl[i + 1] === "/")) {
-      const nl = hcl.indexOf("\n", i);
-      if (nl === -1) return null;
-      i = nl;
-      continue;
-    }
     if (ch === "{") depth++;
     else if (ch === "}") {
       depth--;
@@ -543,40 +546,22 @@ function matchBraceBody(hcl: string, open: string | number): { text: string; end
   return null;
 }
 
-/** extract the depth-0 argument names from a resource block body (string- and
- * comment-aware), excluding meta-arguments. */
+/** extract the depth-0 argument names from a resource block body (string-,
+ * comment-, and heredoc-aware), excluding meta-arguments. */
 function topLevelArgNames(body: string): string[] {
   const names = new Set<string>();
   let depth = 0;
   let atStmtStart = true;
   for (let i = 0; i < body.length; i++) {
+    const span = skipNonCode(body, i);
+    if (span) {
+      i = span.end;
+      // a comment/heredoc ends a line (next token is a fresh statement); a
+      // string ends mid-line (still inside the current statement).
+      atStmtStart = span.endsLine;
+      continue;
+    }
     const ch = body[i];
-    if (ch === '"') {
-      i++;
-      while (i < body.length && body[i] !== '"') {
-        if (body[i] === "\\") i++;
-        i++;
-      }
-      atStmtStart = false;
-      continue;
-    }
-    // skip a heredoc body (arbitrary text — may hold `key = value` lines that
-    // would otherwise be misread as arguments).
-    if (ch === "<" && body[i + 1] === "<") {
-      const end = skipHeredoc(body, i);
-      if (end !== null) {
-        i = end;
-        atStmtStart = true;
-        continue;
-      }
-    }
-    if (ch === "#" || (ch === "/" && body[i + 1] === "/")) {
-      const nl = body.indexOf("\n", i);
-      if (nl === -1) break;
-      i = nl;
-      atStmtStart = true;
-      continue;
-    }
     if (ch === "{") {
       depth++;
       atStmtStart = false;

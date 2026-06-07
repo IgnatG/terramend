@@ -1519,6 +1519,16 @@ describe("parseResourceArguments (§4.15-next)", () => {
     expect(rs.map((r) => r.name)).toEqual(["a", "b"]);
   });
 
+  it("is not fooled by an escaped quote inside a string value", () => {
+    const hcl = `
+      resource "aws_iam_role" "r" {
+        description = "a \\"quoted\\" word { not a block"
+        name        = "r"
+      }`;
+    const [r] = parseResourceArguments(hcl);
+    expect([...r.args].sort()).toEqual(["description", "name"]);
+  });
+
   it("skips a heredoc body (no fabricated args, no brace corruption)", () => {
     const hcl = `
       resource "aws_iam_role" "r" {

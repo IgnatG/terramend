@@ -143,6 +143,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 ```
 
+> **Ready-to-use workflows:** [`examples/`](examples/) has copy-pasteable workflows — scheduled
+> [remediation](examples/remediate.yml), [generation](examples/generate-terraform.yml),
+> [comment-triggered fixes](examples/comment-fix.yml), and the full
+> [SARIF + plan-gate + policy setup](examples/remediate-advanced.yml). A complete end-to-end demo
+> (a deliberately-flawed module + its remediation workflow) lives in
+> [`terraform-aws-repo-examples`](../terraform-aws-repo-examples).
+
 ### Generate new Terraform
 
 Pin `mode: generateterraform` and describe the infrastructure in `prompt`. Terramend writes
