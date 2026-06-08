@@ -653,8 +653,8 @@ export function TerraformModuleInterfaceTool(ctx: ToolContext) {
     name: "terraform_module_interface",
     description:
       "Parse a module's PUBLIC INTERFACE — its `variable`s (name, type, description, and whether each is " +
-      "REQUIRED, i.e. has no default) and its `output`s — so a `module` block you write (or a Terratest/" +
-      "example fixture) uses the module's REAL variable names and sets every required input, instead of " +
+      "REQUIRED, i.e. has no default) and its `output`s — so a `module` block you write (or a Terratest " +
+      "scaffold) uses the module's REAL variable names and sets every required input, instead of " +
       "guessing. Point it at a local/house module dir (from `list_modules` / `terraform_module_graph`).",
     parameters: TerraformModuleInterfaceParams,
     execute: execute(async ({ module_dir }) => {

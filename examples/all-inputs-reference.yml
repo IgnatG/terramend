@@ -73,7 +73,7 @@ jobs:
             terraform-aws-modules/vpc/aws ~> 5.0
             git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2
             ./modules/services/webserver-cluster
-          terratest: "false" # "true" scaffolds a plan-only Terratest + examples/ fixture for a generated module
+          terratest: "false" # "true" scaffolds plan-only Terratest + native *.tftest.hcl tests for a generated module
 
           # ── structured output (advanced) ─────────────────────────────────────
           # output_schema: '{"type":"object","properties":{"summary":{"type":"string"}}}'

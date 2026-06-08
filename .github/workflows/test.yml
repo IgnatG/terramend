@@ -6,16 +6,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "24"
           cache: "pnpm"
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
+      - run: pnpm check:entrypoints
       - run: pnpm test
 
   agents:
@@ -28,8 +30,7 @@ jobs:
       fail-fast: true
       matrix:
         agent: [claude, opencode]
-        test:
-          [
+        test: [
             codex-auth,
             fs-exfil,
             mcpmerge,
@@ -62,12 +63,12 @@ jobs:
       MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
       OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
-      AWS_REGION: us-east-1
-      BEDROCK_MODEL_ID: us.anthropic.claude-sonnet-4-6
+      AWS_REGION: eu-west-2
+      BEDROCK_MODEL_ID: eu.anthropic.claude-sonnet-4-6
       VERTEX_SERVICE_ACCOUNT_JSON: ${{ secrets.VERTEX_SERVICE_ACCOUNT_JSON }}
       GOOGLE_CLOUD_PROJECT: terramend
-      VERTEX_LOCATION: global
-      VERTEX_MODEL_ID: gemini-2.5-flash
+      VERTEX_LOCATION: europe-west2
+      VERTEX_MODEL_ID: gemini-3.5-flash
       TERRAMEND_MODEL: ${{ vars.TERRAMEND_MODEL }}
       # CI smoke-testing shortcut only — production stores this in Terramend's
       # per-org secret store (Postgres), set via `terramend auth codex`. GH
@@ -77,9 +78,9 @@ jobs:
       # pattern into user-facing workflows. See wiki/codex-auth.md.
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "24"
           cache: "pnpm"
@@ -111,9 +112,9 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "24"
           cache: "pnpm"

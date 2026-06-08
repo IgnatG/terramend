@@ -6,18 +6,20 @@ import { execute, tool } from "#app/mcp/shared";
 /**
  * §28 Terratest scaffolding (opt-in via the `terratest` input). When Terramend
  * GENERATES a reusable module, it can also scaffold a minimal Go
- * [Terratest](https://terratest.gruntwork.io/) smoke test + an `examples/`
- * fixture so the generated infrastructure is testable from the first commit.
+ * [Terratest](https://terratest.gruntwork.io/) smoke test + a Terraform-native
+ * `*.tftest.hcl` so the generated infrastructure is testable from the first
+ * commit. Both tests plan the module **directly** — Terramend does not generate
+ * `examples/` fixtures.
  *
  * Design choices:
- *  - **Plan-only, never apply.** The scaffolded test runs `terraform init` +
- *    `plan` against the example and asserts it plans cleanly. Terramend never
+ *  - **Plan-only, never apply.** The scaffolded tests run `terraform init` +
+ *    `plan` against the module and assert it plans cleanly. Terramend never
  *    applies (no cloud credentials — the sovereignty stance), so the generated
- *    test mirrors that: it's a deployability smoke test the USER runs in their
+ *    tests mirror that: they're a deployability smoke test the USER runs in their
  *    own pipeline (with creds) for real apply/assert coverage.
  *  - **Pure generation.** The file contents are computed deterministically here
  *    and unit-tested; the agent writes the returned files with its own tools.
- *  - The Go test + `examples/` files fall outside the Terraform-only default
+ *  - The Go test + native test files fall outside the Terraform-only default
  *    allow-list, so the `terratest` input also widens the push guardrail (see
  *    guardrails.ts).
  */
@@ -40,19 +42,20 @@ function pascalCase(name: string): string {
   return /^[A-Za-z]/.test(pascal) ? pascal : `M${pascal}`;
 }
 
-/** compute the `source` an `examples/<name>` fixture uses to reach the module
- * dir — both are repo-relative POSIX paths. */
-function exampleSourcePath(modulePath: string, exampleDir: string): string {
-  const up = exampleDir.split("/").filter(Boolean).map(() => "..");
-  const rel = `${up.join("/")}/${modulePath}`.replace(/\/+/g, "/");
+/** compute a repo-relative POSIX path from `fromDir` up to `toPath` — both are
+ * repo-relative POSIX paths (e.g. from `test` to `modules/vpc` → `../modules/vpc`). */
+function relativeUp(fromDir: string, toPath: string): string {
+  const up = fromDir.split("/").filter(Boolean).map(() => "..");
+  const rel = `${up.join("/")}/${toPath}`.replace(/\/+/g, "/");
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
 
 /**
- * Build a Terratest smoke-test + example fixture for a generated module. Pure:
+ * Build a Terratest smoke-test + native test for a generated module. Pure:
  * `moduleName` names the module, `modulePath` is its repo-relative dir, and
- * `variables` (optional) are surfaced as TODO placeholders in the example so the
- * test author fills in real values. Returns the files to write + operator notes.
+ * `variables` (optional) are surfaced as TODO placeholders so the test author
+ * fills in real values. Both tests plan the module directly (no `examples/`
+ * fixture). Returns the files to write + operator notes.
  */
 export function scaffoldTerratest(opts: {
   moduleName: string;
@@ -60,29 +63,13 @@ export function scaffoldTerratest(opts: {
   variables?: { name: string; required?: boolean }[];
 }): TerratestScaffold {
   const name = opts.moduleName.replace(/[^A-Za-z0-9_-]/g, "-");
-  const exampleDir = `examples/${name}`;
-  const source = exampleSourcePath(opts.modulePath, exampleDir);
   const fn = pascalCase(name);
+  const terraformDir = relativeUp("test", opts.modulePath);
+  const variables = opts.variables ?? [];
 
-  const varLines = (opts.variables ?? [])
-    .map((v) => `  # ${v.name} = ... ${v.required ? "(required)" : "(optional)"}`)
+  const goVarLines = variables
+    .map((v) => `\t\t\t// "${v.name}": nil, // ${v.required ? "(required)" : "(optional)"}`)
     .join("\n");
-  const exampleMain = `# Example usage of the \`${name}\` module — living documentation AND the fixture
-# the Terratest smoke test plans against. Set real values for the module's
-# variables and a provider configuration before running the test.
-
-module "${name}" {
-  source = "${source}"
-
-${varLines || "  # TODO: set the module's required variables here"}
-}
-`;
-
-  const exampleVersions = `terraform {
-  required_version = ">= 1.3"
-}
-`;
-
   const goTest = `package test
 
 import (
@@ -93,15 +80,19 @@ import (
 )
 
 // Test${fn} is a PLAN-ONLY smoke test for the ${name} module: it runs
-// terraform init + plan against the example fixture and asserts it plans
-// cleanly. It deliberately does NOT apply, so it creates no real cloud
-// resources. Add apply/assert coverage in a pipeline where credentials exist.
+// terraform init + plan against the module and asserts it plans cleanly. It
+// deliberately does NOT apply, so it creates no real cloud resources. Add
+// apply/assert coverage in a pipeline where credentials exist.
 func Test${fn}(t *testing.T) {
 \tt.Parallel()
 
 \topts := &terraform.Options{
-\t\tTerraformDir: "../${exampleDir}",
+\t\tTerraformDir: "${terraformDir}",
 \t\tNoColor:      true,
+\t\tVars: map[string]interface{}{
+\t\t\t// TODO: set the module's variables and a provider configuration before running.
+${goVarLines || "\t\t\t// (no variables detected)"}
+\t\t},
 \t}
 
 \tout := terraform.InitAndPlan(t, opts)
@@ -111,37 +102,43 @@ func Test${fn}(t *testing.T) {
 
   return {
     files: [
-      { path: `${exampleDir}/main.tf`, content: exampleMain },
-      { path: `${exampleDir}/versions.tf`, content: exampleVersions },
       { path: `test/${name}_test.go`, content: goTest },
       // a Terraform-native test too (no Go needed) — the lighter option.
-      scaffoldTerraformTest({ moduleName: name }),
+      scaffoldTerraformTest({ moduleName: name, modulePath: opts.modulePath, variables }),
     ],
     notes: [
-      `Set the module's required variables and a provider config in ${exampleDir}/main.tf before running the test.`,
-      "Both tests are plan-only (no apply). Go/Terratest: `cd test && go test -run Test" + fn + " -v`. Native: `terraform test`.",
-      "The native `tests/*.tftest.hcl` needs no Go; the Go test needs a go.mod with terratest + testify.",
+      "Set the module's variables and a provider configuration before running the tests (the scaffold leaves them as TODO placeholders).",
+      `Both tests are plan-only (no apply). Go/Terratest: \`cd test && go test -run Test${fn} -v\`. Native: \`cd ${opts.modulePath} && terraform test\`.`,
+      "The native `*.tftest.hcl` needs no Go; the Go test needs a go.mod with terratest + testify.",
     ],
   };
 }
 
 /**
- * §28 (native variant) — scaffold a Terraform-native test (`tests/<name>.tftest.hcl`,
- * Terraform 1.6+). Lighter than Terratest: no Go toolchain, just HCL that
- * Terraform runs with `terraform test`. Plan-only `run` block (no apply, so no
- * cloud needed to construct the test). Pure.
+ * §28 (native variant) — scaffold a Terraform-native test (Terraform 1.6+) that
+ * lives in the module's own `tests/` dir and plans the module in place. Lighter
+ * than Terratest: no Go toolchain, just HCL that Terraform runs with
+ * `terraform test`. Plan-only `run` block (no apply, so no cloud needed to
+ * construct the test). Pure.
  */
-export function scaffoldTerraformTest(opts: { moduleName: string }): ScaffoldFile {
+export function scaffoldTerraformTest(opts: {
+  moduleName: string;
+  modulePath: string;
+  variables?: { name: string; required?: boolean }[];
+}): ScaffoldFile {
   const name = opts.moduleName.replace(/[^A-Za-z0-9_-]/g, "-");
+  const varLines = (opts.variables ?? [])
+    .map((v) => `    # ${v.name} = null # ${v.required ? "(required)" : "(optional)"}`)
+    .join("\n");
   const content = `# Terraform-native test for the ${name} module (Terraform 1.6+).
-# Plan-only — asserts the example plans cleanly without applying. Run with:
-#   terraform test
-run "plan_${name.replace(/-/g, "_")}_example" {
+# Plan-only — asserts the module plans cleanly without applying. Run with:
+#   cd ${opts.modulePath} && terraform test
+run "plan_${name.replace(/-/g, "_")}" {
   command = plan
 
-  # point at the example fixture as the module under test.
-  module {
-    source = "./examples/${name}"
+  variables {
+    # TODO: set the module's variables and a provider configuration before running.
+${varLines || "    # (no variables detected)"}
   }
 
   # add assertions against planned values, e.g.:
@@ -151,7 +148,7 @@ run "plan_${name.replace(/-/g, "_")}_example" {
   # }
 }
 `;
-  return { path: `tests/${name}.tftest.hcl`, content };
+  return { path: `${opts.modulePath}/tests/${name}.tftest.hcl`, content };
 }
 
 export const ScaffoldTerratestParams = type({
@@ -159,26 +156,27 @@ export const ScaffoldTerratestParams = type({
   module_path: type.string.describe("the module's repo-relative dir (e.g. 'modules/vpc')."),
   "variables?": type({ name: "string", "required?": "boolean" })
     .array()
-    .describe("optional list of the module's variables, surfaced as TODO placeholders in the example."),
+    .describe("optional list of the module's variables, surfaced as TODO placeholders in the tests."),
 });
 
 export function ScaffoldTerratestTool(ctx: ToolContext) {
   return tool({
     name: "scaffold_terratest",
     description:
-      "Scaffold a minimal Go Terratest smoke test + an `examples/<name>` fixture for a module you GENERATED, " +
-      "so the new infrastructure is testable from the first commit. Opt-in: only available when the " +
-      "`terratest` input is enabled (and that input also widens the push guardrail to allow the test/example " +
-      "files). Returns the file paths + contents to write with your own tools. The test is PLAN-ONLY (never " +
-      "applies — Terramend holds no cloud credentials); it's for the user to run in their pipeline. Use it " +
-      "only when generating a reusable module, not for a one-off resource fix.",
+      "Scaffold a minimal Go Terratest smoke test + a Terraform-native `*.tftest.hcl` for a module you " +
+      "GENERATED, so the new infrastructure is testable from the first commit. Both tests plan the module " +
+      "directly (Terramend does not generate `examples/` fixtures). Opt-in: only available when the " +
+      "`terratest` input is enabled (and that input also widens the push guardrail to allow the test " +
+      "files). Returns the file paths + contents to write with your own tools. The tests are PLAN-ONLY " +
+      "(never apply — Terramend holds no cloud credentials); they're for the user to run in their pipeline. " +
+      "Use it only when generating a reusable module, not for a one-off resource fix.",
     parameters: ScaffoldTerratestParams,
     execute: execute(async ({ module_name, module_path, variables }) => {
       if (!ctx.payload.terratest) {
         return {
           enabled: false,
           reason:
-            "terratest scaffolding is opt-in — set the `terratest: true` action input to enable it (it also widens allowed_paths to permit the test/example files).",
+            "terratest scaffolding is opt-in — set the `terratest: true` action input to enable it (it also widens allowed_paths to permit the test files).",
         };
       }
       const scaffold = scaffoldTerratest({

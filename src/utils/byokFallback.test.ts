@@ -73,11 +73,11 @@ describe("selectFallbackModelIfNeeded", () => {
 
   it("uses the resolved model for Bedrock routing (raw model ID has no slash)", () => {
     // resolveModel({slug:"bedrock/byok"}) returns the raw BEDROCK_MODEL_ID
-    // value (e.g. "us.anthropic.claude-opus-4-7"), which has no `/`. the
+    // value (e.g. "eu.anthropic.claude-opus-4-7"), which has no `/`. the
     // routing validator (validateBedrockSetup) owns auth + region + model-id
     // checking for this path, not the BYOK fallback gate.
     const result = selectFallbackModelIfNeeded({
-      resolvedModel: "us.anthropic.claude-opus-4-7",
+      resolvedModel: "eu.anthropic.claude-opus-4-7",
       authorized: empty,
       providerKeyPresent: true,
     });

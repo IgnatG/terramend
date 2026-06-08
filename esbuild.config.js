@@ -64,12 +64,13 @@ const sharedConfig = {
   drop: [],
 };
 
-// Build the CLI bundle (published to npm, used by npx)
+// Build the CLI bundle (published to npm, used by npx). Inherits
+// sharedConfig.target ("node24") — the engines.node floor + the action runtime
+// baseline; keep all three in lockstep if it ever changes.
 await build({
   ...sharedConfig,
   entryPoints: ["./src/cli.ts"],
   outfile: "./dist/cli.mjs",
-  target: "node20",
   plugins: [stripShebangPlugin],
   define: {
     "process.env.CLI_VERSION": JSON.stringify(pkg.version),
@@ -81,14 +82,12 @@ await build({
   ...sharedConfig,
   entryPoints: ["./src/index.ts"],
   outfile: "./dist/index.js",
-  target: "node20",
 });
 
 await build({
   ...sharedConfig,
   entryPoints: ["./src/internal/index.ts"],
   outfile: "./dist/internal.js",
-  target: "node20",
 });
 
 // prepend shebang after strip (esbuild banner can't guarantee line 1 placement)

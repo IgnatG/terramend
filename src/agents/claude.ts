@@ -1005,7 +1005,7 @@ export const claude = agent({
     const specifier = ctx.resolvedModel;
     // claude-code on Bedrock takes the bare AWS model ID — no provider prefix
     // to strip, since the ID is already in `provider.model` form (e.g.
-    // `us.anthropic.claude-opus-4-7`). detect via the env-var sentinel: if
+    // `eu.anthropic.claude-opus-4-7`). detect via the env-var sentinel: if
     // BEDROCK_MODEL_ID is set and matches the resolved specifier, this is a
     // bedrock route. see `wiki/model-resolution.md` for the routing pattern.
     const bedrockModelId = process.env[BEDROCK_MODEL_ID_ENV]?.trim();

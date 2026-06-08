@@ -61,7 +61,7 @@ inputs:
     description: "Terraform remediation/generation: newline- or comma-separated list of approved modules the agent should PREFER over raw resources, each '[name=]<source>[ <version>]' — a public registry module (e.g. 'terraform-aws-modules/vpc/aws ~> 5.0'), a private git module library (e.g. 'git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2'), or a local/house module path (e.g. './modules/networking'). Surfaced via the list_modules tool (which also auto-discovers house modules already used in the repo). Default: none."
     required: false
   terratest:
-    description: "Terraform generation: set 'true' to scaffold a Go Terratest smoke test + an examples/ fixture when generating a reusable module (via the scaffold_terratest tool). Opt-in and plan-only (never applies). Enabling it widens allowed_paths to permit the test/example files. Default: false."
+    description: "Terraform generation: set 'true' to scaffold a Go Terratest smoke test + a native *.tftest.hcl test when generating a reusable module (via the scaffold_terratest tool). Both plan the module directly (no examples/ fixture). Opt-in and plan-only (never applies). Enabling it widens allowed_paths to permit the test files. Default: false."
     required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."

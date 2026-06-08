@@ -225,7 +225,7 @@ describe("modelAliases registry", () => {
 
 describe("isBedrockAnthropicId", () => {
   it("matches geo-prefixed Anthropic foundation IDs", () => {
-    expect(isBedrockAnthropicId("us.anthropic.claude-opus-4-7")).toBe(true);
+    expect(isBedrockAnthropicId("eu.anthropic.claude-opus-4-7")).toBe(true);
     expect(isBedrockAnthropicId("eu.anthropic.claude-sonnet-4-6")).toBe(true);
     expect(isBedrockAnthropicId("global.anthropic.claude-haiku-4-5-20251001-v1:0")).toBe(true);
   });
@@ -236,7 +236,7 @@ describe("isBedrockAnthropicId", () => {
 
   it("rejects non-Anthropic foundation IDs", () => {
     expect(isBedrockAnthropicId("amazon.nova-pro-v1:0")).toBe(false);
-    expect(isBedrockAnthropicId("us.meta.llama4-scout-17b-instruct-v1:0")).toBe(false);
+    expect(isBedrockAnthropicId("eu.meta.llama4-scout-17b-instruct-v1:0")).toBe(false);
     expect(isBedrockAnthropicId("deepseek.v3.2")).toBe(false);
   });
 
@@ -251,7 +251,7 @@ describe("isBedrockAnthropicId", () => {
     // includes("anthropic") even though the backing model is unknown.
     expect(
       isBedrockAnthropicId(
-        "arn:aws:bedrock:us-east-2:123456789012:application-inference-profile/my-anthropicish-profile"
+        "arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/my-anthropicish-profile"
       )
     ).toBe(false);
   });
@@ -261,7 +261,7 @@ describe("isBedrockAnthropicId", () => {
     // operator chose to surface the backing model in the name.
     expect(
       isBedrockAnthropicId(
-        "arn:aws:bedrock:us-east-2:123456789012:application-inference-profile/anthropic.claude-opus-4-7"
+        "arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/anthropic.claude-opus-4-7"
       )
     ).toBe(true);
   });

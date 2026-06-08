@@ -627,7 +627,7 @@ describe("resolveRoots (multi-root discovery → operate list)", () => {
   });
 });
 
-describe("computeRemediationVerdict (C2 — tamper-proof ✗→✓)", () => {
+describe("computeRemediationVerdict (C2 — independently re-verifiable ✗→✓)", () => {
   it("verifies when every original concern id is gone from the re-scan", () => {
     const verdict = computeRemediationVerdict(["a", "b", "c"], new Set(["x", "y"]));
     expect(verdict).toEqual({ verified: true, resolved: ["a", "b", "c"], remaining: [] });

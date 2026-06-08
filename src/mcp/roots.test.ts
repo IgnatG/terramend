@@ -82,9 +82,9 @@ describe("detectEnvironmentTwins (§22)", () => {
   });
 
   it("detects per-region twins", () => {
-    const twins = detectEnvironmentTwins(["stacks/eu-west-2", "stacks/us-east-1"]);
+    const twins = detectEnvironmentTwins(["stacks/eu-west-2", "stacks/eu-west-1"]);
     expect(twins[0].pattern).toBe("stacks/{env}");
-    expect(twins[0].members.map((m) => m.environment)).toEqual(["eu-west-2", "us-east-1"]);
+    expect(twins[0].members.map((m) => m.environment)).toEqual(["eu-west-1", "eu-west-2"]);
   });
 
   it("matches a <env>.tfvars filename", () => {

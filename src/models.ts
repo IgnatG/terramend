@@ -12,7 +12,7 @@
  * from a separate env var at run time rather than fixed in the catalog.
  *
  * `"bedrock"` means the actual model ID comes from `BEDROCK_MODEL_ID`
- * (an AWS-canonical Bedrock model ID like `us.anthropic.claude-opus-4-7`
+ * (an AWS-canonical Bedrock model ID like `eu.anthropic.claude-opus-4-7`
  * or `amazon.nova-pro-v1:0`). `"vertex"` means the actual model ID comes
  * from `VERTEX_MODEL_ID` (a Vertex AI model ID like
  * `claude-opus-4-1@20250805` or `gemini-2.5-pro`). enterprise hosted-model
@@ -662,11 +662,11 @@ export const VERTEX_MODEL_ID_ENV = "VERTEX_MODEL_ID";
  * everything else goes through opencode's `amazon-bedrock` provider.
  *
  * AWS Bedrock IDs come in two shapes:
- *   - dotted foundation IDs: `us.anthropic.claude-opus-4-7`,
+ *   - dotted foundation IDs: `eu.anthropic.claude-opus-4-7`,
  *     `anthropic.claude-haiku-4-5-20251001-v1:0`, `amazon.nova-pro-v1:0`,
  *     `meta.llama4-scout-17b-instruct-v1:0`. AWS-published, lowercase, the
  *     foundation provider always appears as a discrete dot-segment.
- *   - inference-profile ARNs: `arn:aws:bedrock:us-east-2:<acct>:application-inference-profile/<user-name>`.
+ *   - inference-profile ARNs: `arn:aws:bedrock:eu-west-2:<acct>:application-inference-profile/<user-name>`.
  *     `<user-name>` is operator-chosen, so a naive substring check is fragile
  *     in both directions (Anthropic profile named without "anthropic" → routes
  *     to opencode and misses CLAUDE_CODE_USE_BEDROCK; non-Anthropic profile
@@ -681,7 +681,8 @@ export const VERTEX_MODEL_ID_ENV = "VERTEX_MODEL_ID";
  */
 export function isBedrockAnthropicId(bedrockModelId: string): boolean {
   // split on `.`, `/`, and `:` so the check works for both dotted foundation
-  // IDs (anthropic.* / us.anthropic.*) and ARN-form IDs (where the relevant
+  // IDs (anthropic.* / eu.anthropic.* / apac.anthropic.* — geo-agnostic, so EU
+  // inference profiles route correctly) and ARN-form IDs (where the relevant
   // foundation segment sits between `/` and `.` inside the resource name).
   return bedrockModelId.toLowerCase().split(/[./:]/).includes("anthropic");
 }

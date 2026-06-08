@@ -9,7 +9,14 @@ import { providers } from "#app/models";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const actionDir = join(__dirname, "..");
-const rootDir = join(actionDir, "..");
+
+// terramend ships a single test workflow (standalone repo — there is no parent
+// "root" workflow; the action's CI lives here). This test keeps that workflow's
+// matrices in lockstep with the test/ source dirs and the agents/providers maps,
+// so a new test file or provider can't be silently left out of CI.
+const workflow = parse(
+  readFileSync(join(actionDir, ".github/workflows/test.yml"), "utf-8")
+) as Workflow;
 
 type WorkflowJob = {
   "runs-on": string;
@@ -25,13 +32,10 @@ type Workflow = {
   jobs: Record<string, WorkflowJob>;
 };
 
-const rootWorkflow = parse(
-  readFileSync(join(rootDir, ".github/workflows/test.yml"), "utf-8")
-) as Workflow;
-const actionWorkflow = parse(
-  readFileSync(join(actionDir, ".github/workflows/test.yml"), "utf-8")
-) as Workflow;
-
+// Extract the `name: "..."` declared by each test module in a test/ subdir.
+// Matches a real top-level property only (not a JSDoc `* name:` comment), so a
+// deliberately-disabled test (e.g. vertex-claude, whose name lives in a comment
+// while it's commented out of the matrix) stays out of both sides in lockstep.
 function getTestNamesFromDir(dir: string): string[] {
   const dirPath = join(__dirname, dir);
   const files = readdirSync(dirPath).filter((f) => f.endsWith(".ts"));
@@ -70,93 +74,45 @@ const expectedAgentEnvVars = [
 const expectedAgnosticEnvVars = ["ANTHROPIC_API_KEY", "GITHUB_TOKEN"].sort();
 
 describe("ci workflow consistency", () => {
-  it("workflow names match", () => {
-    expect(rootWorkflow.name).toBe(actionWorkflow.name);
-  });
-
   it("no duplicate test names across directories", () => {
     const allNames = [...crossagentTests, ...agnosticTests, ...adhocTests];
     const duplicates = allNames.filter((name, idx) => allNames.indexOf(name) !== idx);
     expect(duplicates).toEqual([]);
   });
 
-  describe("cross-agent tests", () => {
-    const rootJob = rootWorkflow.jobs["action-agents"];
-    const actionJob = actionWorkflow.jobs.agents;
+  describe("cross-agent (agents) job", () => {
+    const job = workflow.jobs.agents;
 
-    it("root agents matrix is wired to the dynamic matrix output", () => {
-      const include = rootJob.strategy?.matrix.include;
-      expect(typeof include).toBe("string");
-      expect(include as string).toContain("fromJSON(needs.changes.outputs.matrix).agents");
+    it("agent matrix matches the agents map", () => {
+      expect((job.strategy?.matrix.agent as string[])?.slice().sort()).toEqual(expectedAgents);
     });
 
-    it("action agent matrix matches agents map", () => {
-      expect((actionJob.strategy?.matrix.agent as string[])?.slice().sort()).toEqual(
-        expectedAgents
-      );
-    });
-
-    it("action test matrix matches crossagent/ directory", () => {
-      expect((actionJob.strategy?.matrix.test as string[])?.slice().sort()).toEqual(
-        crossagentTests
-      );
-    });
-
-    it("permissions match between root and action", () => {
-      expect(rootJob.permissions).toEqual(actionJob.permissions);
-    });
-
-    it("timeout-minutes match between root and action", () => {
-      expect(rootJob["timeout-minutes"]).toEqual(actionJob["timeout-minutes"]);
-    });
-
-    it("env vars match between root and action", () => {
-      expect(getEnvVarNames(rootJob)).toEqual(getEnvVarNames(actionJob));
+    it("test matrix matches the crossagent/ directory", () => {
+      expect((job.strategy?.matrix.test as string[])?.slice().sort()).toEqual(crossagentTests);
     });
 
     it("env vars cover all provider API keys", () => {
-      expect(getEnvVarNames(rootJob)).toEqual(expectedAgentEnvVars);
+      expect(getEnvVarNames(job)).toEqual(expectedAgentEnvVars);
     });
 
-    it("fail-fast is enabled in both", () => {
-      expect(rootJob.strategy?.["fail-fast"]).toBe(true);
-      expect(actionJob.strategy?.["fail-fast"]).toBe(true);
+    it("fail-fast is enabled (bail early — this matrix spends real LLM API budget)", () => {
+      expect(job.strategy?.["fail-fast"]).toBe(true);
     });
   });
 
-  describe("agnostic tests", () => {
-    const rootJob = rootWorkflow.jobs["action-agnostic"];
-    const actionJob = actionWorkflow.jobs.agnostic;
+  describe("agnostic job", () => {
+    const job = workflow.jobs.agnostic;
 
-    it("root agnostic matrix is wired to the dynamic matrix output", () => {
-      const include = rootJob.strategy?.matrix.include;
-      expect(typeof include).toBe("string");
-      expect(include as string).toContain("fromJSON(needs.changes.outputs.matrix).agnostic");
-    });
-
-    it("action test matrix matches agnostic/ directory", () => {
-      expect((actionJob.strategy?.matrix.test as string[])?.slice().sort()).toEqual(agnosticTests);
-    });
-
-    it("permissions match between root and action", () => {
-      expect(rootJob.permissions).toEqual(actionJob.permissions);
-    });
-
-    it("timeout-minutes match between root and action", () => {
-      expect(rootJob["timeout-minutes"]).toEqual(actionJob["timeout-minutes"]);
-    });
-
-    it("env vars match between root and action", () => {
-      expect(getEnvVarNames(rootJob)).toEqual(getEnvVarNames(actionJob));
+    it("test matrix matches the agnostic/ directory", () => {
+      expect((job.strategy?.matrix.test as string[])?.slice().sort()).toEqual(agnosticTests);
     });
 
     it("env vars are correct for agnostic tests", () => {
-      expect(getEnvVarNames(rootJob)).toEqual(expectedAgnosticEnvVars);
+      expect(getEnvVarNames(job)).toEqual(expectedAgnosticEnvVars);
     });
 
-    it("fail-fast is enabled in both", () => {
-      expect(rootJob.strategy?.["fail-fast"]).toBe(true);
-      expect(actionJob.strategy?.["fail-fast"]).toBe(true);
+    it("fail-fast is enabled", () => {
+      expect(job.strategy?.["fail-fast"]).toBe(true);
     });
   });
 });

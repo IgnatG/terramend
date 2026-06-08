@@ -53,8 +53,8 @@ describe("resolveAgent", () => {
   describe("bedrock routing", () => {
     it("routes Anthropic Bedrock IDs to claude", () => {
       process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
-      process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
-      expect(resolveAgent({ model: "us.anthropic.claude-opus-4-7" }).name).toBe("claude");
+      process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+      expect(resolveAgent({ model: "eu.anthropic.claude-opus-4-7" }).name).toBe("claude");
     });
 
     it("routes Anthropic Bedrock IDs (no region prefix) to claude", () => {
@@ -73,8 +73,8 @@ describe("resolveAgent", () => {
 
     it("routes Llama IDs to opencode", () => {
       process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
-      process.env.BEDROCK_MODEL_ID = "us.meta.llama4-scout-17b-instruct-v1:0";
-      expect(resolveAgent({ model: "us.meta.llama4-scout-17b-instruct-v1:0" }).name).toBe(
+      process.env.BEDROCK_MODEL_ID = "eu.meta.llama4-scout-17b-instruct-v1:0";
+      expect(resolveAgent({ model: "eu.meta.llama4-scout-17b-instruct-v1:0" }).name).toBe(
         "opencode"
       );
     });
@@ -82,15 +82,15 @@ describe("resolveAgent", () => {
     it("accepts AWS access keys as auth", () => {
       process.env.AWS_ACCESS_KEY_ID = "AKIA-test";
       process.env.AWS_SECRET_ACCESS_KEY = "secret-test";
-      process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
-      expect(resolveAgent({ model: "us.anthropic.claude-opus-4-7" }).name).toBe("claude");
+      process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+      expect(resolveAgent({ model: "eu.anthropic.claude-opus-4-7" }).name).toBe("claude");
     });
 
     it("TERRAMEND_AGENT override wins over Anthropic auto-routing", () => {
       process.env.TERRAMEND_AGENT = "opencode";
       process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
-      process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
-      expect(resolveAgent({ model: "us.anthropic.claude-opus-4-7" }).name).toBe("opencode");
+      process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+      expect(resolveAgent({ model: "eu.anthropic.claude-opus-4-7" }).name).toBe("opencode");
     });
   });
 
@@ -117,13 +117,13 @@ describe("resolveModel", () => {
 
   it("TERRAMEND_MODEL bypasses bedrock routing entirely", () => {
     process.env.TERRAMEND_MODEL = "openai/gpt";
-    process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
     expect(resolveModel({ slug: "bedrock/byok" })).toBe("openai/gpt-5.5");
   });
 
   it("resolves bedrock/byok to BEDROCK_MODEL_ID", () => {
-    process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
-    expect(resolveModel({ slug: "bedrock/byok" })).toBe("us.anthropic.claude-opus-4-7");
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+    expect(resolveModel({ slug: "bedrock/byok" })).toBe("eu.anthropic.claude-opus-4-7");
   });
 
   it("throws when bedrock/byok is selected without BEDROCK_MODEL_ID", () => {
@@ -144,8 +144,8 @@ describe("resolveModel", () => {
   // leak that sentinel downstream and break agent dispatch.
   it("TERRAMEND_MODEL=bedrock/byok defers to BEDROCK_MODEL_ID, not the sentinel", () => {
     process.env.TERRAMEND_MODEL = "bedrock/byok";
-    process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
-    expect(resolveModel({ slug: "openai/gpt" })).toBe("us.anthropic.claude-opus-4-7");
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+    expect(resolveModel({ slug: "openai/gpt" })).toBe("eu.anthropic.claude-opus-4-7");
   });
 
   it("TERRAMEND_MODEL=bedrock/byok throws if BEDROCK_MODEL_ID is missing", () => {

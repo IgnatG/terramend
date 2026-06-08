@@ -5,7 +5,17 @@ import { build } from "esbuild";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
-const entryPoints = [resolve(scriptDir, "../src/entry.ts")];
+// Both GHA entrypoints run via `node <file>.ts` against the action checkout
+// (no node_modules at that point — the main step installs deps only AFTER
+// entry.ts boots, and the post step never gets a node_modules at all). Any
+// non-builtin package import in either file's transitive graph crashes the
+// step with ERR_MODULE_NOT_FOUND. entryPost.ts also has a regex-based vitest
+// guard (entryPost.stdlibOnly.test.ts); this esbuild graph walk is the
+// stronger check and covers both. See #834.
+const entryPoints = [
+  resolve(scriptDir, "../src/entry.ts"),
+  resolve(scriptDir, "../src/entryPost.ts"),
+];
 
 function isPathImport(specifier: string): boolean {
   return (

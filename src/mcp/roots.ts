@@ -106,7 +106,7 @@ const ENV_TOKENS = new Set([
   "non-prod",
 ]);
 
-// AWS-style region segment, e.g. `eu-west-2`, `us-east-1` — the other common
+// AWS-style region segment, e.g. `eu-west-2`, `eu-west-1` — the other common
 // fan-out axis (the same stack replicated per region).
 const REGION_RE = /^[a-z]{2}-[a-z]+-\d$/;
 

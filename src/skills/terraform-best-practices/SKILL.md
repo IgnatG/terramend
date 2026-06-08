@@ -262,10 +262,9 @@ libraries use so it's drop-in familiar:
   and a `validation` block where it helps), `outputs.tf`, `versions.tf` /
   `providers.tf` (`required_version` + `required_providers` pinned), `README.md`
   (usage + inputs/outputs), and a `CHANGELOG.md` if the repo versions modules.
-- At least one `examples/basic/main.tf` that consumes the module with a provider
-  block + pinned version — and an `examples/complete/` when the module has many
-  options. These examples are the module's living documentation AND its test
-  surface (see below).
+- Do **not** generate `examples/` fixtures. Document usage in the module's
+  `README.md` instead; test coverage comes from the opt-in terratest scaffold
+  (see below), which plans the module directly.
 
 ### Module-source-aware fixes (§4.14)
 
@@ -281,34 +280,30 @@ lives in the module call-graph:
   the module or fork it inline. Instead report it (open an issue / PR comment)
   naming the upstream module + version and the concern, so a human routes it.
 
-## Tests & examples for modules (§28)
+## Tests for modules (§28)
 
-A reusable-module change with no updated example or test is incomplete. Keep them
-in step. There are **two conventions**, and you should match whichever the repo
-already uses:
+Terramend does **not** create or edit `examples/` fixtures — leave any the repo
+already ships untouched. Module test coverage is **opt-in** via the `terratest`
+input:
 
-- **Examples-based (the common default).** Most module libraries test by shipping
-  working `examples/basic` / `examples/complete` fixtures (no Go required). When
-  you change a module's interface, update its examples so they still consume it
-  correctly (new required variable, renamed output); when generating a module,
-  add at least an `examples/basic/main.tf`. These are plain `*.tf` — they ride the
-  normal guardrail.
 - **Terratest (opt-in).** When the `terratest` input is enabled, call
   `scaffold_terratest` (module name + dir) to generate a plan-only Go
   [Terratest](https://terratest.gruntwork.io/) smoke test (`test/<name>_test.go`)
-  alongside the example, and write the returned files (the input also widens
-  `allowed_paths` to permit them). If the repo already has a Terratest suite,
-  update its options/assertions to match the new interface instead.
+  **and** a Terraform-native `*.tftest.hcl` in the module's own `tests/` dir.
+  Both plan the **module directly** (no example fixture). Write the returned files
+  (the input also widens `allowed_paths` to permit them). If the repo already has
+  a Terratest suite, update its options/assertions to match the new interface
+  instead.
 
-In both cases: Terramend **never runs** the tests — it holds no cloud credentials,
-and Terratest needs Go + a real `apply`. It keeps the test/example source
-consistent with the module and flags in the PR that the suite should be run in the
-user's pipeline. **Never weaken an assertion or delete a test to go green.**
+In all cases: Terramend **never runs** the tests — it holds no cloud credentials,
+and Terratest needs Go + a real `apply`. It keeps the test source consistent with
+the module and flags in the PR that the suite should be run in the user's
+pipeline. **Never weaken an assertion or delete a test to go green.**
 
 ## Hard rules
 
-- Only modify `*.tf` / `*.tfvars` (plus module `examples/` `.tf` and, when
-  `allowed_paths` permits, that module's test files). Never touch CI, application
+- Only modify `*.tf` / `*.tfvars` (and, when `allowed_paths` permits — i.e. the
+  `terratest` input is on — that module's test files). Never touch CI, application
   code, or unrelated config in a remediation PR.
 - One concern per PR. If you notice other issues, leave them for their own runs.
 - Never auto-merge. The PR is for a human to review.

@@ -72,7 +72,7 @@ const CROSSWALK: CrosswalkRule[] = [
       { framework: "NCSC Cloud Security Principles", control: "Principle 9", title: "Secure user management / network separation" },
       { framework: "Cyber Essentials", control: "Firewalls", title: "Boundary firewalls and internet gateways" },
       { framework: "CIS Controls v8", control: "4.4", title: "Implement and manage a firewall on servers" },
-      { framework: "GDS Secure by Design", control: "SbD-7", title: "Protect data in transit and at rest" },
+      { framework: "Secure by Design", control: "SbD-7", title: "Protect data in transit and at rest" },
     ],
   },
   {
@@ -229,7 +229,7 @@ export function ComplianceCrosswalkTool(ctx: ToolContext) {
     name: "terraform_compliance_crosswalk",
     description:
       "Map a scan's concerns to the UK public-sector + general compliance controls they touch (§23) — NCSC " +
-      "Cloud Security Principles, Cyber Essentials, NHS DSPT, GDS Secure by Design, CIS Controls, SOC 2 — so a " +
+      "Cloud Security Principles, Cyber Essentials, NHS DSPT, Secure by Design, CIS Controls, SOC 2 — so a " +
       "remediation PR can be narrated to an ASSESSOR in their own framework. Pass the `concerns` from " +
       "terraform_scan/read_findings; returns a per-concern control mapping plus a `by_framework` index and an " +
       "honest `unmapped_concern_ids` list. The mapping is an INDICATIVE starter rule-pack (version + review " +

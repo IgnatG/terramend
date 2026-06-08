@@ -2,23 +2,22 @@ import { describe, expect, it } from "vitest";
 import { scaffoldTerraformTest, scaffoldTerratest } from "#app/mcp/terratest";
 
 describe("scaffoldTerratest (§28)", () => {
-  it("emits an example fixture + versions + a plan-only Go test + a native test", () => {
+  it("emits a plan-only Go test + a native test, and no examples/ fixture", () => {
     const s = scaffoldTerratest({ moduleName: "vpc", modulePath: "modules/vpc" });
     const paths = s.files.map((f) => f.path);
     expect(paths).toEqual([
-      "examples/vpc/main.tf",
-      "examples/vpc/versions.tf",
       "test/vpc_test.go",
-      "tests/vpc.tftest.hcl",
+      "modules/vpc/tests/vpc.tftest.hcl",
     ]);
+    expect(paths.some((p) => p.startsWith("examples/"))).toBe(false);
   });
 
-  it("computes the example's relative source back to the module dir", () => {
+  it("points the Go test's TerraformDir at the module dir (not an example)", () => {
     const s = scaffoldTerratest({ moduleName: "vpc", modulePath: "modules/vpc" });
-    const main = s.files.find((f) => f.path === "examples/vpc/main.tf")!.content;
-    // from examples/vpc → up two levels → modules/vpc
-    expect(main).toContain('source = "../../modules/vpc"');
-    expect(main).toContain('module "vpc"');
+    const go = s.files.find((f) => f.path === "test/vpc_test.go")!.content;
+    // from test/ → up one level → modules/vpc
+    expect(go).toContain('TerraformDir: "../modules/vpc"');
+    expect(go).not.toContain("examples/");
   });
 
   it("PascalCases the Go test function and is plan-only (no apply)", () => {
@@ -29,37 +28,40 @@ describe("scaffoldTerratest (§28)", () => {
     expect(go).not.toMatch(/InitAndApply|\bApply\b/);
   });
 
-  it("surfaces the module's variables as TODO placeholders in the example", () => {
+  it("surfaces the module's variables as TODO placeholders in both tests", () => {
     const s = scaffoldTerratest({
       moduleName: "s3",
       modulePath: "modules/s3",
       variables: [{ name: "bucket_name", required: true }, { name: "tags" }],
     });
-    const main = s.files.find((f) => f.path === "examples/s3/main.tf")!.content;
-    expect(main).toContain("bucket_name = ... (required)");
-    expect(main).toContain("tags = ... (optional)");
+    const go = s.files.find((f) => f.path === "test/s3_test.go")!.content;
+    expect(go).toContain('// "bucket_name": nil, // (required)');
+    expect(go).toContain('// "tags": nil, // (optional)');
+    const native = s.files.find((f) => f.path === "modules/s3/tests/s3.tftest.hcl")!.content;
+    expect(native).toContain("# bucket_name = null # (required)");
+    expect(native).toContain("# tags = null # (optional)");
   });
 
   it("sanitizes a name with odd characters for the path and function", () => {
     const s = scaffoldTerratest({ moduleName: "aws/s3 bucket", modulePath: "modules/s3" });
     const go = s.files.find((f) => f.path.endsWith("_test.go"))!.content;
     expect(go).toContain("func TestAwsS3Bucket(");
-    expect(s.files.some((f) => f.path.startsWith("examples/aws-s3-bucket/"))).toBe(true);
+    expect(s.files.some((f) => f.path === "test/aws-s3-bucket_test.go")).toBe(true);
   });
 
-  it("bundles a Terraform-native test alongside the Go test", () => {
+  it("bundles a Terraform-native test that plans the module in place", () => {
     const s = scaffoldTerratest({ moduleName: "vpc", modulePath: "modules/vpc" });
-    const native = s.files.find((f) => f.path === "tests/vpc.tftest.hcl")!;
+    const native = s.files.find((f) => f.path === "modules/vpc/tests/vpc.tftest.hcl")!;
     expect(native.content).toContain("command = plan");
-    expect(native.content).toContain('source = "./examples/vpc"');
+    expect(native.content).not.toContain("examples/");
   });
 });
 
 describe("scaffoldTerraformTest (§28 native variant)", () => {
-  it("emits a plan-only .tftest.hcl run block", () => {
-    const f = scaffoldTerraformTest({ moduleName: "my-vpc" });
-    expect(f.path).toBe("tests/my-vpc.tftest.hcl");
-    expect(f.content).toContain('run "plan_my_vpc_example"');
+  it("emits a plan-only .tftest.hcl run block inside the module's tests/ dir", () => {
+    const f = scaffoldTerraformTest({ moduleName: "my-vpc", modulePath: "modules/my-vpc" });
+    expect(f.path).toBe("modules/my-vpc/tests/my-vpc.tftest.hcl");
+    expect(f.content).toContain('run "plan_my_vpc"');
     expect(f.content).toContain("command = plan");
     expect(f.content).not.toMatch(/command\s*=\s*apply/);
   });

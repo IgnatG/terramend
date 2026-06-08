@@ -130,22 +130,22 @@ describe("validateAgentApiKey — Bedrock routing", () => {
 
   it("passes with AWS_BEARER_TOKEN_BEDROCK + AWS_REGION + BEDROCK_MODEL_ID", () => {
     process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
-    process.env.AWS_REGION = "us-east-1";
-    process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-7";
+    process.env.AWS_REGION = "eu-west-2";
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
     expect(() => validateAgentApiKey({ ...params, model: "bedrock/byok" })).not.toThrow();
   });
 
   it("passes with AWS access keys + region + model id", () => {
     process.env.AWS_ACCESS_KEY_ID = "AKIA-test";
     process.env.AWS_SECRET_ACCESS_KEY = "secret-test";
-    process.env.AWS_REGION = "us-east-1";
+    process.env.AWS_REGION = "eu-west-2";
     process.env.BEDROCK_MODEL_ID = "amazon.nova-pro-v1:0";
     expect(() => validateAgentApiKey({ ...params, model: "bedrock/byok" })).not.toThrow();
   });
 
   it("throws when BEDROCK_MODEL_ID is missing", () => {
     process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
-    process.env.AWS_REGION = "us-east-1";
+    process.env.AWS_REGION = "eu-west-2";
     expect(() => validateAgentApiKey({ ...params, model: "bedrock/byok" })).toThrow(
       "BEDROCK_MODEL_ID"
     );
@@ -155,18 +155,18 @@ describe("validateAgentApiKey — Bedrock routing", () => {
   // validateAgentApiKey, which for Bedrock is the raw AWS model ID (no `/`).
   it("accepts a raw Bedrock model ID without throwing", () => {
     process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
-    process.env.AWS_REGION = "us-east-1";
-    process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-6-v1";
+    process.env.AWS_REGION = "eu-west-2";
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-6-v1";
     expect(() =>
-      validateAgentApiKey({ ...params, model: "us.anthropic.claude-opus-4-6-v1" })
+      validateAgentApiKey({ ...params, model: "eu.anthropic.claude-opus-4-6-v1" })
     ).not.toThrow();
   });
 
   it("throws on raw Bedrock model ID when AWS auth is missing", () => {
-    process.env.AWS_REGION = "us-east-1";
-    process.env.BEDROCK_MODEL_ID = "us.anthropic.claude-opus-4-6-v1";
+    process.env.AWS_REGION = "eu-west-2";
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-6-v1";
     expect(() =>
-      validateAgentApiKey({ ...params, model: "us.anthropic.claude-opus-4-6-v1" })
+      validateAgentApiKey({ ...params, model: "eu.anthropic.claude-opus-4-6-v1" })
     ).toThrow("AWS_BEARER_TOKEN_BEDROCK");
   });
 });
@@ -177,7 +177,7 @@ describe("validateAgentApiKey — Vertex routing", () => {
   it("passes with service-account JSON + project + location + model id", () => {
     process.env.VERTEX_SERVICE_ACCOUNT_JSON = "{}";
     process.env.GOOGLE_CLOUD_PROJECT = "test-project";
-    process.env.VERTEX_LOCATION = "us-east5";
+    process.env.VERTEX_LOCATION = "europe-west2";
     process.env.VERTEX_MODEL_ID = "claude-opus-4-1@20250805";
     expect(() => validateAgentApiKey({ ...params, model: "vertex/byok" })).not.toThrow();
   });
@@ -185,7 +185,7 @@ describe("validateAgentApiKey — Vertex routing", () => {
   it("throws when VERTEX_MODEL_ID is missing", () => {
     process.env.VERTEX_SERVICE_ACCOUNT_JSON = "{}";
     process.env.GOOGLE_CLOUD_PROJECT = "test-project";
-    process.env.VERTEX_LOCATION = "us-east5";
+    process.env.VERTEX_LOCATION = "europe-west2";
     expect(() => validateAgentApiKey({ ...params, model: "vertex/byok" })).toThrow(
       "VERTEX_MODEL_ID"
     );
@@ -194,14 +194,14 @@ describe("validateAgentApiKey — Vertex routing", () => {
   it("accepts a raw Vertex model ID without throwing", () => {
     process.env.VERTEX_SERVICE_ACCOUNT_JSON = "{}";
     process.env.GOOGLE_CLOUD_PROJECT = "test-project";
-    process.env.VERTEX_LOCATION = "us-east5";
+    process.env.VERTEX_LOCATION = "europe-west2";
     process.env.VERTEX_MODEL_ID = "gemini-2.5-pro";
     expect(() => validateAgentApiKey({ ...params, model: "gemini-2.5-pro" })).not.toThrow();
   });
 
   it("throws on raw Vertex model ID when auth is missing", () => {
     process.env.GOOGLE_CLOUD_PROJECT = "test-project";
-    process.env.VERTEX_LOCATION = "us-east5";
+    process.env.VERTEX_LOCATION = "europe-west2";
     process.env.VERTEX_MODEL_ID = "gemini-2.5-pro";
     expect(() => validateAgentApiKey({ ...params, model: "gemini-2.5-pro" })).toThrow(
       "VERTEX_SERVICE_ACCOUNT_JSON"

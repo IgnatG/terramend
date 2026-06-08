@@ -3,7 +3,7 @@
 # Pin `mode: generateterraform` and describe the infrastructure in `prompt`.
 # Terramend writes secure-by-default HCL (pinned versions, parameterised, tagged,
 # least-privilege), validates it, self-scans it clean, and opens one reviewable
-# PR. Optionally scaffolds Terratest + examples for a reusable module.
+# PR. Optionally scaffolds plan-only Terratest + native tests for a reusable module.
 
 name: terramend-generate
 
@@ -44,7 +44,7 @@ jobs:
           # module_catalogue: |
           #   terraform-aws-modules/vpc/aws ~> 5.0
           #   terraform-aws-modules/s3-bucket/aws ~> 4.0
-          # terratest: "true"   # scaffold a plan-only Terratest + examples/ fixture
+          # terratest: "true"   # scaffold plan-only Terratest + native *.tftest.hcl tests
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}

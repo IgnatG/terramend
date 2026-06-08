@@ -311,9 +311,9 @@ export function resolvePayload(
     // should prefer; raw string, structured by `parseModuleCatalogue` in the
     // `list_modules` tool.
     moduleCatalogue: inputs.module_catalogue,
-    // §28 — opt in to scaffolding a Go Terratest smoke test + examples fixture
-    // when generating a reusable module; also widens the push allow-list so the
-    // test/example files can be written.
+    // §28 — opt in to scaffolding a Go Terratest smoke test + a native
+    // `*.tftest.hcl` (both plan the module directly) when generating a reusable
+    // module; also widens the push allow-list so the test files can be written.
     terratest: parseBooleanInput(inputs.terratest),
     // §3.12 — a `@terramend fix …` command parsed from the triggering comment
     // body (the prompt), scoping the run to a specific concern/severity/file.
