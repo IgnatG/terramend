@@ -96,7 +96,7 @@
     "table": "^6.9.0",
     "turndown": "^7.2.4",
     "typescript": "^6.0.3",
-    "undici": "^8.4.0",
+    "undici": "^8.4.1",
     "vitest": "^4.1.8",
     "yaml": "^2.9.0"
   },
