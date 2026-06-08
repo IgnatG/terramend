@@ -43,6 +43,11 @@ jobs:
           path-to-document: https://github.com/terramend/terramend/blob/main/CLA.md
           branch: cla-signatures
           allowlist: dependabot[bot],github-actions[bot],*[bot]
+          # This action locks a PR's conversation on merge by DEFAULT
+          # (lock-pullrequest-aftermerge=true). That breaks release-please, which
+          # comments on its release PR after merge — a locked thread fails the
+          # whole release job. Keep merged PR conversations open.
+          lock-pullrequest-aftermerge: false
           custom-pr-sign-comment: I have read the CLA Document and I hereby sign the CLA
           custom-notsigned-prcomment: >-
             Thanks for your contribution! Before we can merge it, please read our
