@@ -8,6 +8,13 @@ name: CLA Assistant
 #
 # Bots (dependabot, release-please, etc.) are allow-listed so automated PRs
 # aren't blocked. Re-trigger a stuck check by commenting `recreate-cla`.
+#
+# Maintainer setup (one-time): signatures are written to
+# `signatures/version1/cla.json` on a `cla-signatures` branch this workflow
+# creates on first run via GITHUB_TOKEN — so Settings -> Actions -> General ->
+# Workflow permissions must be "Read and write" with "Allow GitHub Actions to
+# create and approve pull requests" enabled. To keep signatures in a SEPARATE
+# private repo, set a CLA_SIGNATURES_TOKEN PAT (see PERSONAL_ACCESS_TOKEN below).
 
 on:
   issue_comment:

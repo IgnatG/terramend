@@ -1,0 +1,26 @@
+# pnpm 11 settings (pnpm reads these from pnpm-workspace.yaml, not package.json).
+
+# pnpm blocks dependency build/postinstall scripts by default; approve the ones
+# we trust. Each of these fetches a platform binary or data file the toolchain
+# needs, and they're all first-party runtime deps the published action already
+# runs via its npx bootstrap — so approving them here matches real usage.
+#   esbuild                    — installs the esbuild binary; required by `pnpm build`
+#   @anthropic-ai/claude-code  — installs the Claude Code agent backend
+#   opencode-ai                — installs the opencode agent backend
+#   agent-browser              — downloads a browser for the browser-automation tools
+#   tldjs                      — refreshes its bundled public-suffix list
+allowBuilds:
+  esbuild: true
+  '@anthropic-ai/claude-code': true
+  opencode-ai: true
+  agent-browser: true
+  tldjs: true
+
+# pnpm 11 defaults minimumReleaseAge to 1440 min (24h): a published version must
+# be public for 24h before pnpm will install it (supply-chain soak). These two
+# were committed while still <24h old, so they trip the gate. Exempt the exact
+# reviewed versions; remove an entry once it has aged out (or replace it after a
+# dependabot bump so the new version gets re-reviewed before exemption).
+minimumReleaseAgeExclude:
+  - semver@7.8.3
+  - undici@8.4.1
