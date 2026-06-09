@@ -1,7 +1,7 @@
 // run any node script inside the terramend local docker container that
 // mocks the GHA `ubuntu-24.04` runner environment. NOT a real GitHub
 // Actions runner — for the real thing, see `.github/workflows/*.yml`
-// and `action/commands/gha.ts` (the action's GHA entry point).
+// and `src/commands/gha.ts` (the action's GHA entry point).
 //
 // usage:
 //   pnpm docker <script> [args…]    # run script in container

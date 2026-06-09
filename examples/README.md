@@ -10,6 +10,7 @@ to a release tag.
 | [`generate-terraform.yml`](generate-terraform.yml) | Generate new secure-by-default Terraform from a plain-English requirement (`mode: generateterraform`). |
 | [`comment-fix.yml`](comment-fix.yml) | Trigger a scoped fix from a `@terramend fix …` PR/issue comment. |
 | [`remediate-advanced.yml`](remediate-advanced.yml) | The production shape: adds SARIF → Security tab, the plan gate via a plan-only OIDC role, and the `policy_check` (conftest/OPA) gate. |
+| [`remediate-dispatch.yml`](remediate-dispatch.yml) | On-demand run with `workflow_dispatch` inputs (severity / PR count) and an opinionated `prompt` that defines your "best practice" standard. Full toolchain + SARIF + conftest; demonstrates non-Anthropic BYOK (Gemini) via the `TERRAMEND_MODEL` passthrough. |
 | [`all-inputs-reference.yml`](all-inputs-reference.yml) | **Reference (not a starter):** every action input + environment variable in one place, each at its default — copy only the lines you need. |
 
 All install the scanner toolchain (terraform / tflint / trivy / checkov) — any that's absent is reported

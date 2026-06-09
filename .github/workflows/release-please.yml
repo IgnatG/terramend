@@ -6,15 +6,18 @@ run-name: "Release-please · ${{ github.ref_name }}"
 # release-please keeps an open "release PR" that accumulates the changelog +
 # version bumps; merging it cuts the release:
 #   1. release-please — creates the GitHub release + the exact vX.Y.Z git tag and
-#      bumps package.json + CHANGELOG (release-type: node). It does NOT publish to
-#      npm — terramend's npm version is server-stamped from the SHA-pinned action
-#      ref at publish time (see src/runCli.ts), a separate mechanism. release-please
-#      owns the git tags / GitHub releases / changelog only.
+#      bumps package.json + CHANGELOG (release-type: node). It owns the git tags /
+#      GitHub releases / changelog.
 #   2. tag-floats — moves the major (vX) and minor (vX.Y) float tags to the new
 #      release, so consumers can pin `uses: terramend/terramend@v0` (auto-updates
 #      within the major), `@v0.1` (within the minor), or `@v0.1.3` (exact).
 #      Chained here (not a tag-push trigger) because a tag created with
 #      GITHUB_TOKEN doesn't trigger other workflows.
+#   3. publish-npm — builds and publishes the `terramend` package to npm at the
+#      just-released version. This is what makes `uses: terramend/terramend@v0`
+#      work for everyone: the action bootstrap runs `npx terramend@^<version>`
+#      from npm (see src/runCli.ts), so the package MUST be published. Needs the
+#      NPM_TOKEN secret (an npm automation token).
 #
 # Requires repo Settings → Actions → General → "Allow GitHub Actions to create
 # and approve pull requests" (so the release PR can be opened), OR a RELEASE_PAT
@@ -98,3 +101,29 @@ jobs:
             git tag -f "$float" "${TAG}"
             git push -f origin "$float"
           done
+
+  publish-npm:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write # npm provenance (--provenance) is attested via OIDC
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          # writes ~/.npmrc pointing at npmjs and reading NODE_AUTH_TOKEN below.
+          registry-url: "https://registry.npmjs.org"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build # esbuild bundle → dist/ (the `files` npm ships)
+      # Publishes the version already in package.json (release-please bumped it on
+      # the merged release PR). --provenance attests the build via OIDC;
+      # --access public is required to first-publish an unscoped public package.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

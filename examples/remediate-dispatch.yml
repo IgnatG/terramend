@@ -1,0 +1,163 @@
+# Example: on-demand remediation with tunable inputs + an opinionated standard.
+#
+# This is the "real-world" shape used in the terraform-aws-repo-examples demo:
+#   • workflow_dispatch inputs    → tune severity / PR count at run time.
+#   • an opinionated `prompt`     → defines what "best practice" concretely means
+#                                   for your org (security → correctness → style →
+#                                   tagging → cost), in priority order.
+#   • full scanner toolchain      → terraform / tflint / trivy / checkov (+ conftest).
+#   • SARIF emit + upload         → findings land in the repo's Security tab.
+#   • non-Anthropic BYOK          → shows the Gemini provider + the TERRAMEND_MODEL
+#                                   passthrough for a raw (non-alias) model id.
+#
+# ── ONE-TIME PREREQUISITES ───────────────────────────────────────────────────
+#  1. Add the BYOK model secret (here GOOGLE_GENERATIVE_AI_API_KEY; swap for
+#     ANTHROPIC_API_KEY / OPENAI_API_KEY etc. with the matching env below).
+#  2. Settings → Actions → General → Workflow permissions → enable
+#     "Allow GitHub Actions to create and approve pull requests" so the run can
+#     open the remediation PR with the built-in GITHUB_TOKEN.
+
+name: terramend-remediate-dispatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      severity_threshold:
+        description: "Minimum concern severity to act on (critical|high|medium|low|info)."
+        type: string
+        default: medium
+      max_prs:
+        description: "Max remediation PRs to open in one run."
+        type: string
+        default: "1"
+  # Uncomment for an unattended weekly sweep:
+  # schedule:
+  #   - cron: "0 6 * * 1"   # Mondays 06:00 UTC
+
+permissions:
+  contents: write # push the remediate/<group-id> branch
+  pull-requests: write # open the remediation PR
+  security-events: write # upload terramend.sarif into Security → Code scanning
+
+jobs:
+  remediate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # full history so base-ref / diff-scope resolution works
+
+      # ── scanner toolchain (terraform_scan shells out to these) ───────────────
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false # CRITICAL: the wrapper pollutes `validate -json` stdout
+      - name: Setup tflint
+        uses: terraform-linters/setup-tflint@v4
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.3.1
+      - name: Install checkov
+        run: pipx install checkov || pip3 install --user checkov
+
+      # Optional: conftest (OPA) powers the `policy_check` gate. If your repo ships
+      # Rego under ./policy AND a terraform plan JSON is present (needs cloud creds
+      # — see the README's plan-gate OIDC note), Terramend runs the policy and
+      # treats a denial as a stop-sign. Without a plan, policy_check degrades green.
+      - name: Install conftest
+        run: |
+          CONFTEST_VERSION=0.56.0
+          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
+            | sudo tar xz -C /usr/local/bin conftest
+
+      # ── run the remediator ───────────────────────────────────────────────────
+      - name: Terramend remediate
+        uses: terramend/terramend@v0 # the published action (v0.x float; pin a SHA for stricter control)
+        with:
+          # `mode` pins the Remediate workflow deterministically — the prompt below
+          # is the STANDARD (what "best practice" means here), not the procedure.
+          mode: remediate
+          prompt: |
+            Bring this repository's Terraform up to best practice and open a
+            scoped, reviewable pull request for the highest-severity group of
+            issues. The deterministic scanners decide what is wrong; you apply
+            the minimal, correct fix and prove it.
+
+            "Best practice" means, in priority order:
+
+            1. SECURITY (highest priority)
+               - Encryption at rest and in transit: enable server-side
+                 encryption (KMS-managed keys where available) on S3, EBS, RDS,
+                 SNS/SQS, etc.; require TLS; never leave data stores unencrypted.
+               - No unintended public exposure: enable S3 "block public access";
+                 no 0.0.0.0/0 ingress to SSH/RDP/database/admin ports; keep
+                 networking private-by-default.
+               - Least-privilege IAM: no wildcard (`*`) actions or resources
+                 where a scoped policy works; no inline admin policies.
+               - Host hardening: require IMDSv2 on EC2; no public IPs unless the
+                 design truly needs them; enable logging/versioning where the
+                 resource supports it.
+               - No plaintext secrets or credentials in `.tf`/`.tfvars` — use
+                 variables, data sources, or a secrets manager.
+
+            2. CORRECTNESS
+               - Must pass `terraform validate`. No deprecated arguments or
+                 legacy interpolation syntax. Pin provider and module versions.
+
+            3. IDIOMATIC STYLE & STRUCTURE
+               - Canonical `terraform fmt`. Clear, consistent resource naming.
+                 Prefer variables/locals over hardcoded magic values, matching
+                 the repo's existing conventions. Prefer well-maintained
+                 registry/house modules over copy-pasted blocks.
+
+            4. TAGGING & GOVERNANCE
+               - Apply consistent tags (e.g. owner / environment / cost-center)
+                 wherever the provider supports them.
+
+            5. COST — balanced against security
+               - Security and best practice come first, but reach them the
+                 cost-effective way: when two compliant options exist, prefer
+                 the cheaper one and don't over-provision. Surface any meaningful
+                 monthly cost change the fix introduces so a human can weigh it.
+
+            Scope & discipline:
+            - Only modify Terraform files (`*.tf`, `*.tfvars`). Never touch CI
+              or workflow files, application code, or docs.
+            - Make the smallest change that resolves each concern; do NOT
+              refactor or reformat unrelated code.
+            - Every fix must be PROVEN by a re-scan (✗ → ✓), and the PR body must
+              explain, per issue: what was wrong, what you changed, and why it is
+              safe. Never auto-merge — always leave the PR for human review.
+          scan_scope: full
+          severity_threshold: ${{ inputs.severity_threshold }}
+          max_prs: ${{ inputs.max_prs }}
+          push: enabled
+          autonomy_threshold: high # escalate high/critical security or large-blast-radius fixes to needs-human
+          # protected_paths: "**/prod/**,**/state/**"   # never auto-modify these
+          # module_catalogue: |                          # prefer these vetted modules
+          #   terraform-aws-modules/vpc/aws ~> 5.0
+        env:
+          # GitHub auth: hand the action the job's built-in token. The permissions
+          # block above gives it push + PR rights. No GitHub App, no OIDC needed.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # BYOK model. This sample uses Gemini's cheapest "lite" tier via the
+          # TERRAMEND_MODEL passthrough (the `model:` input is curated-alias-only;
+          # raw ids go here). The `*-latest` alias avoids a dated id your key may
+          # not route. If your key can't serve the id, the run FAILS LOUDLY with
+          # the list of ids it CAN serve — pick the cheapest, never a silent
+          # downgrade. NOTE: "lite" is cheapest but weakest at the rich PR-body
+          # format; for fuller write-ups use e.g. google/gemini-flash-latest or a
+          # Claude/OpenAI mid-tier. To use Anthropic instead: drop TERRAMEND_MODEL
+          # and set ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}.
+          TERRAMEND_MODEL: google/gemini-flash-lite-latest
+          GOOGLE_GENERATIVE_AI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GOOGLE_GENERATIVE_AI_API_KEY }}
+
+      # ── publish the scan to the Security tab ─────────────────────────────────
+      # Terramend's terraform_emit_sarif writes ./terramend.sarif when the run
+      # produces a scan. `if: always()` so it uploads even when no PR was opened.
+      - name: Upload SARIF to code scanning
+        if: always() && hashFiles('terramend.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: terramend.sarif

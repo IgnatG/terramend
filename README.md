@@ -1,7 +1,7 @@
 # Terramend
 
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
-[![CI](https://github.com/terramend/terramend/actions/workflows/test.yml/badge.svg)](https://github.com/terramend/terramend/actions/workflows/test.yml)
+[![CI](https://github.com/terramend/terramend/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/terramend/terramend/actions/workflows/test.yml)
 [![Release](https://img.shields.io/github/v/release/terramend/terramend?sort=semver)](https://github.com/terramend/terramend/releases)
 [![Use this GitHub Action](https://img.shields.io/badge/GitHub%20Marketplace-Use%20this%20Action-2ea44f?logo=github)](https://github.com/marketplace/actions/terramend)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/terramend/terramend/badge)](https://scorecard.dev/viewer/?uri=github.com/terramend/terramend)

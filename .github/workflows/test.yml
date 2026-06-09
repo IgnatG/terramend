@@ -1,6 +1,8 @@
 name: Test
 
 on:
+  push:
+    branches: [main] # so the CI badge reflects main's health (and runs the full suite where secrets exist)
   pull_request:
 
 jobs:
@@ -21,6 +23,13 @@ jobs:
       - run: pnpm test
 
   agents:
+    # Secret-dependent integration tests. Repo secrets aren't exposed to
+    # dependabot PRs or forks, so skip there (those PRs are covered by the
+    # secret-free `test` job above). Runs on push to main + same-repo human PRs.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -89,6 +98,11 @@ jobs:
       - run: pnpm runtest ${{ matrix.test }} ${{ matrix.agent }}
 
   agnostic:
+    # Same as `agents`: secret-dependent, so skip on dependabot PRs / forks.
+    if: >-
+      github.event_name == 'push' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

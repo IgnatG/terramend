@@ -30,10 +30,9 @@ jobs:
         with:
           prompt: ${{ inputs.prompt }}
         env:
-          API_URL: ${{ secrets.API_URL }}
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          # add any additional keys your agent(s) need
-          # optionally, comment out any you won't use
+          # Model provider keys — keep the ONE you use, comment out the rest.
+          # Add any other secrets your run needs here (e.g. cloud credentials
+          # for terraform_plan; prefer OIDC role assumption over static keys).
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
