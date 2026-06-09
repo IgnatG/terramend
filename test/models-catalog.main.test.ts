@@ -57,7 +57,7 @@ describe("models.dev validity", async () => {
     it(`${alias.resolve} exists on models.dev`, () => {
       const providerData = data[parsed.provider];
       expect(providerData, `provider "${parsed.provider}" not found on models.dev`).toBeDefined();
-      const model = providerData.models[parsed.modelId];
+      const model = providerData!.models[parsed.modelId];
       expect(
         model,
         `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
@@ -86,7 +86,7 @@ describe("openRouterResolve models.dev validity", async () => {
     it(`${alias.openRouterResolve} exists on models.dev`, () => {
       const providerData = data[parsed.provider];
       expect(providerData, `provider "${parsed.provider}" not found on models.dev`).toBeDefined();
-      const model = providerData.models[parsed.modelId];
+      const model = providerData!.models[parsed.modelId];
       expect(
         model,
         `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
@@ -102,7 +102,7 @@ describe("DEFAULT_PROXY_MODEL models.dev validity", async () => {
   it(`${DEFAULT_PROXY_MODEL} exists on models.dev`, () => {
     const providerData = data[parsed.provider];
     expect(providerData, `provider "${parsed.provider}" not found on models.dev`).toBeDefined();
-    const model = providerData.models[parsed.modelId];
+    const model = providerData!.models[parsed.modelId];
     expect(
       model,
       `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,

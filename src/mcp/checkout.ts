@@ -70,8 +70,8 @@ export function formatFilesWithLineNumbers(files: PullFile[]): FormatFilesResult
       // hunk header: @@ -OLD,COUNT +NEW,COUNT @@ optional context
       const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (hunkMatch) {
-        oldLine = parseInt(hunkMatch[1], 10);
-        newLine = parseInt(hunkMatch[2], 10);
+        oldLine = parseInt(hunkMatch[1]!, 10);
+        newLine = parseInt(hunkMatch[2]!, 10);
         output.push(line); // pass through unchanged
         currentLine++;
         continue;

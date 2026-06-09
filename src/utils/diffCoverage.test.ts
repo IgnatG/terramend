@@ -146,8 +146,8 @@ describe("diff coverage line checker", () => {
     });
 
     const breakdown = getDiffCoverageBreakdown({ state });
-    const firstFile = breakdown.files[0];
-    const secondFile = breakdown.files[1];
+    const firstFile = breakdown.files[0]!;
+    const secondFile = breakdown.files[1]!;
 
     expect(firstFile.filename).toBe("src/a.ts");
     expect(firstFile.coveredRanges).toEqual([{ startLine: 5, endLine: 6 }]);

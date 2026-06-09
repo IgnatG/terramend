@@ -79,7 +79,7 @@ export function groupConcernsByRule(concerns: Concern[]): ConcernGroup[] {
     const files = [...new Set(cs.map((c) => c.location.file))].sort();
     groups.push({
       id: ruleGroupId(ruleId),
-      file: files.length === 1 ? files[0] : `${files.length} files`,
+      file: files.length === 1 ? files[0]! : `${files.length} files`,
       files,
       grouping: "rule",
       severity: maxSeverity(cs),
@@ -170,7 +170,7 @@ export function ruleDocUrl(concern: Pick<Concern, "rule_id" | "remediation_hint"
   if (hint && /^https?:\/\//i.test(hint)) return hint;
   // trivy:AVD-AWS-0088 → https://avd.aquasec.com/misconfig/avd-aws-0088
   const trivyMatch = concern.rule_id.match(/^trivy:(AVD-[A-Z0-9-]+)$/i);
-  if (trivyMatch) return `https://avd.aquasec.com/misconfig/${trivyMatch[1].toLowerCase()}`;
+  if (trivyMatch) return `https://avd.aquasec.com/misconfig/${trivyMatch[1]!.toLowerCase()}`;
   return null;
 }
 
@@ -512,11 +512,13 @@ export function clusterByLocation(concerns: Concern[]): LocationCluster[] {
   }
   const clusters: LocationCluster[] = [];
   for (const cs of byLoc.values()) {
+    const first = cs[0];
+    if (!first) continue; // empty group can't happen (map is populated), but keep the guard explicit
     const sources = [...new Set(cs.map((c) => c.source))].sort();
     if (sources.length < 2) continue; // single-scanner location isn't cross-tool overlap
     clusters.push({
-      file: cs[0].location.file,
-      line: cs[0].location.line,
+      file: first.location.file,
+      line: first.location.line,
       concern_ids: cs.map((c) => c.id).sort(),
       sources,
     });

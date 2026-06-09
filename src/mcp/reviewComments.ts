@@ -121,15 +121,15 @@ function extractCommentedLines(
   const lines = diffHunk.split("\n");
   if (lines.length <= 1) return diffHunk;
 
-  const header = lines[0];
+  const header = lines[0]!;
   const contentLines = lines.slice(1);
 
   // parse header: @@ -old_start,old_count +new_start,new_count @@
   const headerMatch = header.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
   if (!headerMatch) return diffHunk;
 
-  const hunkOldStart = parseInt(headerMatch[1], 10);
-  const hunkNewStart = parseInt(headerMatch[2], 10);
+  const hunkOldStart = parseInt(headerMatch[1]!, 10);
+  const hunkNewStart = parseInt(headerMatch[2]!, 10);
 
   // LEFT = old file (deletions), RIGHT = new file (additions)
   const hunkStart = side === "LEFT" ? hunkOldStart : hunkNewStart;
@@ -170,8 +170,7 @@ function extractCommentedLines(
   const result: string[] = [];
   let truncatedBefore = 0;
 
-  for (let i = 0; i < diffLines.length; i++) {
-    const dl = diffLines[i];
+  for (const [i, dl] of diffLines.entries()) {
     // include if: within target range, OR it's an "other side" line adjacent to included lines
     const inRange = dl.lineNum !== null && dl.lineNum >= targetStart && dl.lineNum <= targetEnd;
     // include opposite-side lines if they're between included lines
@@ -213,9 +212,9 @@ export function parseFilePatches(patch: string): ParsedHunk[] {
       if (currentHunk) hunks.push(currentHunk);
       currentHunk = {
         header: line,
-        oldStart: parseInt(hunkMatch[1], 10),
+        oldStart: parseInt(hunkMatch[1]!, 10),
         oldCount: parseInt(hunkMatch[2] ?? "1", 10),
-        newStart: parseInt(hunkMatch[3], 10),
+        newStart: parseInt(hunkMatch[3]!, 10),
         newCount: parseInt(hunkMatch[4] ?? "1", 10),
         content: [],
       };
@@ -260,7 +259,7 @@ function extractFromFilePatches(
 
   if (overlapping.length === 1) {
     // single hunk - use existing extraction logic
-    const hunk = overlapping[0];
+    const hunk = overlapping[0]!;
     const fullHunk = `${hunk.header}\n${hunk.content.join("\n")}`;
     return extractCommentedLines(fullHunk, startLine, endLine, side);
   }
@@ -269,8 +268,7 @@ function extractFromFilePatches(
   const result: string[] = [];
   let prevHunkEnd = 0;
 
-  for (let i = 0; i < overlapping.length; i++) {
-    const hunk = overlapping[i];
+  for (const [i, hunk] of overlapping.entries()) {
     const hunkStart = side === "LEFT" ? hunk.oldStart : hunk.newStart;
     const hunkCount = side === "LEFT" ? hunk.oldCount : hunk.newCount;
     const hunkEnd = hunkStart + hunkCount - 1;

@@ -12,9 +12,9 @@ function parseTocEntries(toc: string) {
     const match = line.match(/^- (.+) → lines (\d+)-(\d+) · diff-[0-9a-f]+$/);
     if (match) {
       entries.push({
-        filename: match[1],
-        startLine: parseInt(match[2], 10),
-        endLine: parseInt(match[3], 10),
+        filename: match[1]!,
+        startLine: parseInt(match[2]!, 10),
+        endLine: parseInt(match[3]!, 10),
       });
     }
   }
@@ -59,8 +59,8 @@ describe("formatFilesWithLineNumbers", () => {
 
     // verify adjacent files don't overlap and are contiguous
     for (let i = 1; i < tocEntries.length; i++) {
-      const prev = tocEntries[i - 1];
-      const curr = tocEntries[i];
+      const prev = tocEntries[i - 1]!;
+      const curr = tocEntries[i]!;
       expect(curr.startLine).toBe(prev.endLine + 1);
     }
 

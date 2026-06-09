@@ -137,7 +137,7 @@ function parseGitHubOutputFile(filePath: string, key: string): string | null {
   const pattern = new RegExp(`${key}<<(ghadelimiter_[\\w-]+)\\n([\\s\\S]*?)\\n\\1`);
   const match = content.match(pattern);
   if (!match) return null;
-  return match[2];
+  return match[2]!;
 }
 
 export interface ValidationCheck {

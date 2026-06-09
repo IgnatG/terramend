@@ -53,7 +53,7 @@ export function parseRemediationCommand(body: string | undefined): RemediationCo
   // `fix <sev>-severity` (without "all")
   const sevOnly = afterMention.match(/\bfix\s+([a-z]+)\s*-?\s*severity\b/i);
   if (sevOnly) {
-    const sev = sevOnly[1].toLowerCase();
+    const sev = sevOnly[1]!.toLowerCase();
     if (isSeverity(sev)) return { kind: "severity", severity: sev };
   }
 
@@ -61,11 +61,11 @@ export function parseRemediationCommand(body: string | undefined): RemediationCo
   // BEFORE the concern-id form so an all-hex filename stem (e.g. `deadbeef.tf`)
   // isn't mis-read as a concern id.
   const file = afterMention.match(/\bfix\s+([^\s#]+\.tf(?:vars)?)\b/i);
-  if (file) return { kind: "file", file: file[1] };
+  if (file) return { kind: "file", file: file[1]! };
 
   // `fix #<id>` or `fix <id>` — a concern id is hex (content hash, 6–40 chars).
   const concern = afterMention.match(/\bfix\s+#?([0-9a-f]{6,40})\b/i);
-  if (concern) return { kind: "concern", concernRef: concern[1].toLowerCase() };
+  if (concern) return { kind: "concern", concernRef: concern[1]!.toLowerCase() };
 
   return null;
 }

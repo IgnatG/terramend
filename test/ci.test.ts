@@ -25,7 +25,7 @@ function getTestNamesFromDir(dir: string): string[] {
     const content = readFileSync(join(dirPath, file), "utf-8");
     const match = content.match(/^\s+name:\s*"([^"]+)"/m);
     if (match) {
-      names.push(match[1]);
+      names.push(match[1]!);
     }
   }
 

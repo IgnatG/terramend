@@ -66,7 +66,7 @@ function expandBraces(pattern: string): string[] {
   if (!m || m.index === undefined) return [pattern];
   const before = pattern.slice(0, m.index);
   const after = pattern.slice(m.index + m[0].length);
-  const opts = m[1].split(",");
+  const opts = m[1]!.split(",");
   return opts.flatMap((opt) => expandBraces(`${before}${opt}${after}`));
 }
 

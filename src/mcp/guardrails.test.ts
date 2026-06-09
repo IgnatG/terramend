@@ -234,8 +234,8 @@ describe("scanDiffForSecrets (§2.8)", () => {
     const hits = scanDiffForSecrets(d);
     expect(hits).toHaveLength(2); // AKIA value pattern + sensitive-assignment
     expect(hits.some((h) => h.rule === "aws-access-key-id")).toBe(true);
-    expect(hits[0].file).toBe("main.tf");
-    expect(hits[0].line).toBe(2); // second new-side line in the hunk
+    expect(hits[0]!.file).toBe("main.tf");
+    expect(hits[0]!.line).toBe(2); // second new-side line in the hunk
   });
 
   it("flags a hardcoded password literal but NOT a variable reference", () => {

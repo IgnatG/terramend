@@ -228,8 +228,8 @@ export function parseRequiredProviders(hcl: string): ProviderRequirement[] {
     let m: RegExpExecArray | null;
     // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
     while ((m = objRe.exec(body)) !== null) {
-      const name = m[1];
-      const inner = m[2];
+      const name = m[1]!;
+      const inner = m[2]!;
       if (seen.has(name)) continue;
       seen.add(name);
       const source = inner.match(/source\s*=\s*"([^"]+)"/)?.[1] ?? null;
@@ -242,10 +242,10 @@ export function parseRequiredProviders(hcl: string): ProviderRequirement[] {
     const strRe = /([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"([^"]+)"/g;
     // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
     while ((m = strRe.exec(bodyNoObjects)) !== null) {
-      const name = m[1];
+      const name = m[1]!;
       if (seen.has(name)) continue;
       seen.add(name);
-      out.push({ name, source: null, version: m[2], major: majorOf(m[2]) });
+      out.push({ name, source: null, version: m[2]!, major: majorOf(m[2]!) });
     }
   }
   return out;
@@ -305,8 +305,8 @@ export function parseResourceArguments(hcl: string): ResourceArguments[] {
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
   while ((m = re.exec(hcl)) !== null) {
-    const resourceType = m[1];
-    const name = m[2];
+    const resourceType = m[1]!;
+    const name = m[2]!;
     const braceStart = hcl.indexOf("{", m.index);
     if (braceStart === -1) break;
     const body = matchBraceBody(hcl, braceStart);
@@ -398,7 +398,7 @@ function topLevelArgNames(body: string): string[] {
       atStmtStart = span.endsLine;
       continue;
     }
-    const ch = body[i];
+    const ch = body[i]!;
     if (ch === "{") {
       depth++;
       atStmtStart = false;
@@ -417,7 +417,7 @@ function topLevelArgNames(body: string): string[] {
     // a non-space char that starts a statement at depth 0 → read an identifier.
     if (depth === 0 && atStmtStart && /[A-Za-z_]/.test(ch)) {
       let j = i;
-      while (j < body.length && /[A-Za-z0-9_-]/.test(body[j])) j++;
+      while (j < body.length && /[A-Za-z0-9_-]/.test(body[j]!)) j++;
       const ident = body.slice(i, j);
       // skip whitespace after the identifier to classify it.
       let k = j;

@@ -127,7 +127,7 @@ export function postProcessRangeDiff(raw: string, contextLines = 3): string | nu
     }
 
     if (lineEnd - cursor >= 5 && raw.startsWith("    ", cursor)) {
-      const prefix = raw[cursor + 4];
+      const prefix = raw[cursor + 4]!;
       if (isDiffPrefix(prefix)) {
         const contentPos = cursor + 5;
         const isOuterChange = prefix !== " ";
@@ -136,7 +136,7 @@ export function postProcessRangeDiff(raw: string, contextLines = 3): string | nu
 
         if (contentPos >= lineEnd) {
           line = { prefix, from: lineEnd, to: lineEnd, seq };
-        } else if (isDiffPrefix(raw[contentPos])) {
+        } else if (isDiffPrefix(raw[contentPos]!)) {
           isChange = isOuterChange;
           line = { prefix, from: contentPos + 1, to: lineEnd, seq };
         } else {

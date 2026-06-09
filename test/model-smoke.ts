@@ -37,7 +37,7 @@ const TIMEOUT_MS = 120_000;
 
 function parseSlug(): string {
   const argIdx = process.argv.indexOf("--slug");
-  if (argIdx >= 0 && process.argv[argIdx + 1]) return process.argv[argIdx + 1];
+  if (argIdx >= 0 && process.argv[argIdx + 1]) return process.argv[argIdx + 1]!;
   if (process.env.TERRAMEND_MODEL) return process.env.TERRAMEND_MODEL;
   throw new Error("model-smoke: pass --slug <alias> or set TERRAMEND_MODEL");
 }

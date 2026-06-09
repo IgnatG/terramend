@@ -44,7 +44,7 @@ function isSupported(name: string): name is SupportedPackageManager {
 function parsePackageManagerField(value: string): PackageManagerSpec | null {
   // npm spec form is "name@version[+integrity]" — corepack adds the integrity
   // suffix; we strip it because it's not a semver.
-  const withoutHash = value.split("+")[0];
+  const withoutHash = value.split("+")[0]!;
   const at = withoutHash.lastIndexOf("@");
   if (at <= 0) return null;
   const name = withoutHash.slice(0, at);

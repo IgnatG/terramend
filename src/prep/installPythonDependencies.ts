@@ -12,7 +12,8 @@ import { spawn } from "#app/utils/subprocess";
 interface PythonConfig {
   file: string;
   tool: PythonPackageManager;
-  installCmd: string[];
+  // non-empty: the first element is the executable, the rest are args
+  installCmd: [string, ...string[]];
 }
 
 // python dependency file patterns in priority order
@@ -49,8 +50,8 @@ const PYTHON_CONFIGS: PythonConfig[] = [
   },
 ];
 
-// tool install commands (via pip)
-const TOOL_INSTALL_COMMANDS: Record<string, string[]> = {
+// tool install commands (via pip). Each command is non-empty (executable + args).
+const TOOL_INSTALL_COMMANDS: Record<string, [string, ...string[]]> = {
   pipenv: ["pip", "install", "pipenv"],
   poetry: ["pip", "install", "poetry"],
 };

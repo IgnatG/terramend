@@ -66,8 +66,8 @@ export function commentableLinesForFile(patch: string | undefined): CommentableL
   for (const line of patch.split("\n")) {
     const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunk) {
-      oldLine = parseInt(hunk[1], 10);
-      newLine = parseInt(hunk[2], 10);
+      oldLine = parseInt(hunk[1]!, 10);
+      newLine = parseInt(hunk[2]!, 10);
       continue;
     }
     const changeType = line[0];

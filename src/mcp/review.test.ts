@@ -89,7 +89,7 @@ describe("validateInlineComments", () => {
     const result = validateInlineComments([base({ path: "other/bar.ts" })], diffMap);
     expect(result.valid).toHaveLength(0);
     expect(result.dropped).toHaveLength(1);
-    expect(result.dropped[0].reason).toContain("file not in PR diff");
+    expect(result.dropped[0]!.reason).toContain("file not in PR diff");
   });
 
   it("distinguishes binary/no-patch files from files with hunks", () => {
@@ -101,16 +101,16 @@ describe("validateInlineComments", () => {
     const result = validateInlineComments([base({ path: "assets/logo.png", line: 1 })], binaryMap);
     expect(result.valid).toHaveLength(0);
     expect(result.dropped).toHaveLength(1);
-    expect(result.dropped[0].reason).toContain("no textual diff");
-    expect(result.dropped[0].reason).not.toContain("not inside a diff hunk");
+    expect(result.dropped[0]!.reason).toContain("no textual diff");
+    expect(result.dropped[0]!.reason).not.toContain("not inside a diff hunk");
   });
 
   it("drops comments on lines outside diff hunks", () => {
     const result = validateInlineComments([base({ line: 500 })], diffMap);
     expect(result.valid).toHaveLength(0);
     expect(result.dropped).toHaveLength(1);
-    expect(result.dropped[0].reason).toContain("line 500");
-    expect(result.dropped[0].reason).toContain("RIGHT");
+    expect(result.dropped[0]!.reason).toContain("line 500");
+    expect(result.dropped[0]!.reason).toContain("RIGHT");
   });
 
   it("drops comments whose side mismatches the hunk (added line on LEFT)", () => {
@@ -124,7 +124,7 @@ describe("validateInlineComments", () => {
     const result = validateInlineComments([base({ line: 12, start_line: 3 })], diffMap);
     expect(result.valid).toHaveLength(0);
     expect(result.dropped).toHaveLength(1);
-    expect(result.dropped[0].reason).toContain("start_line 3");
+    expect(result.dropped[0]!.reason).toContain("start_line 3");
   });
 
   it("keeps multi-line comments fully inside a hunk", () => {
@@ -140,8 +140,8 @@ describe("validateInlineComments", () => {
     const result = validateInlineComments([base({ line: 11, start_line: 12 })], diffMap);
     expect(result.valid).toHaveLength(0);
     expect(result.dropped).toHaveLength(1);
-    expect(result.dropped[0].reason).toMatch(/start_line 12 is after line 11/);
-    expect(result.dropped[0].reason).toMatch(/start_line <= line/);
+    expect(result.dropped[0]!.reason).toMatch(/start_line 12 is after line 11/);
+    expect(result.dropped[0]!.reason).toMatch(/start_line <= line/);
   });
 
   it("partitions a batch — valid and invalid comments survive independently", () => {

@@ -46,15 +46,13 @@ function analyzeLog(logs: string, excerptLines = 80): LogAnalysis {
     { type: "trace", pattern: /^\s+at\s+/i },
   ];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
+  for (const [i, line] of lines.entries()) {
     for (const p of patterns) {
       if (p.pattern.test(line)) {
         if (p.skip?.test(line)) continue;
 
         // dedupe consecutive traces
-        if (p.type === "trace" && index.length > 0 && index[index.length - 1].type === "trace") {
+        if (p.type === "trace" && index.length > 0 && index[index.length - 1]!.type === "trace") {
           continue;
         }
 
@@ -74,7 +72,7 @@ function analyzeLog(logs: string, excerptLines = 80): LogAnalysis {
   // find excerpt range: focus on LAST ##[error] line
   let errorLine = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (/##\[error\]/i.test(lines[i])) {
+    if (/##\[error\]/i.test(lines[i]!)) {
       errorLine = i;
       break;
     }

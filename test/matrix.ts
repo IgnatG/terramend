@@ -65,7 +65,7 @@ function extractStringLiterals(source: string): string[] {
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex iteration
   while ((m = STRING_LITERAL.exec(source))) {
-    out.push(m[1]);
+    out.push(m[1]!);
   }
   return out;
 }
@@ -79,7 +79,7 @@ function extractStringArray(source: string, key: string): string[] | undefined {
   const re = new RegExp(`^\\s+${key}:\\s*\\[([\\s\\S]*?)\\]`, "m");
   const m = source.match(re);
   if (!m) return undefined;
-  return extractStringLiterals(m[1]);
+  return extractStringLiterals(m[1]!);
 }
 
 function parseTestFile(source: string): ParsedTest | null {
@@ -90,7 +90,7 @@ function parseTestFile(source: string): ParsedTest | null {
   const nameMatch = stripped.match(/^\s+name:\s*"([^"]+)"/m);
   if (!nameMatch) return null;
   return {
-    name: nameMatch[1],
+    name: nameMatch[1]!,
     agents: extractStringArray(stripped, "agents"),
     coverage: extractStringArray(stripped, "coverage"),
   };
@@ -125,7 +125,7 @@ function loadAgents(): string[] {
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex iteration
   while ((m = re.exec(source))) {
     if (m[2] === "shared") continue;
-    out.push(m[1]);
+    out.push(m[1]!);
   }
   return out.sort();
 }
@@ -198,7 +198,7 @@ function buildAliasesMatrix(input: {
   const all = buildAliasMatrix({ filter: input.filter });
   const coverageByProvider = new Map(providers.map((p) => [p.name, p.coverage]));
   return all.filter((entry) => {
-    const provider = entry.slug.split("/")[0];
+    const provider = entry.slug.split("/")[0]!;
     return shouldRun({
       changedFiles: input.changedFiles,
       coverage: coverageByProvider.get(provider),

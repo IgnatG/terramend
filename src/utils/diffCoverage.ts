@@ -66,10 +66,10 @@ export function parseDiffTocEntries(params: { toc: string }): DiffTocEntry[] {
   for (const line of lines) {
     const match = line.match(/^- (.+) (?:→|->) lines (\d+)-(\d+)(?: · diff-[0-9a-f]+)?$/);
     if (!match) continue;
-    const startLine = Number.parseInt(match[2], 10);
-    const endLine = Number.parseInt(match[3], 10);
+    const startLine = Number.parseInt(match[2]!, 10);
+    const endLine = Number.parseInt(match[3]!, 10);
     if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) continue;
-    entries.push({ filename: match[1], startLine, endLine });
+    entries.push({ filename: match[1]!, startLine, endLine });
   }
   return entries;
 }

@@ -114,9 +114,7 @@ jobs:
 > **Ready-to-use workflows:** [`examples/`](examples/) has copy-pasteable workflows — scheduled
 > [remediation](examples/remediate.yml), [generation](examples/generate-terraform.yml),
 > [comment-triggered fixes](examples/comment-fix.yml), and the full
-> [SARIF + plan-gate + policy setup](examples/remediate-advanced.yml). A complete end-to-end demo
-> (a deliberately-flawed module + its remediation workflow) lives in the separate
-> [`terramend/terraform-aws-repo-examples`](https://github.com/terramend/terraform-aws-repo-examples) repo.
+> [SARIF + plan-gate + policy setup](examples/remediate-advanced.yml).
 
 ---
 

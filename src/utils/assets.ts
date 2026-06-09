@@ -39,8 +39,8 @@ export async function downloadAssetsInMarkdown(
   githubToken: string,
 ): Promise<string> {
   const urls = new Set<string>();
-  for (const match of markdown.matchAll(MARKDOWN_IMAGE)) urls.add(match[1]);
-  for (const match of markdown.matchAll(HTML_IMAGE)) urls.add(match[1]);
+  for (const match of markdown.matchAll(MARKDOWN_IMAGE)) urls.add(match[1]!);
+  for (const match of markdown.matchAll(HTML_IMAGE)) urls.add(match[1]!);
 
   if (urls.size === 0) return markdown;
 

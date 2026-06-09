@@ -56,7 +56,7 @@ export function resolveAllowedPaths(ctx: ToolContext): string[] {
 export function globToRegex(glob: string): RegExp {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
+    const c = glob[i]!;
     if (c === "*") {
       if (glob[i + 1] === "*") {
         if (glob[i + 2] === "/") {

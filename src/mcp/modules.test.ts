@@ -94,7 +94,7 @@ describe("parseModuleCatalogue (real-world sources)", () => {
   });
 
   it("derives a registry-submodule name from its subdir", () => {
-    expect(parseModuleCatalogue(REGISTRY_SUBMODULE)[0].name).toBe("log-group");
+    expect(parseModuleCatalogue(REGISTRY_SUBMODULE)[0]!.name).toBe("log-group");
   });
 
   it("handles local paths, newline/comma splitting, and dedup", () => {
@@ -217,7 +217,7 @@ describe("parseModuleInterface", () => {
     const iface = parseModuleInterface(hcl);
     expect(iface.variables).toHaveLength(1);
     expect(iface.variables[0]).toMatchObject({ name: "cfg", required: false });
-    expect(iface.variables[0].type).toContain("object(");
+    expect(iface.variables[0]!.type).toContain("object(");
   });
 
   it("returns empty for HCL with no variables/outputs", () => {
@@ -244,7 +244,7 @@ describe("parseModuleInterface", () => {
       type    = map(string)
       default = {}
     }`;
-    expect(parseModuleInterface(hcl).variables[0].required).toBe(false);
+    expect(parseModuleInterface(hcl).variables[0]!.required).toBe(false);
   });
 });
 

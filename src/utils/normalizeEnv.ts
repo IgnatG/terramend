@@ -61,7 +61,7 @@ export function normalizeEnv(): void {
   // process each group
   for (const [upperKey, keys] of upperKeys) {
     if (keys.length === 1) {
-      const key = keys[0];
+      const key = keys[0]!;
       if (key !== upperKey) {
         // single key, just needs uppercasing
         process.env[upperKey] = process.env[key];
@@ -82,7 +82,7 @@ export function normalizeEnv(): void {
     }
 
     // prefer the uppercase version if it exists, otherwise use the first one
-    const preferredKey = keys.find((k) => k === upperKey) || keys[0];
+    const preferredKey = keys.find((k) => k === upperKey) || keys[0]!;
     const preferredValue = process.env[preferredKey];
 
     // delete all variants

@@ -445,7 +445,12 @@ function emptyResourceUsage(): ResourceUsage {
   };
 }
 
-const usageByResource: Record<string, ResourceUsage> = {
+// `core` and `graphql` are always seeded below, so they're declared as required
+// (the index signature still admits other resources, which are added on demand).
+const usageByResource: Record<string, ResourceUsage> & {
+  core: ResourceUsage;
+  graphql: ResourceUsage;
+} = {
   core: emptyResourceUsage(),
   graphql: emptyResourceUsage(),
 };

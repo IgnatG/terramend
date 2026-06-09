@@ -144,7 +144,7 @@ export function resourceTypeOf(address: string): string {
   const withoutModules = address.replace(/^(?:module\.[^.]+\.)+/, "");
   const cleaned = withoutModules.replace(/\[[^\]]*\]$/, "");
   const segments = cleaned.split(".");
-  return segments.length >= 2 ? segments[segments.length - 2] : "";
+  return segments.length >= 2 ? segments[segments.length - 2]! : "";
 }
 
 export interface DestroyClassification {

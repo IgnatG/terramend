@@ -53,7 +53,7 @@ function deriveName(source: string): string {
   const registry = cleaned.match(
     /^(?:[^/]+\/)?([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/,
   );
-  if (registry) return registry[2];
+  if (registry) return registry[2]!;
   const seg = cleaned.split(/[/]/).filter(Boolean).pop() ?? source;
   return seg.replace(/[^A-Za-z0-9_-]/g, "_");
 }
@@ -93,9 +93,9 @@ export function splitModuleSource(raw: string): ParsedModuleSource {
     const refMatch = query.match(/(?:^|&)ref=([^&]+)/);
     if (refMatch) {
       try {
-        ref = decodeURIComponent(refMatch[1]);
+        ref = decodeURIComponent(refMatch[1]!);
       } catch {
-        ref = refMatch[1];
+        ref = refMatch[1]!;
       }
     }
   }
@@ -230,7 +230,7 @@ export function parseModuleBlocks(hcl: string): ModuleBlock[] {
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
   while ((m = re.exec(hcl)) !== null) {
-    const name = m[1];
+    const name = m[1]!;
     const braceStart = re.lastIndex - 1;
     let depth = 0;
     let end = -1;
@@ -490,7 +490,7 @@ function blockBody(hcl: string, kw: string): { name: string; body: string; end: 
   let m: RegExpExecArray | null;
   // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
   while ((m = re.exec(hcl)) !== null) {
-    const name = m[1];
+    const name = m[1]!;
     const braceStart = re.lastIndex - 1;
     let depth = 0;
     let end = -1;
@@ -532,7 +532,7 @@ export function parseModuleInterface(hcl: string): ModuleInterface {
     const hasDefault = /(?:^|\n)\s*default\s*=/.test(stripNestedBraces(body));
     variables.push({
       name,
-      type: typeMatch ? typeMatch[1].trim() : null,
+      type: typeMatch ? typeMatch[1]!.trim() : null,
       description,
       required: !hasDefault,
     });

@@ -143,7 +143,7 @@ export function detectEnvironmentTwins(paths: string[]): EnvironmentTwinGroup[] 
     let idx = -1;
     let token = "";
     for (let i = segments.length - 1; i >= 0; i--) {
-      const seg = segments[i].toLowerCase();
+      const seg = segments[i]!.toLowerCase();
       if (ENV_TOKENS.has(seg) || REGION_RE.test(seg)) {
         idx = i;
         token = seg;

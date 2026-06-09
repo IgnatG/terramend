@@ -1,6 +1,6 @@
 # Example: on-demand remediation with tunable inputs + an opinionated standard.
 #
-# This is the "real-world" shape used in the terraform-aws-repo-examples demo:
+# A "real-world" shape:
 #   • workflow_dispatch inputs    → tune severity / PR count at run time.
 #   • an opinionated `prompt`     → defines what "best practice" concretely means
 #                                   for your org (security → correctness → style →

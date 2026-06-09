@@ -59,7 +59,7 @@ describe("parseFmtOutput", () => {
       category: "style",
       location: { file: "main.tf", line: null },
     });
-    expect(concerns[1].location.file).toBe("modules/net/vpc.tf");
+    expect(concerns[1]!.location.file).toBe("modules/net/vpc.tf");
   });
 
   it("returns nothing for empty output", () => {
@@ -130,14 +130,14 @@ describe("parseTrivyOutput", () => {
     });
     const concerns = parseTrivyOutput(withPass);
     expect(concerns).toHaveLength(1);
-    expect(concerns[0].rule_id).toBe("trivy:AVD-AWS-0002");
+    expect(concerns[0]!.rule_id).toBe("trivy:AVD-AWS-0002");
   });
 
   it("treats a zero/absent StartLine as a null line", () => {
     const noLine = JSON.stringify({
       Results: [{ Target: "main.tf", Misconfigurations: [{ AVDID: "AVD-X", Severity: "LOW" }] }],
     });
-    expect(parseTrivyOutput(noLine)[0].location.line).toBeNull();
+    expect(parseTrivyOutput(noLine)[0]!.location.line).toBeNull();
   });
 
   it("tolerates a null/empty Results array", () => {
@@ -183,7 +183,7 @@ describe("parseCheckovOutput", () => {
     const noSev = JSON.stringify({
       results: { failed_checks: [{ check_id: "CKV_X", file_path: "a.tf" }] },
     });
-    expect(parseCheckovOutput(noSev)[0].severity).toBe("medium");
+    expect(parseCheckovOutput(noSev)[0]!.severity).toBe("medium");
   });
 
   it("normalizes a 0 start line to null (matches the reviewer, so the id is stable)", () => {
@@ -192,7 +192,7 @@ describe("parseCheckovOutput", () => {
         failed_checks: [{ check_id: "CKV_X", file_path: "a.tf", file_line_range: [0, 0] }],
       },
     });
-    expect(parseCheckovOutput(zeroLine)[0].location.line).toBeNull();
+    expect(parseCheckovOutput(zeroLine)[0]!.location.line).toBeNull();
   });
 });
 
@@ -289,13 +289,13 @@ describe("concern ids", () => {
     });
 
   it("are stable and content-derived (same input → same id)", () => {
-    const a = parseTrivyOutput(trivy("f.tf", 2))[0];
-    const b = parseTrivyOutput(trivy("f.tf", 2))[0];
+    const a = parseTrivyOutput(trivy("f.tf", 2))[0]!;
+    const b = parseTrivyOutput(trivy("f.tf", 2))[0]!;
     expect(a.id).toBe(b.id);
   });
 
   it("differ when the location differs", () => {
-    const mk = (line: number): Concern => parseTrivyOutput(trivy("f.tf", line))[0];
+    const mk = (line: number): Concern => parseTrivyOutput(trivy("f.tf", line))[0]!;
     expect(mk(2).id).not.toBe(mk(3).id);
   });
 });
@@ -313,7 +313,7 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
       ],
     });
   const trivyFile = (target: string, cwd: string): string =>
-    parseTrivyOutput(trivyTarget(target), cwd)[0].location.file;
+    parseTrivyOutput(trivyTarget(target), cwd)[0]!.location.file;
 
   it("rewrites an absolute scanner path to repo-relative posix", () => {
     expect(trivyFile("/repo/sub/main.tf", "/repo/sub")).toBe("main.tf");
@@ -328,7 +328,7 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
         },
       }),
       "/repo",
-    )[0].location.file;
+    )[0]!.location.file;
     expect(file).toBe("main.tf");
   });
 
@@ -338,11 +338,11 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
     const ci = parseTrivyOutput(
       trivyTarget("/home/runner/work/repo/main.tf"),
       "/home/runner/work/repo",
-    )[0];
+    )[0]!;
     const dev = parseTrivyOutput(
       trivyTarget("D:\\Users\\dev\\repo\\main.tf"),
       "D:\\Users\\dev\\repo",
-    )[0];
+    )[0]!;
     expect(ci.location.file).toBe("main.tf");
     expect(dev.location.file).toBe("main.tf");
     expect(ci.id).toBe(dev.id);
@@ -370,13 +370,13 @@ describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
     expect(groups).toHaveLength(2);
     expect(groups[0]).toMatchObject({ file: "main.tf", severity: "high", concern_count: 2 });
     expect(groups[1]).toMatchObject({ file: "vpc.tf", severity: "medium", concern_count: 1 });
-    expect(groups[0].rule_ids).toEqual(["tflint:a", "trivy:b"]);
-    expect(groups[0].concern_ids).toHaveLength(2);
+    expect(groups[0]!.rule_ids).toEqual(["tflint:a", "trivy:b"]);
+    expect(groups[0]!.concern_ids).toHaveLength(2);
   });
 
   it("gives a stable group id for the same file (idempotent branch key)", () => {
-    const a = groupConcerns([concern("main.tf", "low", "x")])[0];
-    const b = groupConcerns([concern("main.tf", "high", "y")])[0];
+    const a = groupConcerns([concern("main.tf", "low", "x")])[0]!;
+    const b = groupConcerns([concern("main.tf", "high", "y")])[0]!;
     expect(a.id).toBe(b.id);
   });
 });
@@ -409,19 +409,19 @@ describe("groupConcernsByRule (§3.11 — one group per rule across files)", () 
 
   it("uses the single filename as the label when a rule fires in one file", () => {
     const [g] = groupConcernsByRule([concern("only.tf", "low", "tflint:x")]);
-    expect(g.file).toBe("only.tf");
-    expect(g.files).toEqual(["only.tf"]);
+    expect(g!.file).toBe("only.tf");
+    expect(g!.files).toEqual(["only.tf"]);
   });
 
   it("gives a stable, rule-derived group id distinct from the by-file id", () => {
-    const byRule = groupConcernsByRule([concern("a.tf", "low", "tflint:x")])[0];
-    const byFile = groupConcerns([concern("a.tf", "low", "tflint:x")])[0];
+    const byRule = groupConcernsByRule([concern("a.tf", "low", "tflint:x")])[0]!;
+    const byFile = groupConcerns([concern("a.tf", "low", "tflint:x")])[0]!;
     expect(byRule.id).not.toBe(byFile.id);
     // same rule → same id regardless of which files it spans
     const again = groupConcernsByRule([
       concern("a.tf", "low", "tflint:x"),
       concern("z.tf", "low", "tflint:x"),
-    ])[0];
+    ])[0]!;
     expect(again.id).toBe(byRule.id);
   });
 });
@@ -450,12 +450,12 @@ describe("annotateGroups (§3.9 — autonomy by concern membership, both groupin
     ];
     const groups = groupConcernsByRule(all);
     const annotated = annotateGroups(groups, all, "high");
-    expect(annotated[0].autonomy).toBe("needs-human");
+    expect(annotated[0]!.autonomy).toBe("needs-human");
   });
 
   it("marks a low-severity style group auto", () => {
     const all = [concern("1", "a.tf", "low", "style")];
-    expect(annotateGroups(groupConcerns(all), all, "high")[0].autonomy).toBe("auto");
+    expect(annotateGroups(groupConcerns(all), all, "high")[0]!.autonomy).toBe("auto");
   });
 });
 
@@ -560,7 +560,7 @@ describe("parseRequiredProviders (§4.15)", () => {
       required_providers { aws = { version = "~> 4.0" } }`;
     const out = parseRequiredProviders(hcl);
     expect(out).toHaveLength(1);
-    expect(out[0].major).toBe(5);
+    expect(out[0]!.major).toBe(5);
   });
 });
 
@@ -665,7 +665,7 @@ describe("resolveRoots (multi-root discovery → operate list)", () => {
     writeFileSync(join(root, "terraform", "core", "providers.tf"), 'provider "aws" {}');
     const roots = resolveRoots(root);
     expect(roots.map((r) => r.relDir)).toEqual(["terraform", "terraform/core"]);
-    expect(roots[0].absDir).toBe(join(root, "terraform"));
+    expect(roots[0]!.absDir).toBe(join(root, "terraform"));
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -753,7 +753,7 @@ describe("parseReviewerFindings", () => {
         },
       }),
     );
-    expect(reviewer.id).toBe(own.id);
+    expect(reviewer!.id).toBe(own!.id);
   });
 
   it("maps the same id whether the reviewer rule_id is namespaced or bare", () => {
@@ -761,25 +761,25 @@ describe("parseReviewerFindings", () => {
       report([finding({ rule_id: "checkov:CKV_AWS_18" })]),
     );
     const [bare] = parseReviewerFindings(report([finding({ rule_id: "CKV_AWS_18" })]));
-    expect(namespaced.id).toBe(bare.id);
+    expect(namespaced!.id).toBe(bare!.id);
   });
 
   it("collapses reviewer-exclusive sources (tfsec/infracost/llm) to `reviewer`", () => {
     expect(
-      parseReviewerFindings(report([finding({ source: "tfsec", rule_id: "tfsec:AWS017" })]))[0]
+      parseReviewerFindings(report([finding({ source: "tfsec", rule_id: "tfsec:AWS017" })]))[0]!
         .source,
     ).toBe("reviewer");
-    expect(parseReviewerFindings(report([finding({ source: "llm" })]))[0].source).toBe("reviewer");
+    expect(parseReviewerFindings(report([finding({ source: "llm" })]))[0]!.source).toBe("reviewer");
   });
 
   it("keeps known scanners (trivy/tflint) as themselves", () => {
     expect(
       parseReviewerFindings(
         report([finding({ source: "trivy", rule_id: "trivy:AVD-AWS-0088" })]),
-      )[0].source,
+      )[0]!.source,
     ).toBe("trivy");
     expect(
-      parseReviewerFindings(report([finding({ source: "tflint", rule_id: "tflint:foo" })]))[0]
+      parseReviewerFindings(report([finding({ source: "tflint", rule_id: "tflint:foo" })]))[0]!
         .source,
     ).toBe("tflint");
   });
@@ -789,15 +789,15 @@ describe("parseReviewerFindings", () => {
       report([finding(), finding({ state: "human_only", rule_id: "checkov:CKV_AWS_99" })]),
     );
     expect(concerns).toHaveLength(1);
-    expect(concerns[0].rule_id).toBe("checkov:CKV_AWS_18");
+    expect(concerns[0]!.rule_id).toBe("checkov:CKV_AWS_18");
   });
 
   it("maps the cost category and defaults unknown categories to correctness", () => {
     expect(
-      parseReviewerFindings(report([finding({ category: "cost", source: "infracost" })]))[0]
+      parseReviewerFindings(report([finding({ category: "cost", source: "infracost" })]))[0]!
         .category,
     ).toBe("cost");
-    expect(parseReviewerFindings(report([finding({ category: "weird" })]))[0].category).toBe(
+    expect(parseReviewerFindings(report([finding({ category: "weird" })]))[0]!.category).toBe(
       "correctness",
     );
   });
@@ -815,7 +815,7 @@ describe("parseReviewerFindings", () => {
       ]),
     );
     expect(concerns).toHaveLength(1);
-    expect(concerns[0].location.file).toBe("main.tf");
+    expect(concerns[0]!.location.file).toBe("main.tf");
   });
 
   it("normalizes absolute scanner paths to repo-relative POSIX", () => {
@@ -823,7 +823,7 @@ describe("parseReviewerFindings", () => {
       report([finding({ location: { file: "/repo/main.tf", line: 1 } })]),
       "/repo",
     );
-    expect(c.location.file).toBe("main.tf");
+    expect(c!.location.file).toBe("main.tf");
   });
 
   it("returns nothing for an empty or findings-less report", () => {
@@ -890,7 +890,7 @@ describe("SARIF ingestion (read_findings)", () => {
         ],
       }),
     );
-    expect(c.id).toBe(own.id);
+    expect(c!.id).toBe(own!.id);
   });
 
   it("uses security-severity to refine the level when present", () => {
@@ -905,7 +905,7 @@ describe("SARIF ingestion (read_findings)", () => {
         ],
       },
     ]);
-    expect(parseSarifFindings(report)[0].severity).toBe("critical");
+    expect(parseSarifFindings(report)[0]!.severity).toBe("critical");
   });
 
   it("drops non-Terraform files and tolerates an empty report", () => {
@@ -932,7 +932,7 @@ describe("SARIF ingestion (read_findings)", () => {
         ],
       },
     ]);
-    expect(parseFindingsFile(sarifReport)[0].source).toBe("trivy");
+    expect(parseFindingsFile(sarifReport)[0]!.source).toBe("trivy");
     const reviewer = JSON.stringify({
       schema_version: "1.0",
       findings: [
@@ -944,7 +944,7 @@ describe("SARIF ingestion (read_findings)", () => {
         },
       ],
     });
-    expect(parseFindingsFile(reviewer)[0].source).toBe("checkov");
+    expect(parseFindingsFile(reviewer)[0]!.source).toBe("checkov");
   });
 });
 
@@ -1356,7 +1356,7 @@ describe("clusterByLocation (§30 — cross-tool co-location)", () => {
     ]);
     expect(clusters).toHaveLength(1);
     expect(clusters[0]).toMatchObject({ file: "main.tf", line: 5, sources: ["checkov", "trivy"] });
-    expect(clusters[0].concern_ids).toEqual(["1", "2"]);
+    expect(clusters[0]!.concern_ids).toEqual(["1", "2"]);
   });
 
   it("does not cluster a single scanner's concerns or null-line concerns", () => {
@@ -1652,7 +1652,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
           prevent_destroy = true
         }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect(r.resourceType).toBe("aws_s3_bucket");
     expect(r.name).toBe("b");
     expect([...r.args].sort()).toEqual(["bucket", "tags", "versioning"]);
@@ -1670,7 +1670,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
           content { from_port = ingress.value.port }
         }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect(r.args).toContain("ingress");
     expect(r.args).toContain("name");
     expect(r.args).not.toContain("dynamic");
@@ -1683,7 +1683,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
         # bogus = "commented out"
         instance_type = "t3.micro"
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect([...r.args].sort()).toEqual(["ami", "instance_type"]);
     expect(r.args).not.toContain("bogus");
   });
@@ -1700,7 +1700,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
           }
         }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect(r.args).toContain("bucket");
     expect(r.args).toContain("server_side_encryption_configuration");
     expect(r.args).not.toContain("sse_algorithm");
@@ -1722,7 +1722,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
         description = "a \\"quoted\\" word { not a block"
         name        = "r"
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect([...r.args].sort()).toEqual(["description", "name"]);
   });
 
@@ -1738,7 +1738,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
         EOT
         tags = { Env = "prod" }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect([...r.args].sort()).toEqual(["assume_role_policy", "name", "tags"]);
     expect(r.args).not.toContain("fake_arg");
     expect(r.args).not.toContain("Version");
