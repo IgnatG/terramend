@@ -1,1 +1,12 @@
-{"signedContributors":[]}
+{
+  "signedContributors": [
+    {
+      "name": "IgnatG",
+      "id": 6107088,
+      "comment_id": 4662150598,
+      "created_at": "2026-06-09T17:11:22Z",
+      "repoId": 1259706194,
+      "pullRequestNo": 9
+    }
+  ]
+}
