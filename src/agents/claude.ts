@@ -16,6 +16,27 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import {
+  buildClaudePretoolGateSettings,
+  CLAUDE_PRETOOL_GATE_FILENAME,
+  CLAUDE_PRETOOL_GATE_SOURCE,
+} from "#app/agents/claudePretoolGate";
+import { startGateServer } from "#app/agents/gateServer";
+import {
+  GIT_NATIVE_READ_DENY_CLAUDE,
+  GIT_NATIVE_WRITE_DENY_CLAUDE,
+} from "#app/agents/nativeFsDenies";
+import { finalizeAgentResult } from "#app/agents/postRun";
+import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
+import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "#app/agents/sessionLabeler";
+import {
+  type AgentResult,
+  type AgentRunContext,
+  type AgentUsage,
+  agent,
+  logTokenTable,
+  MAX_STDERR_LINES,
+} from "#app/agents/shared";
 import { terramendMcpName } from "#app/external";
 import {
   BEDROCK_MODEL_ID_ENV,
@@ -23,7 +44,6 @@ import {
   isVertexAnthropicId,
   VERTEX_MODEL_ID_ENV,
 } from "#app/models";
-
 import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "#app/utils/activity";
 import { formatJsonValue, log } from "#app/utils/cli";
 import { installFromNpmTarball } from "#app/utils/install";
@@ -40,24 +60,6 @@ import { ThinkingTimer } from "#app/utils/timer";
 import type { TodoTracker } from "#app/utils/todoTracking";
 import { getDevDependencyVersion } from "#app/utils/version";
 import { applyClaudeVertexEnv } from "#app/utils/vertex";
-import {
-  buildClaudePretoolGateSettings,
-  CLAUDE_PRETOOL_GATE_FILENAME,
-  CLAUDE_PRETOOL_GATE_SOURCE,
-} from "#app/agents/claudePretoolGate";
-import { startGateServer } from "#app/agents/gateServer";
-import { GIT_NATIVE_READ_DENY_CLAUDE, GIT_NATIVE_WRITE_DENY_CLAUDE } from "#app/agents/nativeFsDenies";
-import { finalizeAgentResult } from "#app/agents/postRun";
-import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
-import { formatWithLabel, ORCHESTRATOR_LABEL, SessionLabeler } from "#app/agents/sessionLabeler";
-import {
-  type AgentResult,
-  type AgentRunContext,
-  type AgentUsage,
-  agent,
-  logTokenTable,
-  MAX_STDERR_LINES,
-} from "#app/agents/shared";
 
 async function installClaudeCli(): Promise<string> {
   return await installFromNpmTarball({
@@ -104,7 +106,7 @@ function writeMcpConfig(ctx: AgentRunContext): string {
       mcpServers: {
         [terramendMcpName]: { type: "http", url: ctx.mcpServerUrl },
       },
-    })
+    }),
   );
   return configPath;
 }
@@ -460,8 +462,8 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
               withLabel(
                 label,
                 `» dispatching subagent: ${dispatchedLabel}` +
-                  (taskInput.subagent_type ? ` (subagent_type=${taskInput.subagent_type})` : "")
-              )
+                  (taskInput.subagent_type ? ` (subagent_type=${taskInput.subagent_type})` : ""),
+              ),
             );
           }
 
@@ -516,7 +518,7 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
                         ? entry
                         : typeof entry === "object" && entry !== null && "text" in entry
                           ? String((entry as { text: unknown }).text)
-                          : JSON.stringify(entry)
+                          : JSON.stringify(entry),
                     )
                     .join("\n")
                 : String(block.content);
@@ -550,7 +552,7 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
         resultErrorSubtype = subtype;
         syntheticStopFailure = true;
         log.info(
-          `» ${params.label} result error: subtype=${subtype}, api_error_status=${apiStatus ?? "unknown"}, message=${lastResultError}`
+          `» ${params.label} result error: subtype=${subtype}, api_error_status=${apiStatus ?? "unknown"}, message=${lastResultError}`,
         );
         return;
       }
@@ -680,7 +682,7 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
           const timeSinceLastActivity = getIdleMs();
           if (timeSinceLastActivity > 10000) {
             log.info(
-              `» no activity for ${(timeSinceLastActivity / 1000).toFixed(1)}s (${params.label} may be processing internally) (${eventCount} events processed so far)`
+              `» no activity for ${(timeSinceLastActivity / 1000).toFixed(1)}s (${params.label} may be processing internally) (${eventCount} events processed so far)`,
             );
           }
           markActivity();
@@ -694,7 +696,7 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
             (handler as (e: ClaudeEvent) => void)(event);
           } catch (err) {
             log.info(
-              `» ${params.label} handler for type=${event.type} threw: ${err instanceof Error ? err.message : String(err)}`
+              `» ${params.label} handler for type=${event.type} threw: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
         }
@@ -724,7 +726,7 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
 
     const duration = performance.now() - startTime;
     log.info(
-      `» ${params.label} completed in ${Math.round(duration)}ms with exit code ${result.exitCode}`
+      `» ${params.label} completed in ${Math.round(duration)}ms with exit code ${result.exitCode}`,
     );
 
     if (eventCount === 0) {
@@ -785,7 +787,7 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
         truncatedStdout ||
         `unknown error - no output from Claude CLI${errorContext}`;
       log.error(
-        `${params.label} exited with code ${result.exitCode}${errorContext}: ${errorMessage}`
+        `${params.label} exited with code ${result.exitCode}${errorContext}: ${errorMessage}`,
       );
       log.debug(`stdout: ${stdoutSnapshot.substring(0, 500)}`);
       log.debug(`stderr: ${stderrSnapshot.substring(0, 500)}`);
@@ -834,12 +836,12 @@ export async function runClaude(params: RunParams): Promise<ClaudeRunResult> {
         : `${eventCount} events were processed before the hang`;
 
     log.info(
-      `» ${params.label} ${isActivityTimeout ? "hung" : "failed"} after ${(duration / 1000).toFixed(1)}s: ${errorMessage}`
+      `» ${params.label} ${isActivityTimeout ? "hung" : "failed"} after ${(duration / 1000).toFixed(1)}s: ${errorMessage}`,
     );
     log.info(`» diagnosis: ${diagnosis}`);
     if (stderrContext)
       log.info(
-        `» recent stderr (last ${Math.min(recentStderr.length, 10)} lines):\n${stderrContext}`
+        `» recent stderr (last ${Math.min(recentStderr.length, 10)} lines):\n${stderrContext}`,
       );
 
     return {
@@ -1103,7 +1105,7 @@ export const claude = agent({
     // carries it through and we don't disturb it.
     const repoDir = process.cwd();
 
-    // PWD must match the spawn cwd (see opencode_v2.ts for the analogous fix).
+    // PWD must match the spawn cwd (see opencode.ts for the analogous fix).
     // claude-code 2.1.x reads `process.env.PWD` and registers it as a "session"
     // additional-working-directory when it differs from `process.cwd()` (per
     // the bundled cli.js — `let H=process.env.PWD; if(H && H !== Y7() && ...)
@@ -1129,7 +1131,7 @@ export const claude = agent({
     // Max-subscription path. bedrock route uses AWS creds and is excluded.
     if (env.CLAUDE_CODE_OAUTH_TOKEN && !isBedrockRoute && env.ANTHROPIC_API_KEY) {
       log.debug(
-        "» CLAUDE_CODE_OAUTH_TOKEN present — stripping ANTHROPIC_API_KEY from Claude Code env so the OAuth subscription is used"
+        "» CLAUDE_CODE_OAUTH_TOKEN present — stripping ANTHROPIC_API_KEY from Claude Code env so the OAuth subscription is used",
       );
       delete env.ANTHROPIC_API_KEY;
     }

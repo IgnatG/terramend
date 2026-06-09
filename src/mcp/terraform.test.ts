@@ -7,6 +7,7 @@ import {
   annotateGroups,
   buildRefusalReport,
   buildSarifReport,
+  type Concern,
   classifyAutonomy,
   classifyCostEscalation,
   classifyDestructive,
@@ -16,18 +17,17 @@ import {
   comparePlanStability,
   computeBlastRadius,
   computeConfidence,
-  type Concern,
   computeCostDelta,
   computeRegressions,
   computeRemediationVerdict,
   groupConcerns,
   groupConcernsByRule,
+  isSarif,
   isTerraformConcern,
   moduleAddressOf,
   parseCheckovOutput,
-  parseFmtOutput,
-  isSarif,
   parseFindingsFile,
+  parseFmtOutput,
   parseInfracostBreakdown,
   parseInfracostResources,
   parseRequiredProviders,
@@ -40,10 +40,10 @@ import {
   parseValidateOutput,
   planBatches,
   preventiveControlFor,
+  type RootPlan,
   rebaseConcern,
   resolveRoots,
   resourceTypeOf,
-  type RootPlan,
   ruleDocUrl,
   shouldSuggestInline,
 } from "#app/mcp/terraform";
@@ -59,7 +59,7 @@ describe("parseFmtOutput", () => {
       category: "style",
       location: { file: "main.tf", line: null },
     });
-    expect(concerns[1].location.file).toBe("modules/net/vpc.tf");
+    expect(concerns[1]!.location.file).toBe("modules/net/vpc.tf");
   });
 
   it("returns nothing for empty output", () => {
@@ -112,22 +112,32 @@ describe("parseTrivyOutput", () => {
         {
           Target: "main.tf",
           Misconfigurations: [
-            { AVDID: "AVD-AWS-0001", Severity: "HIGH", Status: "PASS", CauseMetadata: { StartLine: 4 } },
-            { AVDID: "AVD-AWS-0002", Severity: "HIGH", Status: "FAIL", CauseMetadata: { StartLine: 9 } },
+            {
+              AVDID: "AVD-AWS-0001",
+              Severity: "HIGH",
+              Status: "PASS",
+              CauseMetadata: { StartLine: 4 },
+            },
+            {
+              AVDID: "AVD-AWS-0002",
+              Severity: "HIGH",
+              Status: "FAIL",
+              CauseMetadata: { StartLine: 9 },
+            },
           ],
         },
       ],
     });
     const concerns = parseTrivyOutput(withPass);
     expect(concerns).toHaveLength(1);
-    expect(concerns[0].rule_id).toBe("trivy:AVD-AWS-0002");
+    expect(concerns[0]!.rule_id).toBe("trivy:AVD-AWS-0002");
   });
 
   it("treats a zero/absent StartLine as a null line", () => {
     const noLine = JSON.stringify({
       Results: [{ Target: "main.tf", Misconfigurations: [{ AVDID: "AVD-X", Severity: "LOW" }] }],
     });
-    expect(parseTrivyOutput(noLine)[0].location.line).toBeNull();
+    expect(parseTrivyOutput(noLine)[0]!.location.line).toBeNull();
   });
 
   it("tolerates a null/empty Results array", () => {
@@ -173,14 +183,16 @@ describe("parseCheckovOutput", () => {
     const noSev = JSON.stringify({
       results: { failed_checks: [{ check_id: "CKV_X", file_path: "a.tf" }] },
     });
-    expect(parseCheckovOutput(noSev)[0].severity).toBe("medium");
+    expect(parseCheckovOutput(noSev)[0]!.severity).toBe("medium");
   });
 
   it("normalizes a 0 start line to null (matches the reviewer, so the id is stable)", () => {
     const zeroLine = JSON.stringify({
-      results: { failed_checks: [{ check_id: "CKV_X", file_path: "a.tf", file_line_range: [0, 0] }] },
+      results: {
+        failed_checks: [{ check_id: "CKV_X", file_path: "a.tf", file_line_range: [0, 0] }],
+      },
     });
-    expect(parseCheckovOutput(zeroLine)[0].location.line).toBeNull();
+    expect(parseCheckovOutput(zeroLine)[0]!.location.line).toBeNull();
   });
 });
 
@@ -252,7 +264,11 @@ describe("parseValidateOutput", () => {
     // error diagnostic; it must not become a false-positive correctness concern.
     const sample = JSON.stringify({
       diagnostics: [
-        { severity: "error", summary: "Failed to load plugin schemas", detail: "plugin did not respond" },
+        {
+          severity: "error",
+          summary: "Failed to load plugin schemas",
+          detail: "plugin did not respond",
+        },
       ],
     });
     expect(parseValidateOutput(sample)).toEqual([]);
@@ -265,19 +281,21 @@ describe("concern ids", () => {
       Results: [
         {
           Target: file,
-          Misconfigurations: [{ AVDID: "r", Severity: "low", Status: "FAIL", CauseMetadata: { StartLine: line } }],
+          Misconfigurations: [
+            { AVDID: "r", Severity: "low", Status: "FAIL", CauseMetadata: { StartLine: line } },
+          ],
         },
       ],
     });
 
   it("are stable and content-derived (same input → same id)", () => {
-    const a = parseTrivyOutput(trivy("f.tf", 2))[0];
-    const b = parseTrivyOutput(trivy("f.tf", 2))[0];
+    const a = parseTrivyOutput(trivy("f.tf", 2))[0]!;
+    const b = parseTrivyOutput(trivy("f.tf", 2))[0]!;
     expect(a.id).toBe(b.id);
   });
 
   it("differ when the location differs", () => {
-    const mk = (line: number): Concern => parseTrivyOutput(trivy("f.tf", line))[0];
+    const mk = (line: number): Concern => parseTrivyOutput(trivy("f.tf", line))[0]!;
     expect(mk(2).id).not.toBe(mk(3).id);
   });
 });
@@ -288,12 +306,14 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
       Results: [
         {
           Target: target,
-          Misconfigurations: [{ AVDID: "r", Severity: "high", Status: "FAIL", CauseMetadata: { StartLine: 5 } }],
+          Misconfigurations: [
+            { AVDID: "r", Severity: "high", Status: "FAIL", CauseMetadata: { StartLine: 5 } },
+          ],
         },
       ],
     });
   const trivyFile = (target: string, cwd: string): string =>
-    parseTrivyOutput(trivyTarget(target), cwd)[0].location.file;
+    parseTrivyOutput(trivyTarget(target), cwd)[0]!.location.file;
 
   it("rewrites an absolute scanner path to repo-relative posix", () => {
     expect(trivyFile("/repo/sub/main.tf", "/repo/sub")).toBe("main.tf");
@@ -303,18 +323,26 @@ describe("path normalization (Bug 1 — portable, repo-relative paths)", () => {
   it("strips checkov's leading-slash path", () => {
     const file = parseCheckovOutput(
       JSON.stringify({
-        results: { failed_checks: [{ check_id: "CKV_X", file_path: "/main.tf", file_line_range: [5] }] },
+        results: {
+          failed_checks: [{ check_id: "CKV_X", file_path: "/main.tf", file_line_range: [5] }],
+        },
       }),
-      "/repo"
-    )[0].location.file;
+      "/repo",
+    )[0]!.location.file;
     expect(file).toBe("main.tf");
   });
 
   it("yields the SAME concern id regardless of the machine's absolute prefix", () => {
     // the core Bug 1 regression: a Linux CI runner and a Windows dev box reported
     // the same logical file under different absolute paths and got different ids.
-    const ci = parseTrivyOutput(trivyTarget("/home/runner/work/repo/main.tf"), "/home/runner/work/repo")[0];
-    const dev = parseTrivyOutput(trivyTarget("D:\\Users\\dev\\repo\\main.tf"), "D:\\Users\\dev\\repo")[0];
+    const ci = parseTrivyOutput(
+      trivyTarget("/home/runner/work/repo/main.tf"),
+      "/home/runner/work/repo",
+    )[0]!;
+    const dev = parseTrivyOutput(
+      trivyTarget("D:\\Users\\dev\\repo\\main.tf"),
+      "D:\\Users\\dev\\repo",
+    )[0]!;
     expect(ci.location.file).toBe("main.tf");
     expect(dev.location.file).toBe("main.tf");
     expect(ci.id).toBe(dev.id);
@@ -342,13 +370,13 @@ describe("groupConcerns (Bug 2 — one scoped group per file)", () => {
     expect(groups).toHaveLength(2);
     expect(groups[0]).toMatchObject({ file: "main.tf", severity: "high", concern_count: 2 });
     expect(groups[1]).toMatchObject({ file: "vpc.tf", severity: "medium", concern_count: 1 });
-    expect(groups[0].rule_ids).toEqual(["tflint:a", "trivy:b"]);
-    expect(groups[0].concern_ids).toHaveLength(2);
+    expect(groups[0]!.rule_ids).toEqual(["tflint:a", "trivy:b"]);
+    expect(groups[0]!.concern_ids).toHaveLength(2);
   });
 
   it("gives a stable group id for the same file (idempotent branch key)", () => {
-    const a = groupConcerns([concern("main.tf", "low", "x")])[0];
-    const b = groupConcerns([concern("main.tf", "high", "y")])[0];
+    const a = groupConcerns([concern("main.tf", "low", "x")])[0]!;
+    const b = groupConcerns([concern("main.tf", "high", "y")])[0]!;
     expect(a.id).toBe(b.id);
   });
 });
@@ -381,25 +409,30 @@ describe("groupConcernsByRule (§3.11 — one group per rule across files)", () 
 
   it("uses the single filename as the label when a rule fires in one file", () => {
     const [g] = groupConcernsByRule([concern("only.tf", "low", "tflint:x")]);
-    expect(g.file).toBe("only.tf");
-    expect(g.files).toEqual(["only.tf"]);
+    expect(g!.file).toBe("only.tf");
+    expect(g!.files).toEqual(["only.tf"]);
   });
 
   it("gives a stable, rule-derived group id distinct from the by-file id", () => {
-    const byRule = groupConcernsByRule([concern("a.tf", "low", "tflint:x")])[0];
-    const byFile = groupConcerns([concern("a.tf", "low", "tflint:x")])[0];
+    const byRule = groupConcernsByRule([concern("a.tf", "low", "tflint:x")])[0]!;
+    const byFile = groupConcerns([concern("a.tf", "low", "tflint:x")])[0]!;
     expect(byRule.id).not.toBe(byFile.id);
     // same rule → same id regardless of which files it spans
     const again = groupConcernsByRule([
       concern("a.tf", "low", "tflint:x"),
       concern("z.tf", "low", "tflint:x"),
-    ])[0];
+    ])[0]!;
     expect(again.id).toBe(byRule.id);
   });
 });
 
 describe("annotateGroups (§3.9 — autonomy by concern membership, both groupings)", () => {
-  const concern = (id: string, file: string, severity: Concern["severity"], category: Concern["category"]): Concern => ({
+  const concern = (
+    id: string,
+    file: string,
+    severity: Concern["severity"],
+    category: Concern["category"],
+  ): Concern => ({
     id,
     source: "trivy",
     rule_id: "trivy:r",
@@ -411,15 +444,18 @@ describe("annotateGroups (§3.9 — autonomy by concern membership, both groupin
   });
 
   it("escalates a by-rule group whose concerns include a high security finding", () => {
-    const all = [concern("1", "a.tf", "high", "security"), concern("2", "b.tf", "high", "security")];
+    const all = [
+      concern("1", "a.tf", "high", "security"),
+      concern("2", "b.tf", "high", "security"),
+    ];
     const groups = groupConcernsByRule(all);
     const annotated = annotateGroups(groups, all, "high");
-    expect(annotated[0].autonomy).toBe("needs-human");
+    expect(annotated[0]!.autonomy).toBe("needs-human");
   });
 
   it("marks a low-severity style group auto", () => {
     const all = [concern("1", "a.tf", "low", "style")];
-    expect(annotateGroups(groupConcerns(all), all, "high")[0].autonomy).toBe("auto");
+    expect(annotateGroups(groupConcerns(all), all, "high")[0]!.autonomy).toBe("auto");
   });
 });
 
@@ -447,7 +483,9 @@ describe("planBatches (§3.10 — atomic vs batched PRs)", () => {
   });
 
   it("does not create a batch branch for fewer than two batchable groups", () => {
-    expect(planBatches([grp("a", "low", "auto"), grp("c", "high", "auto")]).batch_branch).toBeNull();
+    expect(
+      planBatches([grp("a", "low", "auto"), grp("c", "high", "auto")]).batch_branch,
+    ).toBeNull();
   });
 
   it("is deterministic for the same member set regardless of order", () => {
@@ -461,12 +499,14 @@ describe("ruleDocUrl (§5.17)", () => {
   const c = (rule_id: string, remediation_hint: string | null) => ({ rule_id, remediation_hint });
 
   it("prefers an explicit URL remediation_hint", () => {
-    expect(ruleDocUrl(c("checkov:CKV_AWS_18", "https://docs.example/ckv"))).toBe("https://docs.example/ckv");
+    expect(ruleDocUrl(c("checkov:CKV_AWS_18", "https://docs.example/ckv"))).toBe(
+      "https://docs.example/ckv",
+    );
   });
 
   it("derives the Aqua AVD page for a trivy rule with no hint URL", () => {
     expect(ruleDocUrl(c("trivy:AVD-AWS-0088", null))).toBe(
-      "https://avd.aquasec.com/misconfig/avd-aws-0088"
+      "https://avd.aquasec.com/misconfig/avd-aws-0088",
     );
   });
 
@@ -520,7 +560,7 @@ describe("parseRequiredProviders (§4.15)", () => {
       required_providers { aws = { version = "~> 4.0" } }`;
     const out = parseRequiredProviders(hcl);
     expect(out).toHaveLength(1);
-    expect(out[0].major).toBe(5);
+    expect(out[0]!.major).toBe(5);
   });
 });
 
@@ -566,13 +606,23 @@ describe("rebaseConcern (multi-root — re-base a per-root concern onto cwd)", (
 
 describe("aggregatePlans (multi-root plan aggregation)", () => {
   const ps = (over: Partial<ReturnType<typeof parseTerraformPlanJson>>) =>
-    ({ add: 0, change: 0, destroy: 0, changed: [], destructive: [], hasDestroyOrReplace: false, ...over }) as ReturnType<
-      typeof parseTerraformPlanJson
-    >;
+    ({
+      add: 0,
+      change: 0,
+      destroy: 0,
+      changed: [],
+      destructive: [],
+      hasDestroyOrReplace: false,
+      ...over,
+    }) as ReturnType<typeof parseTerraformPlanJson>;
 
   it("sums counts and unions changed/destructive across roots", () => {
     const roots: RootPlan[] = [
-      { dir: "terraform", summary: ps({ add: 1, changed: [{ address: "aws_s3_bucket.a", action: "create" }] }), stable: true },
+      {
+        dir: "terraform",
+        summary: ps({ add: 1, changed: [{ address: "aws_s3_bucket.a", action: "create" }] }),
+        stable: true,
+      },
       {
         dir: "terraform/core",
         summary: ps({
@@ -596,7 +646,7 @@ describe("aggregatePlans (multi-root plan aggregation)", () => {
       aggregatePlans([
         { dir: "a", summary: ps({}), stable: true },
         { dir: "b", summary: ps({ change: 1 }), stable: false },
-      ]).idempotent
+      ]).idempotent,
     ).toBe(false);
   });
 
@@ -615,7 +665,7 @@ describe("resolveRoots (multi-root discovery → operate list)", () => {
     writeFileSync(join(root, "terraform", "core", "providers.tf"), 'provider "aws" {}');
     const roots = resolveRoots(root);
     expect(roots.map((r) => r.relDir)).toEqual(["terraform", "terraform/core"]);
-    expect(roots[0].absDir).toBe(join(root, "terraform"));
+    expect(roots[0]!.absDir).toBe(join(root, "terraform"));
     rmSync(root, { recursive: true, force: true });
   });
 
@@ -701,44 +751,55 @@ describe("parseReviewerFindings", () => {
             },
           ],
         },
-      })
+      }),
     );
-    expect(reviewer.id).toBe(own.id);
+    expect(reviewer!.id).toBe(own!.id);
   });
 
   it("maps the same id whether the reviewer rule_id is namespaced or bare", () => {
-    const [namespaced] = parseReviewerFindings(report([finding({ rule_id: "checkov:CKV_AWS_18" })]));
+    const [namespaced] = parseReviewerFindings(
+      report([finding({ rule_id: "checkov:CKV_AWS_18" })]),
+    );
     const [bare] = parseReviewerFindings(report([finding({ rule_id: "CKV_AWS_18" })]));
-    expect(namespaced.id).toBe(bare.id);
+    expect(namespaced!.id).toBe(bare!.id);
   });
 
   it("collapses reviewer-exclusive sources (tfsec/infracost/llm) to `reviewer`", () => {
-    expect(parseReviewerFindings(report([finding({ source: "tfsec", rule_id: "tfsec:AWS017" })]))[0].source).toBe(
-      "reviewer"
-    );
-    expect(parseReviewerFindings(report([finding({ source: "llm" })]))[0].source).toBe("reviewer");
+    expect(
+      parseReviewerFindings(report([finding({ source: "tfsec", rule_id: "tfsec:AWS017" })]))[0]!
+        .source,
+    ).toBe("reviewer");
+    expect(parseReviewerFindings(report([finding({ source: "llm" })]))[0]!.source).toBe("reviewer");
   });
 
   it("keeps known scanners (trivy/tflint) as themselves", () => {
-    expect(parseReviewerFindings(report([finding({ source: "trivy", rule_id: "trivy:AVD-AWS-0088" })]))[0].source).toBe(
-      "trivy"
-    );
-    expect(parseReviewerFindings(report([finding({ source: "tflint", rule_id: "tflint:foo" })]))[0].source).toBe(
-      "tflint"
-    );
+    expect(
+      parseReviewerFindings(
+        report([finding({ source: "trivy", rule_id: "trivy:AVD-AWS-0088" })]),
+      )[0]!.source,
+    ).toBe("trivy");
+    expect(
+      parseReviewerFindings(report([finding({ source: "tflint", rule_id: "tflint:foo" })]))[0]!
+        .source,
+    ).toBe("tflint");
   });
 
   it("drops human_only findings (out of scope — not auto-remediable)", () => {
     const concerns = parseReviewerFindings(
-      report([finding(), finding({ state: "human_only", rule_id: "checkov:CKV_AWS_99" })])
+      report([finding(), finding({ state: "human_only", rule_id: "checkov:CKV_AWS_99" })]),
     );
     expect(concerns).toHaveLength(1);
-    expect(concerns[0].rule_id).toBe("checkov:CKV_AWS_18");
+    expect(concerns[0]!.rule_id).toBe("checkov:CKV_AWS_18");
   });
 
   it("maps the cost category and defaults unknown categories to correctness", () => {
-    expect(parseReviewerFindings(report([finding({ category: "cost", source: "infracost" })]))[0].category).toBe("cost");
-    expect(parseReviewerFindings(report([finding({ category: "weird" })]))[0].category).toBe("correctness");
+    expect(
+      parseReviewerFindings(report([finding({ category: "cost", source: "infracost" })]))[0]!
+        .category,
+    ).toBe("cost");
+    expect(parseReviewerFindings(report([finding({ category: "weird" })]))[0]!.category).toBe(
+      "correctness",
+    );
   });
 
   it("drops findings not keyed to a Terraform file (e.g. infracost cost findings on a directory)", () => {
@@ -751,15 +812,18 @@ describe("parseReviewerFindings", () => {
           location: { file: "infra/", line: null },
         }),
         finding(),
-      ])
+      ]),
     );
     expect(concerns).toHaveLength(1);
-    expect(concerns[0].location.file).toBe("main.tf");
+    expect(concerns[0]!.location.file).toBe("main.tf");
   });
 
   it("normalizes absolute scanner paths to repo-relative POSIX", () => {
-    const [c] = parseReviewerFindings(report([finding({ location: { file: "/repo/main.tf", line: 1 } })]), "/repo");
-    expect(c.location.file).toBe("main.tf");
+    const [c] = parseReviewerFindings(
+      report([finding({ location: { file: "/repo/main.tf", line: 1 } })]),
+      "/repo",
+    );
+    expect(c!.location.file).toBe("main.tf");
   });
 
   it("returns nothing for an empty or findings-less report", () => {
@@ -790,10 +854,14 @@ describe("SARIF ingestion (read_findings)", () => {
           ruleId: "AVD-AWS-0088",
           level: "error",
           message: { text: "Bucket is not encrypted" },
-          locations: [{ physicalLocation: { artifactLocation: { uri: "main.tf" }, region: { startLine: 5 } } }],
+          locations: [
+            {
+              physicalLocation: { artifactLocation: { uri: "main.tf" }, region: { startLine: 5 } },
+            },
+          ],
         },
       ],
-      [{ id: "AVD-AWS-0088", helpUri: "https://avd.aquasec.com/misconfig/avd-aws-0088" }]
+      [{ id: "AVD-AWS-0088", helpUri: "https://avd.aquasec.com/misconfig/avd-aws-0088" }],
     );
     const [c] = parseSarifFindings(report);
     expect(c).toMatchObject({
@@ -808,11 +876,21 @@ describe("SARIF ingestion (read_findings)", () => {
     const [own] = parseTrivyOutput(
       JSON.stringify({
         Results: [
-          { Target: "main.tf", Misconfigurations: [{ AVDID: "AVD-AWS-0088", Severity: "HIGH", Status: "FAIL", CauseMetadata: { StartLine: 5 } }] },
+          {
+            Target: "main.tf",
+            Misconfigurations: [
+              {
+                AVDID: "AVD-AWS-0088",
+                Severity: "HIGH",
+                Status: "FAIL",
+                CauseMetadata: { StartLine: 5 },
+              },
+            ],
+          },
         ],
-      })
+      }),
     );
-    expect(c.id).toBe(own.id);
+    expect(c!.id).toBe(own!.id);
   });
 
   it("uses security-severity to refine the level when present", () => {
@@ -822,15 +900,22 @@ describe("SARIF ingestion (read_findings)", () => {
         level: "warning",
         message: { text: "x" },
         properties: { "security-severity": "9.1" },
-        locations: [{ physicalLocation: { artifactLocation: { uri: "a.tf" }, region: { startLine: 1 } } }],
+        locations: [
+          { physicalLocation: { artifactLocation: { uri: "a.tf" }, region: { startLine: 1 } } },
+        ],
       },
     ]);
-    expect(parseSarifFindings(report)[0].severity).toBe("critical");
+    expect(parseSarifFindings(report)[0]!.severity).toBe("critical");
   });
 
   it("drops non-Terraform files and tolerates an empty report", () => {
     const report = sarif("Trivy", [
-      { ruleId: "X", level: "error", message: { text: "y" }, locations: [{ physicalLocation: { artifactLocation: { uri: "Dockerfile" } } }] },
+      {
+        ruleId: "X",
+        level: "error",
+        message: { text: "y" },
+        locations: [{ physicalLocation: { artifactLocation: { uri: "Dockerfile" } } }],
+      },
     ]);
     expect(parseSarifFindings(report)).toEqual([]);
     expect(parseSarifFindings("{}")).toEqual([]);
@@ -838,11 +923,28 @@ describe("SARIF ingestion (read_findings)", () => {
 
   it("parseFindingsFile dispatches to the right parser", () => {
     const sarifReport = sarif("Trivy", [
-      { ruleId: "AVD-AWS-1", level: "error", message: { text: "z" }, locations: [{ physicalLocation: { artifactLocation: { uri: "main.tf" }, region: { startLine: 2 } } }] },
+      {
+        ruleId: "AVD-AWS-1",
+        level: "error",
+        message: { text: "z" },
+        locations: [
+          { physicalLocation: { artifactLocation: { uri: "main.tf" }, region: { startLine: 2 } } },
+        ],
+      },
     ]);
-    expect(parseFindingsFile(sarifReport)[0].source).toBe("trivy");
-    const reviewer = JSON.stringify({ schema_version: "1.0", findings: [{ source: "checkov", rule_id: "checkov:CKV_AWS_18", severity: "high", location: { file: "main.tf", line: 5 } }] });
-    expect(parseFindingsFile(reviewer)[0].source).toBe("checkov");
+    expect(parseFindingsFile(sarifReport)[0]!.source).toBe("trivy");
+    const reviewer = JSON.stringify({
+      schema_version: "1.0",
+      findings: [
+        {
+          source: "checkov",
+          rule_id: "checkov:CKV_AWS_18",
+          severity: "high",
+          location: { file: "main.tf", line: 5 },
+        },
+      ],
+    });
+    expect(parseFindingsFile(reviewer)[0]!.source).toBe("checkov");
   });
 });
 
@@ -957,7 +1059,7 @@ describe("resourceTypeOf", () => {
     expect(resourceTypeOf("module.db.aws_db_instance.main")).toBe("aws_db_instance");
     expect(resourceTypeOf('aws_s3_bucket.data["prod"]')).toBe("aws_s3_bucket");
     expect(resourceTypeOf("module.a.module.b.google_storage_bucket.x[0]")).toBe(
-      "google_storage_bucket"
+      "google_storage_bucket",
     );
   });
 
@@ -992,7 +1094,7 @@ describe("parseTerraformPlanJson", () => {
   it("reads add/change/destroy from change_summary", () => {
     const out = lines(
       { "@level": "info", type: "version" },
-      { type: "change_summary", changes: { add: 2, change: 1, remove: 0, operation: "plan" } }
+      { type: "change_summary", changes: { add: 2, change: 1, remove: 0, operation: "plan" } },
     );
     const s = parseTerraformPlanJson(out);
     expect(s).toMatchObject({ add: 2, change: 1, destroy: 0, hasDestroyOrReplace: false });
@@ -1001,10 +1103,19 @@ describe("parseTerraformPlanJson", () => {
 
   it("collects deleted and replaced resources as destructive", () => {
     const out = lines(
-      { type: "planned_change", change: { action: "create", resource: { addr: "aws_s3_bucket.a" } } },
-      { type: "planned_change", change: { action: "delete", resource: { addr: "aws_db_instance.db" } } },
-      { type: "planned_change", change: { action: "replace", resource: { addr: "aws_instance.web" } } },
-      { type: "change_summary", changes: { add: 1, change: 0, remove: 2 } }
+      {
+        type: "planned_change",
+        change: { action: "create", resource: { addr: "aws_s3_bucket.a" } },
+      },
+      {
+        type: "planned_change",
+        change: { action: "delete", resource: { addr: "aws_db_instance.db" } },
+      },
+      {
+        type: "planned_change",
+        change: { action: "replace", resource: { addr: "aws_instance.web" } },
+      },
+      { type: "change_summary", changes: { add: 1, change: 0, remove: 2 } },
     );
     const s = parseTerraformPlanJson(out);
     expect(s.destroy).toBe(2);
@@ -1037,10 +1148,19 @@ describe("parseTerraformPlanJson", () => {
 
   it("collects every real action into `changed`, ignoring no-op / read", () => {
     const out = lines(
-      { type: "planned_change", change: { action: "create", resource: { addr: "aws_s3_bucket.a" } } },
-      { type: "planned_change", change: { action: "update", resource: { addr: "aws_instance.web" } } },
+      {
+        type: "planned_change",
+        change: { action: "create", resource: { addr: "aws_s3_bucket.a" } },
+      },
+      {
+        type: "planned_change",
+        change: { action: "update", resource: { addr: "aws_instance.web" } },
+      },
       { type: "planned_change", change: { action: "no-op", resource: { addr: "aws_vpc.main" } } },
-      { type: "planned_change", change: { action: "read", resource: { addr: "data.aws_ami.ubuntu" } } }
+      {
+        type: "planned_change",
+        change: { action: "read", resource: { addr: "data.aws_ami.ubuntu" } },
+      },
     );
     expect(parseTerraformPlanJson(out).changed).toEqual([
       { address: "aws_s3_bucket.a", action: "create" },
@@ -1055,9 +1175,18 @@ describe("parseTerraformPlanJson", () => {
     const out = lines(
       { type: "planned_change", change: { action: "noop", resource: { addr: "aws_vpc.main" } } },
       { type: "planned_change", change: { action: "move", resource: { addr: "aws_s3_bucket.a" } } },
-      { type: "planned_change", change: { action: "import", resource: { addr: "aws_s3_bucket.b" } } },
-      { type: "planned_change", change: { action: "forget", resource: { addr: "aws_s3_bucket.c" } } },
-      { type: "planned_change", change: { action: "update", resource: { addr: "aws_instance.web" } } }
+      {
+        type: "planned_change",
+        change: { action: "import", resource: { addr: "aws_s3_bucket.b" } },
+      },
+      {
+        type: "planned_change",
+        change: { action: "forget", resource: { addr: "aws_s3_bucket.c" } },
+      },
+      {
+        type: "planned_change",
+        change: { action: "update", resource: { addr: "aws_instance.web" } },
+      },
     );
     expect(parseTerraformPlanJson(out).changed).toEqual([
       { address: "aws_instance.web", action: "update" },
@@ -1084,7 +1213,10 @@ describe("computeRegressions (§1.4)", () => {
 });
 
 describe("classifyAutonomy (§3.9)", () => {
-  const c = (severity: Concern["severity"], category: Concern["category"]) => ({ severity, category });
+  const c = (severity: Concern["severity"], category: Concern["category"]) => ({
+    severity,
+    category,
+  });
 
   it("auto-fixes trivial style/correctness findings", () => {
     const d = classifyAutonomy([c("low", "style"), c("medium", "correctness")]);
@@ -1125,25 +1257,39 @@ describe("classifyRefusal (§29 — honest refusal)", () => {
   const c = (rule_id: string, evidence: string) => ({ rule_id, evidence });
 
   it("flags IAM least-privilege / wildcard concerns", () => {
-    expect(classifyRefusal(c("checkov:CKV_AWS_1", "IAM policy allows all actions with \"*\"")).refuse).toBe(true);
+    expect(
+      classifyRefusal(c("checkov:CKV_AWS_1", 'IAM policy allows all actions with "*"')).refuse,
+    ).toBe(true);
     expect(classifyRefusal(c("trivy:AVD-AWS-9", "ensure least-privilege IAM")).refuse).toBe(true);
   });
 
   it("flags KMS key-policy and real-CIDR decisions", () => {
-    expect(classifyRefusal(c("checkov:CKV_AWS_2", "the KMS key policy is too permissive")).refuse).toBe(true);
-    expect(classifyRefusal(c("trivy:AVD-AWS-3", "restrict ingress to an allowed CIDR")).refuse).toBe(true);
+    expect(
+      classifyRefusal(c("checkov:CKV_AWS_2", "the KMS key policy is too permissive")).refuse,
+    ).toBe(true);
+    expect(
+      classifyRefusal(c("trivy:AVD-AWS-3", "restrict ingress to an allowed CIDR")).refuse,
+    ).toBe(true);
   });
 
   it("does NOT flag a mechanical secure-default fix", () => {
-    expect(classifyRefusal(c("trivy:AVD-AWS-0088", "S3 bucket is not encrypted at rest")).refuse).toBe(false);
-    expect(classifyRefusal(c("checkov:CKV_AWS_18", "S3 access logging is disabled")).refuse).toBe(false);
+    expect(
+      classifyRefusal(c("trivy:AVD-AWS-0088", "S3 bucket is not encrypted at rest")).refuse,
+    ).toBe(false);
+    expect(classifyRefusal(c("checkov:CKV_AWS_18", "S3 access logging is disabled")).refuse).toBe(
+      false,
+    );
   });
 });
 
 describe("buildRefusalReport (§29)", () => {
   it("produces a structured non-fix issue body with location, why, and next step", () => {
     const body = buildRefusalReport({
-      concern: { rule_id: "checkov:CKV_AWS_1", evidence: "wildcard IAM action", location: { file: "iam.tf", line: 12 } },
+      concern: {
+        rule_id: "checkov:CKV_AWS_1",
+        evidence: "wildcard IAM action",
+        location: { file: "iam.tf", line: 12 },
+      },
       whyNoAutoFix: "the exact action set is unknown",
       humanAction: "scope the policy to the actions the workload uses",
     });
@@ -1172,10 +1318,12 @@ describe("preventiveControlFor (§21 — fix once, prevent forever)", () => {
   });
 
   it("suggests a tflint rule block and a trivy gate", () => {
-    expect(preventiveControlFor({ source: "tflint", rule_id: "tflint:terraform_unused" })!.snippet).toContain(
-      'rule "terraform_unused"'
-    );
-    expect(preventiveControlFor({ source: "trivy", rule_id: "trivy:AVD-AWS-1" })!.mechanism).toMatch(/Trivy/);
+    expect(
+      preventiveControlFor({ source: "tflint", rule_id: "tflint:terraform_unused" })!.snippet,
+    ).toContain('rule "terraform_unused"');
+    expect(
+      preventiveControlFor({ source: "trivy", rule_id: "trivy:AVD-AWS-1" })!.mechanism,
+    ).toMatch(/Trivy/);
   });
 
   it("returns null for the reviewer source (no natural CI gate)", () => {
@@ -1184,7 +1332,12 @@ describe("preventiveControlFor (§21 — fix once, prevent forever)", () => {
 });
 
 describe("clusterByLocation (§30 — cross-tool co-location)", () => {
-  const mk = (id: string, source: Concern["source"], file: string, line: number | null): Concern => ({
+  const mk = (
+    id: string,
+    source: Concern["source"],
+    file: string,
+    line: number | null,
+  ): Concern => ({
     id,
     source,
     rule_id: `${source}:r`,
@@ -1203,21 +1356,27 @@ describe("clusterByLocation (§30 — cross-tool co-location)", () => {
     ]);
     expect(clusters).toHaveLength(1);
     expect(clusters[0]).toMatchObject({ file: "main.tf", line: 5, sources: ["checkov", "trivy"] });
-    expect(clusters[0].concern_ids).toEqual(["1", "2"]);
+    expect(clusters[0]!.concern_ids).toEqual(["1", "2"]);
   });
 
   it("does not cluster a single scanner's concerns or null-line concerns", () => {
     expect(
-      clusterByLocation([mk("1", "trivy", "main.tf", 5), mk("2", "trivy", "main.tf", 5)])
+      clusterByLocation([mk("1", "trivy", "main.tf", 5), mk("2", "trivy", "main.tf", 5)]),
     ).toEqual([]);
     expect(
-      clusterByLocation([mk("1", "trivy", "main.tf", null), mk("2", "checkov", "main.tf", null)])
+      clusterByLocation([mk("1", "trivy", "main.tf", null), mk("2", "checkov", "main.tf", null)]),
     ).toEqual([]);
   });
 });
 
 describe("shouldSuggestInline (§5.18)", () => {
-  const base = { hasPrContext: true, severity: "low" as const, fileCount: 1, hunkCount: 1, blastTier: "low" as const };
+  const base = {
+    hasPrContext: true,
+    severity: "low" as const,
+    fileCount: 1,
+    hunkCount: 1,
+    blastTier: "low" as const,
+  };
 
   it("suggests inline for a single-hunk low-risk fix on an existing PR", () => {
     expect(shouldSuggestInline(base).suggest).toBe(true);
@@ -1257,7 +1416,7 @@ describe("computeConfidence (§5.19)", () => {
         idempotent: true,
         blastTier: "low",
         costDirection: "no-change",
-      }).level
+      }).level,
     ).toBe("high");
   });
 
@@ -1271,16 +1430,34 @@ describe("computeConfidence (§5.19)", () => {
 
   it("caps at medium for a non-deterministic plan", () => {
     expect(
-      computeConfidence({ verified: true, regressionCount: 0, idempotent: false, blastTier: "low", costDirection: "no-change" }).level
+      computeConfidence({
+        verified: true,
+        regressionCount: 0,
+        idempotent: false,
+        blastTier: "low",
+        costDirection: "no-change",
+      }).level,
     ).toBe("medium");
   });
 
   it("caps at medium for a high blast radius or a cost increase", () => {
     expect(
-      computeConfidence({ verified: true, regressionCount: 0, idempotent: true, blastTier: "high", costDirection: "no-change" }).level
+      computeConfidence({
+        verified: true,
+        regressionCount: 0,
+        idempotent: true,
+        blastTier: "high",
+        costDirection: "no-change",
+      }).level,
     ).toBe("medium");
     expect(
-      computeConfidence({ verified: true, regressionCount: 0, idempotent: true, blastTier: "low", costDirection: "increase" }).level
+      computeConfidence({
+        verified: true,
+        regressionCount: 0,
+        idempotent: true,
+        blastTier: "low",
+        costDirection: "increase",
+      }).level,
     ).toBe("medium");
   });
 
@@ -1298,7 +1475,9 @@ describe("moduleAddressOf", () => {
 
   it("extracts the module call path, stripping the resource instance index", () => {
     expect(moduleAddressOf("module.db.aws_db_instance.main")).toBe("module.db");
-    expect(moduleAddressOf("module.a.module.b.google_storage_bucket.x[0]")).toBe("module.a.module.b");
+    expect(moduleAddressOf("module.a.module.b.google_storage_bucket.x[0]")).toBe(
+      "module.a.module.b",
+    );
   });
 
   it("collapses count/for_each module instances to a single module address", () => {
@@ -1335,9 +1514,15 @@ describe("computeBlastRadius (§2.6)", () => {
 
 describe("comparePlanStability (§1.3)", () => {
   const plan = (over: Partial<ReturnType<typeof parseTerraformPlanJson>>) =>
-    ({ add: 0, change: 0, destroy: 0, changed: [], destructive: [], hasDestroyOrReplace: false, ...over }) as ReturnType<
-      typeof parseTerraformPlanJson
-    >;
+    ({
+      add: 0,
+      change: 0,
+      destroy: 0,
+      changed: [],
+      destructive: [],
+      hasDestroyOrReplace: false,
+      ...over,
+    }) as ReturnType<typeof parseTerraformPlanJson>;
 
   it("is stable when both plans have the same change set", () => {
     const a = plan({ change: 1, changed: [{ address: "aws_instance.web", action: "update" }] });
@@ -1402,7 +1587,10 @@ describe("parseInfracostBreakdown", () => {
 describe("computeCostDelta", () => {
   it("reports an increase, rounded to cents", () => {
     expect(
-      computeCostDelta({ totalMonthlyCost: 100, currency: "USD" }, { totalMonthlyCost: 112.405, currency: "USD" })
+      computeCostDelta(
+        { totalMonthlyCost: 100, currency: "USD" },
+        { totalMonthlyCost: 112.405, currency: "USD" },
+      ),
     ).toEqual({
       currency: "USD",
       baselineMonthly: 100,
@@ -1413,13 +1601,19 @@ describe("computeCostDelta", () => {
   });
 
   it("reports a decrease", () => {
-    const d = computeCostDelta({ totalMonthlyCost: 50, currency: "USD" }, { totalMonthlyCost: 40, currency: "USD" });
+    const d = computeCostDelta(
+      { totalMonthlyCost: 50, currency: "USD" },
+      { totalMonthlyCost: 40, currency: "USD" },
+    );
     expect(d.deltaMonthly).toBe(-10);
     expect(d.direction).toBe("decrease");
   });
 
   it("reports no-change when costs are equal", () => {
-    const d = computeCostDelta({ totalMonthlyCost: 7, currency: "USD" }, { totalMonthlyCost: 7, currency: "USD" });
+    const d = computeCostDelta(
+      { totalMonthlyCost: 7, currency: "USD" },
+      { totalMonthlyCost: 7, currency: "USD" },
+    );
     expect(d.deltaMonthly).toBe(0);
     expect(d.direction).toBe("no-change");
   });
@@ -1436,7 +1630,10 @@ describe("computeCostDelta", () => {
 
   it("is unknown when either side is unpriced, and falls back to the baseline currency", () => {
     expect(
-      computeCostDelta({ totalMonthlyCost: 5, currency: "GBP" }, { totalMonthlyCost: null, currency: "" })
+      computeCostDelta(
+        { totalMonthlyCost: 5, currency: "GBP" },
+        { totalMonthlyCost: null, currency: "" },
+      ),
     ).toMatchObject({ currency: "GBP", deltaMonthly: null, direction: "unknown" });
   });
 });
@@ -1455,7 +1652,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
           prevent_destroy = true
         }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect(r.resourceType).toBe("aws_s3_bucket");
     expect(r.name).toBe("b");
     expect([...r.args].sort()).toEqual(["bucket", "tags", "versioning"]);
@@ -1473,7 +1670,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
           content { from_port = ingress.value.port }
         }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect(r.args).toContain("ingress");
     expect(r.args).toContain("name");
     expect(r.args).not.toContain("dynamic");
@@ -1486,7 +1683,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
         # bogus = "commented out"
         instance_type = "t3.micro"
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect([...r.args].sort()).toEqual(["ami", "instance_type"]);
     expect(r.args).not.toContain("bogus");
   });
@@ -1503,7 +1700,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
           }
         }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect(r.args).toContain("bucket");
     expect(r.args).toContain("server_side_encryption_configuration");
     expect(r.args).not.toContain("sse_algorithm");
@@ -1525,7 +1722,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
         description = "a \\"quoted\\" word { not a block"
         name        = "r"
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect([...r.args].sort()).toEqual(["description", "name"]);
   });
 
@@ -1541,7 +1738,7 @@ describe("parseResourceArguments (§4.15-next)", () => {
         EOT
         tags = { Env = "prod" }
       }`;
-    const [r] = parseResourceArguments(hcl);
+    const r = parseResourceArguments(hcl)[0]!;
     expect([...r.args].sort()).toEqual(["assume_role_policy", "name", "tags"]);
     expect(r.args).not.toContain("fake_arg");
     expect(r.args).not.toContain("Version");
@@ -1575,7 +1772,7 @@ describe("buildSarifReport (SARIF emit)", () => {
 
   it("maps severities to SARIF levels", () => {
     const levels = (["critical", "high", "medium", "low", "info"] as const).map(
-      (severity) => buildSarifReport([concern({ severity })]).runs?.[0]?.results?.[0]?.level
+      (severity) => buildSarifReport([concern({ severity })]).runs?.[0]?.results?.[0]?.level,
     );
     expect(levels).toEqual(["error", "error", "warning", "note", "note"]);
   });
@@ -1592,7 +1789,9 @@ describe("buildSarifReport (SARIF emit)", () => {
 
   it("omits the region when the concern has no line", () => {
     const report = buildSarifReport([concern({ location: { file: "main.tf", line: null } })]);
-    expect(report.runs?.[0]?.results?.[0]?.locations?.[0]?.physicalLocation?.region).toBeUndefined();
+    expect(
+      report.runs?.[0]?.results?.[0]?.locations?.[0]?.physicalLocation?.region,
+    ).toBeUndefined();
   });
 
   it("is deterministic (re-emit is identical)", () => {

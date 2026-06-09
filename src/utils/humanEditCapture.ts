@@ -70,7 +70,8 @@ export function computeHumanEditDelta(o: RemediationOutcome): HumanEditRecord {
 
   const humanIntervened =
     o.outcome === "rejected" ||
-    (o.outcome === "merged_with_edits" && (humanAddedLines.length > 0 || removedFromOriginal.length > 0));
+    (o.outcome === "merged_with_edits" &&
+      (humanAddedLines.length > 0 || removedFromOriginal.length > 0));
 
   return {
     concernIds: o.concernIds,
@@ -91,7 +92,7 @@ export function computeHumanEditDelta(o: RemediationOutcome): HumanEditRecord {
 export function deriveRemediationOutcome(
   merged: boolean,
   originalFixDiff: string,
-  mergedDiff: string
+  mergedDiff: string,
 ): RemediationOutcome["outcome"] {
   if (!merged) return "rejected";
   const original = addedLines(originalFixDiff);
@@ -152,7 +153,9 @@ export async function persistHumanEditRecord(params: {
     log.info(`» human-edit record captured for PR #${params.prNumber} (${params.record.outcome})`);
     return { persisted: true };
   } catch (err) {
-    log.warning(`human-edit capture persist failed: ${err instanceof Error ? err.message : String(err)}`);
+    log.warning(
+      `human-edit capture persist failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return { persisted: false, reason: "error" };
   }
 }
@@ -172,7 +175,7 @@ export async function captureRemediationOutcome(params: {
   const outcome = deriveRemediationOutcome(
     params.event.merged,
     params.event.originalFixDiff,
-    params.event.mergedDiff
+    params.event.mergedDiff,
   );
   const record = computeHumanEditDelta({
     concernIds: params.event.concernIds,

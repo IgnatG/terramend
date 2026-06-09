@@ -2,10 +2,15 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { detect } from "package-manager-detector";
 import { resolveCommand } from "package-manager-detector/commands";
+import type {
+  NodePackageManager,
+  NodePrepResult,
+  PrepDefinition,
+  PrepOptions,
+} from "#app/prep/types";
 import { log } from "#app/utils/cli";
 import { ensurePackageManager, resolvePackageManagerSpec } from "#app/utils/packageManager";
 import { spawn } from "#app/utils/subprocess";
-import type { NodePackageManager, NodePrepResult, PrepDefinition, PrepOptions } from "#app/prep/types";
 
 async function isCommandAvailable(command: string): Promise<boolean> {
   const result = await spawn({
@@ -21,7 +26,7 @@ async function isCommandAvailable(command: string): Promise<boolean> {
 // deno fall through to here because corepack ignores them.
 async function installFallback(
   name: NodePackageManager,
-  installSpec: string
+  installSpec: string,
 ): Promise<string | null> {
   if (name === "npm") return null;
   log.info(`» installing ${installSpec} via npm install -g (corepack does not manage ${name})`);
@@ -72,7 +77,7 @@ export const installNodeDependencies: PrepDefinition = {
 
     if (declared) {
       log.info(
-        `» using ${packageManager}@${declared.version} from package.json (${declared.source})`
+        `» using ${packageManager}@${declared.version} from package.json (${declared.source})`,
       );
     } else if (detected) {
       log.info(`» detected package manager: ${packageManager} (${agent})`);
@@ -134,7 +139,7 @@ export const installNodeDependencies: PrepDefinition = {
     // (`action/utils/lifecycle.ts`); either way, eager prep should skip.
     if (!detected) {
       log.info(
-        `» skipping ${packageManager} install: no lockfile found (would otherwise risk lockfile drift)`
+        `» skipping ${packageManager} install: no lockfile found (would otherwise risk lockfile drift)`,
       );
       return { language: "node", packageManager, dependenciesInstalled: false, issues: [] };
     }

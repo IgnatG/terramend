@@ -1,18 +1,19 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { log } from "#app/utils/cli";
-import { spawn } from "#app/utils/subprocess";
 import type {
   PrepDefinition,
   PrepOptions,
   PythonPackageManager,
   PythonPrepResult,
 } from "#app/prep/types";
+import { log } from "#app/utils/cli";
+import { spawn } from "#app/utils/subprocess";
 
 interface PythonConfig {
   file: string;
   tool: PythonPackageManager;
-  installCmd: string[];
+  // non-empty: the first element is the executable, the rest are args
+  installCmd: [string, ...string[]];
 }
 
 // python dependency file patterns in priority order
@@ -49,8 +50,8 @@ const PYTHON_CONFIGS: PythonConfig[] = [
   },
 ];
 
-// tool install commands (via pip)
-const TOOL_INSTALL_COMMANDS: Record<string, string[]> = {
+// tool install commands (via pip). Each command is non-empty (executable + args).
+const TOOL_INSTALL_COMMANDS: Record<string, [string, ...string[]]> = {
   pipenv: ["pip", "install", "pipenv"],
   poetry: ["pip", "install", "poetry"],
 };
@@ -131,7 +132,7 @@ export const installPythonDependencies: PrepDefinition = {
     // there is no equivalent of npm's --ignore-scripts for pip.
     if (options.ignoreScripts) {
       log.info(
-        `» skipping python install (shell disabled, python packages can execute arbitrary code)`
+        `» skipping python install (shell disabled, python packages can execute arbitrary code)`,
       );
       return {
         language: "python",

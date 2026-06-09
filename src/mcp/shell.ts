@@ -6,17 +6,17 @@ import { userInfo } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { type } from "arktype";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import { ensureBrowserDaemon } from "#app/utils/browser";
 import { log } from "#app/utils/log";
 import { resolveEnv } from "#app/utils/secrets";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 export const ShellParams = type({
   command: "string",
   description: "string",
   "timeout?": type.number.describe(
-    "Timeout in MILLISECONDS (not seconds). Default 30000 (30s), max 120000 (2m). e.g. timeout: 180000 for 3 minutes; timeout: 180 means 180ms and will kill the process almost immediately."
+    "Timeout in MILLISECONDS (not seconds). Default 30000 (30s), max 120000 (2m). e.g. timeout: 180000 for 3 minutes; timeout: 180 means 180ms and will kill the process almost immediately.",
   ),
   "working_directory?": "string",
   "background?": "boolean",
@@ -220,7 +220,7 @@ function spawnShell(params: SpawnParams): ChildProcess {
 
   if (ci && sandboxMethod === "none") {
     throw new Error(
-      "pid namespace isolation is required in CI but unavailable (both unshare and sudo unshare failed)"
+      "pid namespace isolation is required in CI but unavailable (both unshare and sudo unshare failed)",
     );
   }
 
@@ -242,7 +242,7 @@ function spawnShell(params: SpawnParams): ChildProcess {
         "-c",
         `${PROC_CLEANUP} ${SOCKET_CLEANUP} ${fsMounts} ${params.command}`,
       ],
-      spawnOpts
+      spawnOpts,
     );
   }
 
@@ -277,7 +277,7 @@ function spawnShell(params: SpawnParams): ChildProcess {
         "-c",
         `${PROC_CLEANUP} ${SOCKET_CLEANUP} ${fsMounts} exec su -p -s /bin/bash ${username} -c '${escaped}'`,
       ],
-      { ...spawnOpts, env: {} }
+      { ...spawnOpts, env: {} },
     );
   }
 
@@ -357,7 +357,7 @@ Do NOT use this tool for git commands — use the dedicated git tools instead.`,
             "- git: local operations (status, log, diff, add, commit, checkout, merge, rebase, etc.)\n" +
             "- push_branch: push to remote (handles authentication)\n" +
             "- git_fetch: fetch from remote (handles authentication)\n" +
-            "- checkout_pr: check out PR branches"
+            "- checkout_pr: check out PR branches",
         );
       }
 

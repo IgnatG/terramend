@@ -104,7 +104,7 @@ export function decodeJwtExpMs(token: string): number | null {
   if (parts.length !== 3) return null;
   let payload: { exp?: unknown };
   try {
-    payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    payload = JSON.parse(Buffer.from(parts[1]!, "base64url").toString("utf8"));
   } catch {
     return null;
   }

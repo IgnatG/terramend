@@ -46,7 +46,7 @@ async function checkEntrypointImports(): Promise<void> {
   const violations: string[] = [];
   const inputPaths = Object.keys(result.metafile.inputs);
   for (const inputPath of inputPaths) {
-    const input = result.metafile.inputs[inputPath];
+    const input = result.metafile.inputs[inputPath]!;
     for (const imported of input.imports) {
       if (!imported.external) {
         continue;

@@ -4,6 +4,8 @@
  * Other files in action/ re-export from this file for backward compatibility.
  */
 
+import type { PullRequest } from "@octokit/webhooks-types";
+
 // mcp name constant
 export const terramendMcpName = "terramend";
 
@@ -87,8 +89,9 @@ interface BasePayloadEvent {
   comment_id?: number;
   review_id?: number;
   review_state?: string;
-  thread?: any;
-  pull_request?: any;
+  /** GraphQL review-thread context (shape owned by the backend producer; not read in-action) */
+  thread?: unknown;
+  pull_request?: PullRequest;
   check_suite?: {
     id: number;
     head_sha: string;
@@ -102,7 +105,7 @@ interface BasePayloadEvent {
   authorPermission?: AuthorPermission;
   /** when true, runs silently without progress comments (e.g., auto-labeling) */
   silent?: boolean;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 interface PullRequestOpenedEvent extends BasePayloadEvent {
@@ -151,7 +154,7 @@ interface PullRequestReviewCommentCreatedEvent extends BasePayloadEvent {
   comment_id: number;
   /** comment body is the primary content (null if already in prompt) */
   body: string | null;
-  thread?: any;
+  thread?: unknown;
   branch: string;
 }
 
@@ -196,7 +199,7 @@ interface CheckSuiteCompletedEvent extends BasePayloadEvent {
   is_pr: true;
   title: string;
   body: string | null;
-  pull_request: any;
+  pull_request: PullRequest;
   branch: string;
   check_suite: {
     id: number;

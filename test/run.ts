@@ -372,7 +372,7 @@ async function runTestForAgent(ctx: RunContext): Promise<ValidationResult> {
       const decision = shouldRetry(result, validation);
       if (decision.retry) {
         console.log(
-          `\n${prefix} ${decision.reason} — retrying in ${decision.backoffMs / 1000}s (retry ${attempt + 1}/${MAX_RETRIES})...\n`
+          `\n${prefix} ${decision.reason} — retrying in ${decision.backoffMs / 1000}s (retry ${attempt + 1}/${MAX_RETRIES})...\n`,
         );
         await new Promise((r) => setTimeout(r, decision.backoffMs));
         continue;
@@ -475,7 +475,7 @@ async function main(): Promise<void> {
             testInfo: run.testInfo,
             agent: run.agent,
             signal,
-          })
+          }),
         );
       }
     }
@@ -492,7 +492,7 @@ async function main(): Promise<void> {
       agent: run.agent,
       cancelState,
       results,
-    })
+    }),
   );
 
   if (!cancelState.canceled) {
@@ -504,7 +504,7 @@ async function main(): Promise<void> {
 async function runWithConcurrencyLimit<T, R>(
   items: T[],
   limit: number,
-  fn: (item: T) => Promise<R>
+  fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = [];
   const executing: Promise<void>[] = [];
@@ -517,7 +517,7 @@ async function runWithConcurrencyLimit<T, R>(
       (err: unknown) => {
         console.error("runWithConcurrencyLimit: fn rejected unexpectedly", err);
         throw err;
-      }
+      },
     );
 
     const e = p.then(() => {

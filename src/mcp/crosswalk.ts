@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { log } from "#app/utils/cli";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool, toolOk } from "#app/mcp/shared";
+import { log } from "#app/utils/cli";
 
 /**
  * Compliance crosswalk (§differentiator 23 — "explain like I'm the auditor", the
@@ -49,19 +49,44 @@ const CROSSWALK: CrosswalkRule[] = [
     theme: "encryption-at-rest",
     // NB avoid the bare token "sse" — it's a substring of "essential"/"asset"
     // and would false-match; use the explicit phrases instead.
-    signals: ["encrypt", "kms", "server-side encryption", "server_side_encryption", "sse_algorithm", "at rest", "at-rest", "unencrypted"],
+    signals: [
+      "encrypt",
+      "kms",
+      "server-side encryption",
+      "server_side_encryption",
+      "sse_algorithm",
+      "at rest",
+      "at-rest",
+      "unencrypted",
+    ],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 1", title: "Data in transit protection" },
-      { framework: "Cyber Essentials", control: "Secure Configuration", title: "Secure configuration" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 1",
+        title: "Data in transit protection",
+      },
+      {
+        framework: "Cyber Essentials",
+        control: "Secure Configuration",
+        title: "Secure configuration",
+      },
       { framework: "CIS Controls v8", control: "3.11", title: "Encrypt sensitive data at rest" },
-      { framework: "NHS DSPT", control: "Standard 1", title: "Personal confidential data protected" },
+      {
+        framework: "NHS DSPT",
+        control: "Standard 1",
+        title: "Personal confidential data protected",
+      },
     ],
   },
   {
     theme: "encryption-in-transit",
     signals: ["tls", "ssl", "https", "in transit", "in-transit", "insecure protocol", "http "],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 1", title: "Data in transit protection" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 1",
+        title: "Data in transit protection",
+      },
       { framework: "CIS Controls v8", control: "3.10", title: "Encrypt sensitive data in transit" },
     ],
   },
@@ -69,19 +94,57 @@ const CROSSWALK: CrosswalkRule[] = [
     theme: "public-exposure",
     signals: ["public", "0.0.0.0/0", "publicly", "anonymous", "open to the internet", "ingress"],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 9", title: "Secure user management / network separation" },
-      { framework: "Cyber Essentials", control: "Firewalls", title: "Boundary firewalls and internet gateways" },
-      { framework: "CIS Controls v8", control: "4.4", title: "Implement and manage a firewall on servers" },
-      { framework: "Secure by Design", control: "SbD-7", title: "Protect data in transit and at rest" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 9",
+        title: "Secure user management / network separation",
+      },
+      {
+        framework: "Cyber Essentials",
+        control: "Firewalls",
+        title: "Boundary firewalls and internet gateways",
+      },
+      {
+        framework: "CIS Controls v8",
+        control: "4.4",
+        title: "Implement and manage a firewall on servers",
+      },
+      {
+        framework: "Secure by Design",
+        control: "SbD-7",
+        title: "Protect data in transit and at rest",
+      },
     ],
   },
   {
     theme: "least-privilege",
-    signals: ["iam", "wildcard", "least privilege", "least-privilege", "policy", "admin", "privilege", "*:*", "role"],
+    signals: [
+      "iam",
+      "wildcard",
+      "least privilege",
+      "least-privilege",
+      "policy",
+      "admin",
+      "privilege",
+      "*:*",
+      "role",
+    ],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 9", title: "Secure user management" },
-      { framework: "Cyber Essentials", control: "User Access Control", title: "User access control" },
-      { framework: "CIS Controls v8", control: "6.8", title: "Define and maintain role-based access control" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 9",
+        title: "Secure user management",
+      },
+      {
+        framework: "Cyber Essentials",
+        control: "User Access Control",
+        title: "User access control",
+      },
+      {
+        framework: "CIS Controls v8",
+        control: "6.8",
+        title: "Define and maintain role-based access control",
+      },
       { framework: "NHS DSPT", control: "Standard 4", title: "Managing access" },
     ],
   },
@@ -89,9 +152,22 @@ const CROSSWALK: CrosswalkRule[] = [
     theme: "logging-audit",
     // NB avoid the bare token "log" — it's a substring of "catalog"/"blog" and
     // would false-match; use the explicit phrases/longer tokens instead.
-    signals: ["logging", "log group", "audit", "cloudtrail", "flow log", "access log", "monitoring", "cloudwatch"],
+    signals: [
+      "logging",
+      "log group",
+      "audit",
+      "cloudtrail",
+      "flow log",
+      "access log",
+      "monitoring",
+      "cloudwatch",
+    ],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 13", title: "Audit information and alerting" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 13",
+        title: "Audit information and alerting",
+      },
       { framework: "CIS Controls v8", control: "8.2", title: "Collect audit logs" },
       { framework: "NHS DSPT", control: "Standard 7", title: "Continuity planning / monitoring" },
       { framework: "SOC 2", control: "CC7.2", title: "Security monitoring" },
@@ -101,7 +177,11 @@ const CROSSWALK: CrosswalkRule[] = [
     theme: "backup-resilience",
     signals: ["versioning", "backup", "snapshot", "retention", "deletion protection", "multi-az"],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 2", title: "Asset protection and resilience" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 2",
+        title: "Asset protection and resilience",
+      },
       { framework: "NHS DSPT", control: "Standard 7", title: "Continuity planning" },
       { framework: "CIS Controls v8", control: "11.2", title: "Perform automated backups" },
     ],
@@ -110,9 +190,17 @@ const CROSSWALK: CrosswalkRule[] = [
     theme: "secrets-management",
     signals: ["secret", "credential", "password", "hardcoded", "plaintext", "access key", "token"],
     controls: [
-      { framework: "NCSC Cloud Security Principles", control: "Principle 10", title: "Identity and authentication" },
+      {
+        framework: "NCSC Cloud Security Principles",
+        control: "Principle 10",
+        title: "Identity and authentication",
+      },
       { framework: "CIS Controls v8", control: "16.4", title: "Securely store credentials" },
-      { framework: "Cyber Essentials", control: "Secure Configuration", title: "Secure configuration" },
+      {
+        framework: "Cyber Essentials",
+        control: "Secure Configuration",
+        title: "Secure configuration",
+      },
     ],
   },
 ];
@@ -197,7 +285,9 @@ export function buildCrosswalkReport(concerns: ConcernForCrosswalk[]): Crosswalk
     }
   }
   const by_framework: Record<string, { control: string; title: string }[]> = {};
-  for (const [framework, controls] of [...byFramework.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  for (const [framework, controls] of [...byFramework.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
     by_framework[framework] = [...controls.entries()]
       .map(([control, title]) => ({ control, title }))
       .sort((a, b) => a.control.localeCompare(b.control));
@@ -238,7 +328,7 @@ export function ComplianceCrosswalkTool(ctx: ToolContext) {
     execute: execute(async ({ concerns }) => {
       const report = buildCrosswalkReport(concerns as ConcernForCrosswalk[]);
       log.info(
-        `» terraform_compliance_crosswalk: ${report.entries.length} mapped / ${report.unmapped_concern_ids.length} unmapped across ${Object.keys(report.by_framework).length} framework(s)`
+        `» terraform_compliance_crosswalk: ${report.entries.length} mapped / ${report.unmapped_concern_ids.length} unmapped across ${Object.keys(report.by_framework).length} framework(s)`,
       );
       return toolOk({
         ...report,

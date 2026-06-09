@@ -72,7 +72,7 @@ function verifyGitBinary(): string {
   if (currentHash !== gitBinary.sha256) {
     throw new Error(
       `git binary tampered: expected sha256 ${gitBinary.sha256}, got ${currentHash}. ` +
-        `path: ${gitBinary.path}`
+        `path: ${gitBinary.path}`,
     );
   }
   return gitBinary.path;
@@ -108,7 +108,7 @@ export function setGitAuthServer(server: GitAuthServer): void {
 export async function $git(
   subcommand: SafeGitSubcommand,
   args: string[],
-  options: GitAuthOptions
+  options: GitAuthOptions,
 ): Promise<GitResult> {
   const gitPath = verifyGitBinary();
 
@@ -227,7 +227,7 @@ export const DEEPEN_RETRY_DEPTH = 1000;
 export async function $gitFetchWithDeepen(
   args: string[],
   options: GitAuthOptions,
-  label?: string
+  label?: string,
 ): Promise<GitResult> {
   try {
     return await $git("fetch", args, options);
@@ -239,7 +239,7 @@ export async function $gitFetchWithDeepen(
       $("git", ["rev-parse", "--is-shallow-repository"], { log: false }).trim() === "true";
     if (!isShallow) throw err;
     log.info(
-      `» ${label ?? "git fetch"} hit shallow-unreachable error, retrying with --deepen=${DEEPEN_RETRY_DEPTH}`
+      `» ${label ?? "git fetch"} hit shallow-unreachable error, retrying with --deepen=${DEEPEN_RETRY_DEPTH}`,
     );
     const retryArgs = args.filter((a) => !a.startsWith("--depth="));
     return await $git("fetch", [`--deepen=${DEEPEN_RETRY_DEPTH}`, ...retryArgs], options);

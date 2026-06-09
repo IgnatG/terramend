@@ -1,9 +1,9 @@
 import { type } from "arktype";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
 import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
 import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 export const Issue = type({
   title: type.string.describe("the title of the issue"),
@@ -50,7 +50,7 @@ export function IssueTool(ctx: ToolContext) {
         title: result.data.title,
         state: result.data.state,
         labels: result.data.labels?.map((label) =>
-          typeof label === "string" ? label : label.name
+          typeof label === "string" ? label : label.name,
         ),
         assignees: result.data.assignees?.map((assignee) => assignee.login),
       };

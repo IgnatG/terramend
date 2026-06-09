@@ -95,7 +95,7 @@ export function $(cmd: string, args: string[], options?: ShellOptions): string {
       .filter(Boolean)
       .join("\n");
     throw new Error(
-      `Command failed with exit code ${errorResult.status}: ${detail || "Unknown error"}`
+      `Command failed with exit code ${errorResult.status}: ${detail || "Unknown error"}`,
     );
   }
 

@@ -71,6 +71,17 @@ RUN ARCH="$(dpkg --print-architecture)" \
 # ubuntu:24.04 ships a default `ubuntu` user at uid 1000 — remove it so we
 # can place `testuser` at 1000 (the typical macOS dev uid). the entrypoint
 # remaps to the host uid/gid at runtime if they differ.
+#
+# SECURITY BOUNDARY NOTE: this image is the LOCAL dogfood/test harness only
+# (built + run by `docker.ts` / `pnpm docker`). It is NOT the production
+# security boundary. `testuser` gets passwordless `NOPASSWD: ALL` sudo here so
+# the test harness can exercise the FS/PID sandbox under `--privileged`; that
+# unprivileged-unshare path is deliberately weaker than production. In a real
+# GitHub Actions run the agent sandbox uses the `sudo-unshare` path, whose
+# `su -p` drop seals CAP_SYS_ADMIN (see src/mcp/shell.ts and wiki/security.md
+# "why sudo inside sandbox doesn't break security"). Do not treat security
+# tests that pass in THIS container as proof of the production seal — CI must
+# exercise the sudo-unshare configuration.
 RUN userdel -r ubuntu 2>/dev/null || true \
     && groupadd -g 1000 testuser \
     && useradd -u 1000 -g 1000 -m -s /bin/bash testuser \

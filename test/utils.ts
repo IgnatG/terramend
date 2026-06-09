@@ -137,7 +137,7 @@ function parseGitHubOutputFile(filePath: string, key: string): string | null {
   const pattern = new RegExp(`${key}<<(ghadelimiter_[\\w-]+)\\n([\\s\\S]*?)\\n\\1`);
   const match = content.match(pattern);
   if (!match) return null;
-  return match[2];
+  return match[2]!;
 }
 
 export interface ValidationCheck {
@@ -180,7 +180,7 @@ export async function runAgentStreaming(options: RunStreamingOptions): Promise<A
     const chunks: Buffer[] = [];
     const prefix = getPrefix({ test: options.test, agent: options.agent });
     function canLog(): boolean {
-      return !options.isCanceled || !options.isCanceled();
+      return !options.isCanceled?.();
     }
 
     // apply default timeout if not specified in fixture
@@ -287,7 +287,7 @@ export type ValidateResultOptions = {
 export function validateResult(
   result: AgentResult,
   validator: ValidatorFn,
-  options: ValidateResultOptions
+  options: ValidateResultOptions,
 ): ValidationResult {
   const checks = validator(result);
   const allPassed = checks.every((c) => c.passed);
@@ -332,7 +332,7 @@ export interface TestRunnerOptions {
   tags?: TestTag[];
   // repo-relative globs of source files that, when changed in a PR, should
   // trigger this test in CI. omit to opt out of filtering (test always runs
-  // — the defensive default). see action/test/coverage.ts.
+  // — the defensive default). see test/coverage.ts.
   coverage?: string[];
   /** evaluated at test-runtime (after `pnpm install`, before agent spawn).
    * return a non-empty reason string to skip the test entirely — the runner
@@ -350,7 +350,7 @@ export function printSingleValidation(validation: ValidationResult): void {
   const canceledNote = validation.canceled ? " (canceled)" : "";
   const skippedNote = validation.skipped ? ` (skipped: ${validation.skipReason ?? ""})` : "";
   console.log(
-    `\n${color}[${validation.test}][${validation.agent}]${RESET} ${checksStr}${canceledNote}${skippedNote}`
+    `\n${color}[${validation.test}][${validation.agent}]${RESET} ${checksStr}${canceledNote}${skippedNote}`,
   );
 }
 
@@ -373,7 +373,7 @@ export function printResults(validations: ValidationResult[]): void {
       ? `(skipped: ${v.skipReason ?? ""})`
       : v.checks.map((c) => `${c.name}=${c.passed ? "✓" : "✗"}`).join(" ");
     console.log(
-      `${status}  ${v.test.padEnd(12)}  ${color}${v.agent.padEnd(10)}${RESET}  ${checkCols}`
+      `${status}  ${v.test.padEnd(12)}  ${color}${v.agent.padEnd(10)}${RESET}  ${checkCols}`,
     );
   }
   console.log("-".repeat(70));

@@ -51,7 +51,7 @@ const NUMBER_KEYS: WorkflowRunUsagePatchKey[] = [
 /** PATCH workflow-run fields (Terramend JWT, not GitHub). */
 export async function patchWorkflowRunFields(
   ctx: ToolContext,
-  fields: WorkflowRunPatch
+  fields: WorkflowRunPatch,
 ): Promise<void> {
   if (ctx.runId === undefined || !ctx.apiToken) return;
   const body: Record<string, string | number> = {};
@@ -87,7 +87,7 @@ export async function patchWorkflowRunFields(
         maxAttempts: 3,
         delayMs: 2000,
         label: "patchWorkflowRunFields",
-      }
+      },
     );
   } catch (error) {
     log.warning(`patchWorkflowRunFields exhausted retries: ${error}`);
@@ -107,7 +107,7 @@ const INT4_MAX = 2_147_483_647;
 function clampInt(value: number, field: WorkflowRunUsagePatchKey): number {
   if (value > INT4_MAX) {
     log.warning(
-      `aggregateUsage: ${field}=${value} exceeds INT4_MAX (${INT4_MAX}) — clamping so the rest of the usage row still persists.`
+      `aggregateUsage: ${field}=${value} exceeds INT4_MAX (${INT4_MAX}) — clamping so the rest of the usage row still persists.`,
     );
     return INT4_MAX;
   }
@@ -135,7 +135,7 @@ export function aggregateUsage(entries: AgentUsage[]): WorkflowRunPatch {
       cacheWriteTokens: acc.cacheWriteTokens + (e.cacheWriteTokens ?? 0),
       costUsd: acc.costUsd + (e.costUsd ?? 0),
     }),
-    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 }
+    { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0 },
   );
 
   const out: WorkflowRunPatch = {};

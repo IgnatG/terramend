@@ -30,7 +30,7 @@ describe("aggregateUsage", () => {
           cacheWriteTokens: 200,
           costUsd: 0.12,
         }),
-      ])
+      ]),
     ).toEqual({
       inputTokens: 100,
       outputTokens: 50,
@@ -58,7 +58,7 @@ describe("aggregateUsage", () => {
           cacheWriteTokens: 300,
           costUsd: 0.25,
         }),
-      ])
+      ]),
     ).toEqual({
       inputTokens: 300,
       outputTokens: 130,
@@ -74,7 +74,7 @@ describe("aggregateUsage", () => {
       aggregateUsage([
         entry({ inputTokens: 10, outputTokens: 5 }),
         entry({ inputTokens: 20, outputTokens: 15 }),
-      ])
+      ]),
     ).toEqual({ inputTokens: 30, outputTokens: 20 });
   });
 

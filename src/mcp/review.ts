@@ -1,6 +1,9 @@
 import type { RestEndpointMethodTypes } from "@octokit/rest";
 import { type } from "arktype";
 import { formatMcpToolRef } from "#app/external";
+import { deleteProgressComment } from "#app/mcp/comment";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import type { CommentableLines } from "#app/toolState";
 import { getApiUrl } from "#app/utils/apiUrl";
 import { buildTerramendFooter } from "#app/utils/buildTerramendFooter";
@@ -13,9 +16,6 @@ import {
 import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
 import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
 import { retry } from "#app/utils/retry";
-import { deleteProgressComment } from "#app/mcp/comment";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 export type { CommentableLines };
 
@@ -66,8 +66,8 @@ export function commentableLinesForFile(patch: string | undefined): CommentableL
   for (const line of patch.split("\n")) {
     const hunk = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunk) {
-      oldLine = parseInt(hunk[1], 10);
-      newLine = parseInt(hunk[2], 10);
+      oldLine = parseInt(hunk[1]!, 10);
+      newLine = parseInt(hunk[2]!, 10);
       continue;
     }
     const changeType = line[0];
@@ -90,7 +90,7 @@ export function commentableLinesForFile(patch: string | undefined): CommentableL
 
 export async function buildCommentableMap(
   ctx: ToolContext,
-  pullNumber: number
+  pullNumber: number,
 ): Promise<Map<string, CommentableLines>> {
   // prefer the snapshot captured by checkout_pr — it matches the diff GitHub
   // will anchor to (commit_id=checkoutSha). refetching via listFiles at review
@@ -135,7 +135,7 @@ export interface DroppedComment {
 
 export function validateInlineComments(
   comments: ReviewCommentInput[],
-  map: Map<string, CommentableLines>
+  map: Map<string, CommentableLines>,
 ): { valid: ReviewCommentInput[]; dropped: DroppedComment[] } {
   const valid: ReviewCommentInput[] = [];
   const dropped: DroppedComment[] = [];
@@ -170,7 +170,7 @@ export function validateInlineComments(
     // numbers". catch it here so the agent sees a precise reason.
     if (c.start_line != null && c.start_line > line) {
       record(
-        `start_line ${c.start_line} is after line ${line} — ranges must satisfy start_line <= line`
+        `start_line ${c.start_line} is after line ${line} — ranges must satisfy start_line <= line`,
       );
       continue;
     }
@@ -311,30 +311,30 @@ export const CreatePullRequestReview = type({
   pull_number: type.number.describe("The pull request number to review"),
   body: type.string
     .describe(
-      "1-2 sentence high-level summary with urgency level, critical callouts, and feedback about code outside the diff. Specific feedback on diff lines goes in 'comments' array."
+      "1-2 sentence high-level summary with urgency level, critical callouts, and feedback about code outside the diff. Specific feedback on diff lines goes in 'comments' array.",
     )
     .optional(),
   approved: type.boolean
     .describe(
-      "Set to true to submit as an approval. Use for `> ✅ No new issues found.` reviews where the PR is mergeable as-is and nothing in the body warrants code changes — approving also suppresses the Fix-button footer affordance so users don't dispatch a fix run on non-actionable feedback. Reserve approved: false for `> ℹ️ ...` (minor suggestions inline), `> [!IMPORTANT]` (recommended changes), and `> [!CAUTION]` (critical) reviews. Defaults to false (comment-only review). Rejections are not supported."
+      "Set to true to submit as an approval. Use for `> ✅ No new issues found.` reviews where the PR is mergeable as-is and nothing in the body warrants code changes — approving also suppresses the Fix-button footer affordance so users don't dispatch a fix run on non-actionable feedback. Reserve approved: false for `> ℹ️ ...` (minor suggestions inline), `> [!IMPORTANT]` (recommended changes), and `> [!CAUTION]` (critical) reviews. Defaults to false (comment-only review). Rejections are not supported.",
     )
     .optional(),
   commit_id: type.string
     .describe(
-      "Optional SHA of the commit being reviewed. Defaults to latest. Must be the FULL 40-character SHA — abbreviated SHAs are rejected by GitHub with `422 Unprocessable Entity`. The PR-synchronize event payload's `head_sha` is already full-length."
+      "Optional SHA of the commit being reviewed. Defaults to latest. Must be the FULL 40-character SHA — abbreviated SHAs are rejected by GitHub with `422 Unprocessable Entity`. The PR-synchronize event payload's `head_sha` is already full-length.",
     )
     .optional(),
   comments: type({
     path: type.string.describe(
-      "The file path to comment on (relative to repo root). Must be a file that appears in the PR diff."
+      "The file path to comment on (relative to repo root). Must be a file that appears in the PR diff.",
     ),
     line: type.number.describe(
-      "Line number to comment on. For multi-line ranges, this is the end line. Use NEW column from diff format. Must sit inside a `@@` hunk in the PR diff — anchors on context-only or untouched lines are dropped silently (the rest of the review still posts; dropped entries are reported under `droppedComments` in the response)."
+      "Line number to comment on. For multi-line ranges, this is the end line. Use NEW column from diff format. Must sit inside a `@@` hunk in the PR diff — anchors on context-only or untouched lines are dropped silently (the rest of the review still posts; dropped entries are reported under `droppedComments` in the response).",
     ),
     side: type
       .enumerated("LEFT", "RIGHT")
       .describe(
-        "Side of the diff: LEFT (old code, lines starting with -) or RIGHT (new code, lines starting with + or unchanged). Defaults to RIGHT."
+        "Side of the diff: LEFT (old code, lines starting with -) or RIGHT (new code, lines starting with + or unchanged). Defaults to RIGHT.",
       )
       .optional(),
     body: type.string
@@ -342,18 +342,18 @@ export const CreatePullRequestReview = type({
       .optional(),
     suggestion: type.string
       .describe(
-        "Full replacement code for the line range [start_line, line]. MUST preserve the exact indentation of the original code."
+        "Full replacement code for the line range [start_line, line]. MUST preserve the exact indentation of the original code.",
       )
       .optional(),
     start_line: type.number
       .describe(
-        "Start line for multi-line comment ranges. Omit for single-line comments. The range [start_line, line] defines which lines a suggestion replaces. Both `start_line` and `line` must sit inside the same `@@` hunk — a `start_line` outside the hunk causes the whole comment to be dropped even when `line` is valid. If you need to comment on context just above/below a hunk, shrink the range to a single line that is provably modified."
+        "Start line for multi-line comment ranges. Omit for single-line comments. The range [start_line, line] defines which lines a suggestion replaces. Both `start_line` and `line` must sit inside the same `@@` hunk — a `start_line` outside the hunk causes the whole comment to be dropped even when `line` is valid. If you need to comment on context just above/below a hunk, shrink the range to a single line that is provably modified.",
       )
       .optional(),
   })
     .array()
     .describe(
-      "Inline comments on lines within diff hunks. Feedback about code outside the diff goes in 'body' instead."
+      "Inline comments on lines within diff hunks. Feedback about code outside the diff goes in 'body' instead.",
     )
     .optional(),
 });
@@ -446,7 +446,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
         if (ctx.toolState.checkoutSha && latestHeadSha !== ctx.toolState.checkoutSha) {
           log.info(
             `anchoring review to checkout ${ctx.toolState.checkoutSha.slice(0, 7)} ` +
-              `(HEAD is now ${latestHeadSha.slice(0, 7)})`
+              `(HEAD is now ${latestHeadSha.slice(0, 7)})`,
           );
         }
       }
@@ -457,8 +457,8 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
       const reviewComments = comments.map((comment) => {
         let commentBody = fixDoubleEscapedString(comment.body || "");
         if (comment.suggestion !== undefined) {
-          const suggestionBlock = "```suggestion\n" + comment.suggestion + "\n```";
-          commentBody = commentBody ? commentBody + "\n\n" + suggestionBlock : suggestionBlock;
+          const suggestionBlock = `\`\`\`suggestion\n${comment.suggestion}\n\`\`\``;
+          commentBody = commentBody ? `${commentBody}\n\n${suggestionBlock}` : suggestionBlock;
         }
         const side = comment.side || "RIGHT";
         const reviewComment: ReviewComment = {
@@ -484,7 +484,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
         droppedComments = validation.dropped;
         if (droppedComments.length > 0) {
           log.info(
-            `dropping ${droppedComments.length}/${reviewComments.length} inline comment(s) that do not anchor to PR diff lines`
+            `dropping ${droppedComments.length}/${reviewComments.length} inline comment(s) that do not anchor to PR diff lines`,
           );
         }
         // always reassign so all-dropped reviews leave params.comments empty
@@ -520,7 +520,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
       // agent dropping valid inline comments chasing a non-issue.
       // `shouldRetry` scopes retries to the transient body only, so real
       // validation 422s still fail fast.
-      let result;
+      let result: Awaited<ReturnType<typeof ctx.octokit.rest.pulls.createReview>>;
       try {
         result = await retry(
           () =>
@@ -535,7 +535,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
             delaysMs: TRANSIENT_REVIEW_RETRY_DELAYS_MS,
             shouldRetry: isTransientReviewError,
             label: "review submission",
-          }
+          },
         );
       } catch (err: unknown) {
         // GitHub's transient 422 "internal error" is distinct from anchor /
@@ -553,7 +553,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
               `Wait ~30 seconds and call this tool once more with the SAME arguments. ` +
               `If it still fails, submit a body-only review (move all inline feedback into \`body\` as text) so nothing is lost. ` +
               `GitHub said: ${rawMsg}`,
-            { cause: err }
+            { cause: err },
           );
         }
         if (getHttpStatus(err) !== 422 || !params.comments?.length) throw err;
@@ -580,7 +580,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
             `If none apply, move the failing comments into the review body as text so the rest still posts. ` +
             `Affected comments: ${details.join(", ")}. ` +
             `GitHub said: ${rawMsg}`,
-          { cause: err }
+          { cause: err },
         );
       }
       log.debug(`createReview response: ${JSON.stringify(result.data)}`);
@@ -629,7 +629,7 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
         ctx.toolState.checkoutSha = toSha;
 
         log.info(
-          `new commits detected during review: ${fromSha.slice(0, 7)}..${toSha.slice(0, 7)}`
+          `new commits detected during review: ${fromSha.slice(0, 7)}..${toSha.slice(0, 7)}`,
         );
 
         return {
@@ -677,7 +677,7 @@ function runDiffCoveragePreflight(params: { ctx: ToolContext }): void {
 
   coverageState.coveragePreflightRan = true;
   log.debug(
-    `diff coverage pre-flight start: diffPath=${coverageState.diffPath}, totalLines=${coverageState.totalLines}, tocEntries=${coverageState.tocEntries.length}, coveredRanges=${coverageState.coveredRanges.length}`
+    `diff coverage pre-flight start: diffPath=${coverageState.diffPath}, totalLines=${coverageState.totalLines}, tocEntries=${coverageState.tocEntries.length}, coveredRanges=${coverageState.coveredRanges.length}`,
   );
   const breakdown = getDiffCoverageBreakdown({ state: coverageState });
   const unread: Array<{ path: string; ranges: string; unreadLines: number }> = [];
@@ -696,7 +696,7 @@ function runDiffCoveragePreflight(params: { ctx: ToolContext }): void {
     breakdown,
   });
   log.debug(
-    `diff coverage pre-flight breakdown: coveredLines=${breakdown.coveredLines}, unreadLines=${unreadLines}`
+    `diff coverage pre-flight breakdown: coveredLines=${breakdown.coveredLines}, unreadLines=${unreadLines}`,
   );
 
   if (unreadLines === 0) {
@@ -705,7 +705,7 @@ function runDiffCoveragePreflight(params: { ctx: ToolContext }): void {
   }
 
   log.info(
-    `diff coverage pre-flight nudge: unread lines=${unreadLines}, unread files=${unread.length}`
+    `diff coverage pre-flight nudge: unread lines=${unreadLines}, unread files=${unread.length}`,
   );
   const unreadText = unread
     .map((entry) => `- ${entry.path} (${entry.unreadLines} lines, ${entry.ranges})`)
@@ -717,7 +717,7 @@ function runDiffCoveragePreflight(params: { ctx: ToolContext }): void {
       `if every unread region is generated, retry immediately without reading. ` +
       `this pre-flight will not block again in this review session.\n\n` +
       `unread TOC regions:\n${unreadText}\n\n` +
-      `${coverageState.lastBreakdown}`
+      `${coverageState.lastBreakdown}`,
   );
 }
 
@@ -750,7 +750,7 @@ type FooterOpts = { body: string; approved: boolean; hasComments: boolean };
  */
 export async function clearStrandedPendingReview(
   ctx: ToolContext,
-  params: { owner: string; repo: string; pull_number: number; originalErr: unknown }
+  params: { owner: string; repo: string; pull_number: number; originalErr: unknown },
 ): Promise<void> {
   const originalErr = params.originalErr;
   const msg = originalErr instanceof Error ? originalErr.message.toLowerCase() : "";
@@ -771,14 +771,14 @@ export async function clearStrandedPendingReview(
       // surface at info so operators not running at debug still see that
       // recovery was attempted (and why) before the original 422 bubbles up.
       log.info(
-        `» listReviews failed during pending-review cleanup, surfacing original 422: ${listErr instanceof Error ? listErr.message : String(listErr)}`
+        `» listReviews failed during pending-review cleanup, surfacing original 422: ${listErr instanceof Error ? listErr.message : String(listErr)}`,
       );
       throw originalErr;
     });
   const leftover = reviews.find((r) => r.state === "PENDING");
   if (!leftover?.id) throw originalErr;
   log.info(
-    `» clearing leftover pending review ${leftover.id} (likely stranded by a killed prior run)`
+    `» clearing leftover pending review ${leftover.id} (likely stranded by a killed prior run)`,
   );
   try {
     await ctx.octokit.rest.pulls.deletePendingReview({
@@ -805,7 +805,7 @@ export async function clearStrandedPendingReview(
  */
 export async function createReviewWithStrandedRecovery(
   ctx: ToolContext,
-  params: RestEndpointMethodTypes["pulls"]["createReview"]["parameters"]
+  params: RestEndpointMethodTypes["pulls"]["createReview"]["parameters"],
 ): Promise<Awaited<ReturnType<typeof ctx.octokit.rest.pulls.createReview>>> {
   try {
     return await ctx.octokit.rest.pulls.createReview(params);
@@ -823,7 +823,7 @@ export async function createReviewWithStrandedRecovery(
 async function createAndSubmitWithFooter(
   ctx: ToolContext,
   params: RestEndpointMethodTypes["pulls"]["createReview"]["parameters"],
-  opts: FooterOpts
+  opts: FooterOpts,
 ) {
   // create as PENDING (strip event) so we get the review ID before publishing
   const { event: _, ...pendingParams } = params;
@@ -897,7 +897,7 @@ async function createAndSubmitWithFooter(
       log.debug(`» deleted leftover pending review ${pending.data.id} after failure`);
     } catch (cleanupErr) {
       log.debug(
-        `» failed to delete pending review ${pending.data.id}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`
+        `» failed to delete pending review ${pending.data.id}: ${cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr)}`,
       );
     }
     throw err;
@@ -910,7 +910,7 @@ async function createAndSubmitWithFooter(
  */
 export async function reportReviewNodeId(
   ctx: ToolContext,
-  params: { nodeId: string }
+  params: { nodeId: string },
 ): Promise<void> {
   await patchWorkflowRunFields(ctx, { reviewNodeId: params.nodeId });
 }

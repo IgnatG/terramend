@@ -76,7 +76,7 @@ export function formatAgentHangBody(input: {
       tail,
       fence,
       "",
-      "</details>"
+      "</details>",
     );
   }
 
@@ -162,7 +162,7 @@ function formatBillingExhaustedBody(diagnostic: AgentDiagnostic): string {
       tail,
       fence,
       "",
-      "</details>"
+      "</details>",
     );
   }
 

@@ -46,13 +46,15 @@ const sharedConfig = {
   target: "node24",
   minify: false,
   sourcemap: false,
-  // Bundle all dependencies - GitHub Actions doesn't have node_modules
-  // Only mark optional peer dependencies as external
-  external: [
-    "@valibot/to-json-schema",
-    "effect",
-    "sury",
-  ],
+  // Bundle all dependencies — the GitHub Actions runtime has no node_modules.
+  // EXCEPTION: these three are optional schema-adapter peers that `xsschema`
+  // (reached via fastmcp's `toJsonSchema`) lazily imports ONLY for projects that
+  // validate with valibot / effect-schema / sury. Terramend validates with
+  // arktype, so they are never loaded at runtime; marking them external stops
+  // esbuild from trying to bundle (and failing to resolve) adapter code nothing
+  // here uses. They are intentionally NOT declared as dependencies for the same
+  // reason — adding them would pull unused, unresolved optional adapters.
+  external: ["@valibot/to-json-schema", "effect", "sury"],
   // Provide a proper require shim for CommonJS modules bundled into ESM
   // We use a unique variable name to avoid conflicts with bundled imports
   banner: {

@@ -23,7 +23,7 @@ describe("openRouterResolve completeness", () => {
     it(`${alias.slug} has openRouterResolve`, () => {
       expect(
         alias.openRouterResolve,
-        `non-free model "${alias.slug}" is missing openRouterResolve — add it or add to BYOK_ONLY_MODELS`
+        `non-free model "${alias.slug}" is missing openRouterResolve — add it or add to BYOK_ONLY_MODELS`,
       ).toBeDefined();
     });
   }
@@ -49,7 +49,7 @@ describe("fallback chain resolution", () => {
       const resolved = resolveCliModel(alias.slug);
       expect(
         resolved,
-        `fallback chain for "${alias.slug}" does not resolve to a non-deprecated model`
+        `fallback chain for "${alias.slug}" does not resolve to a non-deprecated model`,
       ).toBeDefined();
     });
   }
@@ -72,21 +72,21 @@ describe("isFree invariants", () => {
     it(`${alias.slug} lives under the opencode provider`, () => {
       expect(
         alias.provider,
-        `isFree alias "${alias.slug}" must be under "opencode" (Zen's keyless gate is opencode-only)`
+        `isFree alias "${alias.slug}" must be under "opencode" (Zen's keyless gate is opencode-only)`,
       ).toBe("opencode");
     });
 
     it(`${alias.slug} has empty envVars`, () => {
       expect(
         getModelEnvVars(alias.slug),
-        `isFree alias "${alias.slug}" must declare \`envVars: []\` so validateAgentApiKey doesn't demand OPENCODE_API_KEY`
+        `isFree alias "${alias.slug}" must declare \`envVars: []\` so validateAgentApiKey doesn't demand OPENCODE_API_KEY`,
       ).toEqual([]);
     });
 
     it(`${alias.slug} has no openRouterResolve`, () => {
       expect(
         alias.openRouterResolve,
-        `isFree alias "${alias.slug}" must omit \`openRouterResolve\` — free Zen models don't exist on OpenRouter`
+        `isFree alias "${alias.slug}" must omit \`openRouterResolve\` — free Zen models don't exist on OpenRouter`,
       ).toBeUndefined();
     });
 
@@ -95,7 +95,7 @@ describe("isFree invariants", () => {
       expect(terminal, `fallback chain for "${alias.slug}" is broken`).toBeDefined();
       expect(
         terminal?.isFree,
-        `isFree alias "${alias.slug}" walks to "${terminal?.slug}" which is NOT isFree — users would silently start paying`
+        `isFree alias "${alias.slug}" walks to "${terminal?.slug}" which is NOT isFree — users would silently start paying`,
       ).toBe(true);
     });
   }

@@ -3,6 +3,10 @@ import { statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Octokit, RestEndpointMethodTypes } from "@octokit/rest";
 import { type } from "arktype";
+import { rejectIfLeadingDash } from "#app/mcp/git";
+import { commentableLinesForFile } from "#app/mcp/review";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
 import { countLines, createDiffCoverageState } from "#app/utils/diffCoverage";
 import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
@@ -10,10 +14,6 @@ import { executeLifecycleHook } from "#app/utils/lifecycle";
 import { computeIncrementalDiff } from "#app/utils/rangeDiff";
 import { retry } from "#app/utils/retry";
 import { $ } from "#app/utils/shell";
-import { rejectIfLeadingDash } from "#app/mcp/git";
-import { commentableLinesForFile } from "#app/mcp/review";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 type PullFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
 
@@ -70,8 +70,8 @@ export function formatFilesWithLineNumbers(files: PullFile[]): FormatFilesResult
       // hunk header: @@ -OLD,COUNT +NEW,COUNT @@ optional context
       const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (hunkMatch) {
-        oldLine = parseInt(hunkMatch[1], 10);
-        newLine = parseInt(hunkMatch[2], 10);
+        oldLine = parseInt(hunkMatch[1]!, 10);
+        newLine = parseInt(hunkMatch[2]!, 10);
         output.push(line); // pass through unchanged
         currentLine++;
         continue;
@@ -121,7 +121,7 @@ export function formatFilesWithLineNumbers(files: PullFile[]): FormatFilesResult
   for (const entry of tocEntries) {
     const anchor = createHash("sha256").update(entry.filename).digest("hex");
     tocLines.push(
-      `- ${entry.filename} → lines ${entry.startLine}-${entry.endLine} · diff-${anchor}`
+      `- ${entry.filename} → lines ${entry.startLine}-${entry.endLine} · diff-${anchor}`,
     );
   }
   tocLines.push("");
@@ -174,7 +174,7 @@ export type CheckoutPrResult = {
  */
 export async function fetchAndFormatPrDiff(
   ctx: ToolContext,
-  pullNumber: number
+  pullNumber: number,
 ): Promise<FetchAndFormatPrDiffResult> {
   const files = await ctx.octokit.paginate(ctx.octokit.rest.pulls.listFiles, {
     owner: ctx.repo.owner,
@@ -233,7 +233,7 @@ async function createTempBranch(params: CreateTempBranchParams) {
         log.debug(`» deleted temp branch ${params.ref}`);
       } catch (e) {
         log.debug(
-          `» failed to delete temp branch ${params.ref}: ${e instanceof Error ? e.message : String(e)}`
+          `» failed to delete temp branch ${params.ref}: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
     },
@@ -262,7 +262,7 @@ async function ensureBeforeShaReachable(params: EnsureBeforeShaParams): Promise<
     await $gitFetchWithDeepen(
       ["--no-tags", ...(params.isShallow ? ["--depth=1"] : []), "origin", tempBranch],
       { token: params.gitToken },
-      `before_sha temp branch ${tempBranch}`
+      `before_sha temp branch ${tempBranch}`,
     );
     log.debug(`» fetched before_sha via temp branch ${tempBranch}`);
     return true;
@@ -309,7 +309,7 @@ function cleanupStaleGitLocks(): void {
       log.warning(`» removed stale ${relPath} from prior run`);
     } catch (e) {
       log.debug(
-        `» failed to remove stale ${relPath}: ${e instanceof Error ? e.message : String(e)}`
+        `» failed to remove stale ${relPath}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -367,7 +367,7 @@ async function abortIfPullRequestMoved(args: {
   const stillValid = await isPullRequestStillDispatchable(args);
   if (stillValid) return;
   throw new Error(
-    `PR #${args.pr.number} is no longer in the state it was at dispatch (likely closed, merged, or force-pushed between webhook fire and run start). aborting checkout — re-trigger the run if this PR is still active.`
+    `PR #${args.pr.number} is no longer in the state it was at dispatch (likely closed, merged, or force-pushed between webhook fire and run start). aborting checkout — re-trigger the run if this PR is still active.`,
   );
 }
 
@@ -378,7 +378,7 @@ async function abortIfPullRequestMoved(args: {
  */
 export async function checkoutPrBranch(
   pr: PrData,
-  params: CheckoutPrBranchParams
+  params: CheckoutPrBranchParams,
 ): Promise<{ hookWarning?: string | undefined }> {
   const { octokit, owner, name, gitToken, toolState, beforeSha } = params;
   log.info(`» checking out PR #${pr.number}...`);
@@ -423,7 +423,7 @@ export async function checkoutPrBranch(
   await $gitFetchWithDeepen(
     ["--no-tags", "origin", pr.baseRef],
     { token: gitToken },
-    `base branch ${pr.baseRef}`
+    `base branch ${pr.baseRef}`,
   );
 
   // alreadyOnBranch only matches for repeated checkout_pr calls for the same PR in one session
@@ -451,7 +451,7 @@ export async function checkoutPrBranch(
           await $gitFetchWithDeepen(
             ["--no-tags", "origin", `+pull/${pr.number}/head:${localBranch}`],
             { token: gitToken },
-            `PR #${pr.number}`
+            `PR #${pr.number}`,
           );
         } catch (e) {
           // on the webhook race, check whether the PR still matches what we
@@ -470,7 +470,7 @@ export async function checkoutPrBranch(
         label: `pull/${pr.number}/head fetch`,
         shouldRetry: (e) =>
           PULL_REF_MISSING_PATTERN.test(e instanceof Error ? e.message : String(e)),
-      }
+      },
     );
 
     // checkout the branch
@@ -523,14 +523,14 @@ export async function checkoutPrBranch(
           prComparison.data.ahead_by,
           prComparison.data.behind_by,
           beforeShaComparison?.data.ahead_by ?? 0,
-          beforeShaComparison?.data.behind_by ?? 0
+          beforeShaComparison?.data.behind_by ?? 0,
         ) + 10;
       log.debug(
         `» PR: ${prComparison.data.ahead_by} ahead / ${prComparison.data.behind_by} behind` +
           (beforeShaComparison
             ? `, before_sha: ${beforeShaComparison.data.ahead_by} ahead / ${beforeShaComparison.data.behind_by} behind`
             : "") +
-          `, deepen by ${deepenDepth}`
+          `, deepen by ${deepenDepth}`,
       );
     } catch {
       deepenDepth = 1000;
@@ -573,7 +573,7 @@ export async function checkoutPrBranch(
     if (!pr.maintainerCanModify) {
       log.warning(
         `» fork PR has maintainer_can_modify=false - push operations will fail. ` +
-          `ask the PR author to enable "Allow edits from maintainers" or the fork may be owned by an organization.`
+          `ask the PR author to enable "Allow edits from maintainers" or the fork may be owned by an organization.`,
       );
     }
   } else {
@@ -668,7 +668,7 @@ export function CheckoutPrTool(ctx: ToolContext) {
     const tempDir = process.env.TERRAMEND_TEMP_DIR;
     if (!tempDir) {
       throw new Error(
-        "TERRAMEND_TEMP_DIR not set - checkout_pr must run in terramend action context"
+        "TERRAMEND_TEMP_DIR not set - checkout_pr must run in terramend action context",
       );
     }
 
@@ -686,11 +686,11 @@ export function CheckoutPrTool(ctx: ToolContext) {
       if (incremental) {
         incrementalDiffPath = join(
           tempDir,
-          `pr-${pull_number}-${beforeShort}-${headShort}-incremental.diff`
+          `pr-${pull_number}-${beforeShort}-${headShort}-incremental.diff`,
         );
         writeFileSync(incrementalDiffPath, incremental);
         log.info(
-          `» incremental diff computed (${incremental.length} bytes) → ${incrementalDiffPath}`
+          `» incremental diff computed (${incremental.length} bytes) → ${incrementalDiffPath}`,
         );
       }
     }
@@ -709,7 +709,7 @@ export function CheckoutPrTool(ctx: ToolContext) {
       previous: ctx.toolState.diffCoverage,
     });
     log.debug(
-      `» diff coverage initialized: diffPath=${diffPath}, totalLines=${ctx.toolState.diffCoverage.totalLines}, tocEntries=${ctx.toolState.diffCoverage.tocEntries.length}`
+      `» diff coverage initialized: diffPath=${diffPath}, totalLines=${ctx.toolState.diffCoverage.totalLines}, tocEntries=${ctx.toolState.diffCoverage.tocEntries.length}`,
     );
 
     // cache commentable-lines snapshot so review-time validation matches what
@@ -743,7 +743,7 @@ export function CheckoutPrTool(ctx: ToolContext) {
     try {
       commitCount = parseInt(
         $("git", ["rev-list", "--count", baseRange], { log: false }).trim() || "0",
-        10
+        10,
       );
       commitLog = $("git", ["log", "--oneline", `--max-count=${COMMIT_LOG_MAX}`, baseRange], {
         log: false,
@@ -751,7 +751,7 @@ export function CheckoutPrTool(ctx: ToolContext) {
     } catch (err) {
       commitLogUnavailable = true;
       log.debug(
-        `» unable to compute commit metadata for ${baseRange}: ${err instanceof Error ? err.message : String(err)}`
+        `» unable to compute commit metadata for ${baseRange}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
     const commitLogTruncated = commitCount > COMMIT_LOG_MAX;
@@ -837,7 +837,7 @@ export function CheckoutPrTool(ctx: ToolContext) {
           `cannot checkout PR #${pull_number} while the working tree has uncommitted changes. ` +
             `commit (then push if needed), or discard with \`git restore --staged --worktree .\` / \`git clean -fd\` before retrying. ` +
             `this refusal is unconditional — even re-checking-out the PR you're already on is refused, ` +
-            `because shared-working-tree subagents make carry-forward edits unsafe. dirty paths:\n${dirty}`
+            `because shared-working-tree subagents make carry-forward edits unsafe. dirty paths:\n${dirty}`,
         );
       }
 
@@ -869,7 +869,7 @@ export function CheckoutPrTool(ctx: ToolContext) {
               `work along, commit or discard it (\`git restore --staged --worktree .\` / \`git clean -fd\`) before switching. ` +
               `routing around this via the \`git\` tool's \`checkout\`/\`switch\` subcommands is not sanctioned: ` +
               `this guard exists to prevent the shared-working-tree cross-PR clobber pattern from the ` +
-              `zed-industries/cloud (2026-05-18) incident.`
+              `zed-industries/cloud (2026-05-18) incident.`,
           );
         }
       }

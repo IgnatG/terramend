@@ -39,7 +39,7 @@ describe("resolveInstructions — mode pinning (C1)", () => {
   it("pins the mode and drops the available-modes menu when payload.mode is set", () => {
     const full = buildFull(makePayload({ mode: "Remediate" }));
     expect(full).toContain("Select the pinned mode");
-    expect(full).toContain('pinned to **Remediate** mode');
+    expect(full).toContain("pinned to **Remediate** mode");
     expect(full).toContain('mode: "Remediate"');
     // the deliberation menu must NOT appear in a pinned run
     expect(full).not.toContain("Available modes:");

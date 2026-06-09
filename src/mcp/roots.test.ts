@@ -35,7 +35,7 @@ describe("discoverTerraformRoots (multi-root, hepcare layout)", () => {
     mkdirSync(join(root, "terraform"), { recursive: true });
     writeFileSync(
       join(root, "terraform", "providers.tf"),
-      'terraform {\n  backend "s3" {}\n}\nprovider "aws" {\n  region = "eu-west-2"\n}'
+      'terraform {\n  backend "s3" {}\n}\nprovider "aws" {\n  region = "eu-west-2"\n}',
     );
     writeFileSync(join(root, "terraform", "main.tf"), 'resource "aws_s3_bucket" "b" {}');
     // root #2: terraform/core/ with a provider config
@@ -45,7 +45,7 @@ describe("discoverTerraformRoots (multi-root, hepcare layout)", () => {
     mkdirSync(join(root, "terraform", "modules", "x"), { recursive: true });
     writeFileSync(
       join(root, "terraform", "modules", "x", "versions.tf"),
-      'terraform {\n  required_providers {\n    aws = { source = "hashicorp/aws" }\n  }\n}'
+      'terraform {\n  required_providers {\n    aws = { source = "hashicorp/aws" }\n  }\n}',
     );
   });
 
@@ -69,28 +69,32 @@ describe("discoverTerraformRoots (multi-root, hepcare layout)", () => {
 
 describe("detectEnvironmentTwins (§22)", () => {
   it("groups dev/staging/prod stacks that differ only by an env segment", () => {
-    const twins = detectEnvironmentTwins(["environments/dev", "environments/staging", "environments/prod"]);
+    const twins = detectEnvironmentTwins([
+      "environments/dev",
+      "environments/staging",
+      "environments/prod",
+    ]);
     expect(twins).toHaveLength(1);
-    expect(twins[0].pattern).toBe("environments/{env}");
-    expect(twins[0].members.map((m) => m.environment)).toEqual(["dev", "prod", "staging"]);
+    expect(twins[0]!.pattern).toBe("environments/{env}");
+    expect(twins[0]!.members.map((m) => m.environment)).toEqual(["dev", "prod", "staging"]);
   });
 
   it("matches the LAST env segment so nested paths key correctly", () => {
     const twins = detectEnvironmentTwins(["infra/prod/network", "infra/dev/network"]);
-    expect(twins[0].pattern).toBe("infra/{env}/network");
-    expect(twins[0].members.map((m) => m.environment)).toEqual(["dev", "prod"]);
+    expect(twins[0]!.pattern).toBe("infra/{env}/network");
+    expect(twins[0]!.members.map((m) => m.environment)).toEqual(["dev", "prod"]);
   });
 
   it("detects per-region twins", () => {
     const twins = detectEnvironmentTwins(["stacks/eu-west-2", "stacks/eu-west-1"]);
-    expect(twins[0].pattern).toBe("stacks/{env}");
-    expect(twins[0].members.map((m) => m.environment)).toEqual(["eu-west-1", "eu-west-2"]);
+    expect(twins[0]!.pattern).toBe("stacks/{env}");
+    expect(twins[0]!.members.map((m) => m.environment)).toEqual(["eu-west-1", "eu-west-2"]);
   });
 
   it("matches a <env>.tfvars filename", () => {
     const twins = detectEnvironmentTwins(["env/dev.tfvars", "env/prod.tfvars"]);
-    expect(twins[0].pattern).toBe("env/{env}.tfvars");
-    expect(twins[0].members.map((m) => m.environment)).toEqual(["dev", "prod"]);
+    expect(twins[0]!.pattern).toBe("env/{env}.tfvars");
+    expect(twins[0]!.members.map((m) => m.environment)).toEqual(["dev", "prod"]);
   });
 
   it("does NOT group a single environment (needs ≥2 distinct)", () => {

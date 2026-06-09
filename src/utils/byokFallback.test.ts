@@ -136,7 +136,9 @@ describe("buildUnavailableModelError", () => {
         "anthropic/claude-opus-4-8",
       ]),
     });
-    expect(msg).toContain('model "google/gemini-3.5-flash-lite" is not available to your Google key');
+    expect(msg).toContain(
+      'model "google/gemini-3.5-flash-lite" is not available to your Google key',
+    );
     expect(msg).toContain("  - google/gemini-3.5-flash");
     expect(msg).toContain("  - google/gemini-3.1-pro");
     // unrelated provider is filtered out when same-provider matches exist

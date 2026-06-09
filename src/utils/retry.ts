@@ -32,7 +32,7 @@ export async function retry<T>(fn: () => Promise<T>, options: RetryOptions = {})
     ? Array.from(options.delaysMs)
     : Array.from(
         { length: (options.maxAttempts ?? 3) - 1 },
-        (_, i) => (options.delayMs ?? 1000) * (i + 1)
+        (_, i) => (options.delayMs ?? 1000) * (i + 1),
       );
   const maxAttempts = delays.length + 1;
 

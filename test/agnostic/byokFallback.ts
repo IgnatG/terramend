@@ -24,7 +24,7 @@ const fixture = defineFixture(
     prompt: "Reply with exactly the single character: 4",
     timeout: "5m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {
@@ -66,11 +66,11 @@ export const test: TestRunnerOptions = {
   },
   tags: ["agnostic"],
   coverage: [
-    "action/utils/byokFallback.ts",
-    "action/utils/apiKeys.ts",
-    "action/utils/agent.ts",
-    "action/utils/openCodeModels.ts",
-    "action/main.ts",
-    "action/models.ts",
+    "src/utils/byokFallback.ts",
+    "src/utils/apiKeys.ts",
+    "src/utils/agent.ts",
+    "src/utils/openCodeModels.ts",
+    "src/main.ts",
+    "src/models.ts",
   ],
 };

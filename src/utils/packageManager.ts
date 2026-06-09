@@ -44,7 +44,7 @@ function isSupported(name: string): name is SupportedPackageManager {
 function parsePackageManagerField(value: string): PackageManagerSpec | null {
   // npm spec form is "name@version[+integrity]" — corepack adds the integrity
   // suffix; we strip it because it's not a semver.
-  const withoutHash = value.split("+")[0];
+  const withoutHash = value.split("+")[0]!;
   const at = withoutHash.lastIndexOf("@");
   if (at <= 0) return null;
   const name = withoutHash.slice(0, at);
@@ -62,7 +62,7 @@ function parsePackageManagerField(value: string): PackageManagerSpec | null {
 }
 
 function parseDevEnginesField(
-  field: NonNullable<NonNullable<PackageJson["devEngines"]>["packageManager"]>
+  field: NonNullable<NonNullable<PackageJson["devEngines"]>["packageManager"]>,
 ): PackageManagerSpec | null {
   if (!field.name || !field.version) return null;
   if (!isSupported(field.name)) {
@@ -94,7 +94,7 @@ export async function resolvePackageManagerSpec(cwd: string): Promise<PackageMan
     pkg = JSON.parse(await readFile(pkgPath, "utf-8")) as PackageJson;
   } catch (err) {
     log.warning(
-      `» failed to parse package.json for package manager resolution: ${err instanceof Error ? err.message : String(err)}`
+      `» failed to parse package.json for package manager resolution: ${err instanceof Error ? err.message : String(err)}`,
     );
     return null;
   }
@@ -111,7 +111,7 @@ export async function resolvePackageManagerSpec(cwd: string): Promise<PackageMan
 
   if (devSpec.name !== pmSpec.name) {
     log.warning(
-      `» devEngines.packageManager (${devSpec.name}) disagrees with packageManager (${pmSpec.name}); using devEngines per pnpm 11 precedence`
+      `» devEngines.packageManager (${devSpec.name}) disagrees with packageManager (${pmSpec.name}); using devEngines per pnpm 11 precedence`,
     );
     return devSpec;
   }
@@ -120,7 +120,7 @@ export async function resolvePackageManagerSpec(cwd: string): Promise<PackageMan
   if (devSpec.concrete) {
     if (pmSpec.concrete && devSpec.version !== pmSpec.version) {
       log.warning(
-        `» devEngines.packageManager (${devSpec.version}) disagrees with packageManager (${pmSpec.version}); using devEngines per pnpm 11 precedence`
+        `» devEngines.packageManager (${devSpec.version}) disagrees with packageManager (${pmSpec.version}); using devEngines per pnpm 11 precedence`,
       );
     }
     return devSpec;
@@ -132,7 +132,7 @@ export async function resolvePackageManagerSpec(cwd: string): Promise<PackageMan
 
   if (pmSpec.concrete) {
     log.warning(
-      `» packageManager (${pmSpec.version}) does not satisfy devEngines range (${devSpec.version}); using devEngines`
+      `» packageManager (${pmSpec.version}) does not satisfy devEngines range (${devSpec.version}); using devEngines`,
     );
   }
   return devSpec;
@@ -210,7 +210,7 @@ export async function ensurePackageManager(params: EnsurePackageManagerParams): 
 
   if (!spec.concrete) {
     log.warning(
-      `» ${spec.name} ${spec.source} version is a range (${spec.version}); corepack requires a concrete pin. leaving PATH unchanged.`
+      `» ${spec.name} ${spec.source} version is a range (${spec.version}); corepack requires a concrete pin. leaving PATH unchanged.`,
     );
     return false;
   }
@@ -222,14 +222,14 @@ export async function ensurePackageManager(params: EnsurePackageManagerParams): 
   }
 
   log.info(
-    `» corepack prepare ${spec.name}@${spec.version} --activate (shim dir: ${params.binDir})`
+    `» corepack prepare ${spec.name}@${spec.version} --activate (shim dir: ${params.binDir})`,
   );
 
   await mkdir(params.binDir, { recursive: true });
   const enable = await runCorepack(["enable", "--install-directory", params.binDir, spec.name]);
   if (enable.exitCode !== 0) {
     log.warning(
-      `» corepack enable failed (exit ${enable.exitCode}); leaving ${spec.name} from PATH. stderr: ${enable.stderr.trim() || "(empty)"}`
+      `» corepack enable failed (exit ${enable.exitCode}); leaving ${spec.name} from PATH. stderr: ${enable.stderr.trim() || "(empty)"}`,
     );
     return false;
   }
@@ -241,7 +241,7 @@ export async function ensurePackageManager(params: EnsurePackageManagerParams): 
   const prepare = await runCorepack(["prepare", `${spec.name}@${spec.version}`, "--activate"]);
   if (prepare.exitCode !== 0) {
     log.warning(
-      `» corepack prepare ${spec.name}@${spec.version} failed (exit ${prepare.exitCode}); leaving ${spec.name} from PATH. stderr: ${prepare.stderr.trim() || "(empty)"}`
+      `» corepack prepare ${spec.name}@${spec.version} failed (exit ${prepare.exitCode}); leaving ${spec.name} from PATH. stderr: ${prepare.stderr.trim() || "(empty)"}`,
     );
     return false;
   }
@@ -249,7 +249,7 @@ export async function ensurePackageManager(params: EnsurePackageManagerParams): 
   const after = await currentVersion(spec.name);
   if (after !== spec.version) {
     log.warning(
-      `» corepack activated ${spec.name}@${spec.version} but PATH still resolves to ${after ?? "(missing)"}; continuing anyway`
+      `» corepack activated ${spec.name}@${spec.version} but PATH still resolves to ${after ?? "(missing)"}; continuing anyway`,
     );
   }
 

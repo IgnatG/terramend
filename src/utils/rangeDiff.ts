@@ -53,7 +53,7 @@ export function computeIncrementalDiff(params: ComputeIncrementalDiffParams): st
         params.baseBranch,
         params.headSha,
       ],
-      { log: false }
+      { log: false },
     );
 
     return postProcessRangeDiff(raw);
@@ -100,7 +100,7 @@ export function postProcessRangeDiff(raw: string, contextLines = 3): string | nu
   let hasChanges = false;
 
   function emit(line: Line) {
-    if (lastEmittedSeq >= 0 && line.seq > lastEmittedSeq + 1) out += (out ? "\n" : "") + "...";
+    if (lastEmittedSeq >= 0 && line.seq > lastEmittedSeq + 1) out += `${out ? "\n" : ""}...`;
     out += (out ? "\n" : "") + line.prefix + raw.slice(line.from, line.to);
     lastEmittedSeq = line.seq;
     if (lastFileHdr?.seq === line.seq) fileHdrEmitted = true;
@@ -127,7 +127,7 @@ export function postProcessRangeDiff(raw: string, contextLines = 3): string | nu
     }
 
     if (lineEnd - cursor >= 5 && raw.startsWith("    ", cursor)) {
-      const prefix = raw[cursor + 4];
+      const prefix = raw[cursor + 4]!;
       if (isDiffPrefix(prefix)) {
         const contentPos = cursor + 5;
         const isOuterChange = prefix !== " ";
@@ -136,7 +136,7 @@ export function postProcessRangeDiff(raw: string, contextLines = 3): string | nu
 
         if (contentPos >= lineEnd) {
           line = { prefix, from: lineEnd, to: lineEnd, seq };
-        } else if (isDiffPrefix(raw[contentPos])) {
+        } else if (isDiffPrefix(raw[contentPos]!)) {
           isChange = isOuterChange;
           line = { prefix, from: contentPos + 1, to: lineEnd, seq };
         } else {

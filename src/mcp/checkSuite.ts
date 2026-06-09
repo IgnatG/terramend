@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import { log } from "#app/utils/log";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { log } from "#app/utils/log";
 
 export const GetCheckSuiteLogs = type({
   check_suite_id: type.number.describe("the id from check_suite.id"),
@@ -46,20 +46,18 @@ function analyzeLog(logs: string, excerptLines = 80): LogAnalysis {
     { type: "trace", pattern: /^\s+at\s+/i },
   ];
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-
+  for (const [i, line] of lines.entries()) {
     for (const p of patterns) {
       if (p.pattern.test(line)) {
         if (p.skip?.test(line)) continue;
 
         // dedupe consecutive traces
-        if (p.type === "trace" && index.length > 0 && index[index.length - 1].type === "trace") {
+        if (p.type === "trace" && index.length > 0 && index[index.length - 1]!.type === "trace") {
           continue;
         }
 
         // truncate long lines
-        const truncated = line.length > 120 ? line.slice(0, 117) + "..." : line;
+        const truncated = line.length > 120 ? `${line.slice(0, 117)}...` : line;
 
         index.push({
           line: i + 1,
@@ -74,7 +72,7 @@ function analyzeLog(logs: string, excerptLines = 80): LogAnalysis {
   // find excerpt range: focus on LAST ##[error] line
   let errorLine = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
-    if (/##\[error\]/i.test(lines[i])) {
+    if (/##\[error\]/i.test(lines[i]!)) {
       errorLine = i;
       break;
     }
@@ -139,7 +137,7 @@ export function GetCheckSuiteLogsTool(ctx: ToolContext) {
           check_suite_id,
           per_page: 100,
           request: { signal: AbortSignal.timeout(10_000) },
-        }
+        },
       );
 
       const failedRuns = workflowRuns.filter((run) => run.conclusion === "failure");
@@ -187,7 +185,7 @@ export function GetCheckSuiteLogsTool(ctx: ToolContext) {
             const logsResult = await fetch(logsUrl, { signal: AbortSignal.timeout(10_000) });
             if (!logsResult.ok) {
               throw new Error(
-                `failed to fetch logs: ${logsResult.status} ${logsResult.statusText}`
+                `failed to fetch logs: ${logsResult.status} ${logsResult.statusText}`,
               );
             }
             const logsText = await logsResult.text();

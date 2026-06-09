@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { formatApiKeyErrorSummary, isApiKeyAuthError, validateAgentApiKey } from "#app/utils/apiKeys";
+import {
+  formatApiKeyErrorSummary,
+  isApiKeyAuthError,
+  validateAgentApiKey,
+} from "#app/utils/apiKeys";
 
 const savedEnv = { ...process.env };
 
@@ -44,7 +48,7 @@ describe("validateAgentApiKey — opencode", () => {
         authorized: new Set(["anthropic/claude-opus-4-7"]),
         owner,
         name,
-      })
+      }),
     ).not.toThrow();
   });
 
@@ -56,7 +60,7 @@ describe("validateAgentApiKey — opencode", () => {
         authorized: new Set(),
         owner,
         name,
-      })
+      }),
     ).toThrow("no API key found");
   });
 
@@ -68,7 +72,7 @@ describe("validateAgentApiKey — opencode", () => {
         authorized: new Set(["opencode/big-pickle"]),
         owner,
         name,
-      })
+      }),
     ).not.toThrow();
   });
 
@@ -80,7 +84,7 @@ describe("validateAgentApiKey — opencode", () => {
         authorized: new Set(),
         owner,
         name,
-      })
+      }),
     ).toThrow("no API key found");
   });
 });
@@ -95,7 +99,7 @@ describe("validateAgentApiKey — claude (static Anthropic check)", () => {
         authorized: new Set(),
         owner,
         name,
-      })
+      }),
     ).not.toThrow();
   });
 
@@ -108,7 +112,7 @@ describe("validateAgentApiKey — claude (static Anthropic check)", () => {
         authorized: new Set(),
         owner,
         name,
-      })
+      }),
     ).not.toThrow();
   });
 
@@ -120,7 +124,7 @@ describe("validateAgentApiKey — claude (static Anthropic check)", () => {
         authorized: new Set(),
         owner,
         name,
-      })
+      }),
     ).toThrow("no API key found");
   });
 });
@@ -147,7 +151,7 @@ describe("validateAgentApiKey — Bedrock routing", () => {
     process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
     process.env.AWS_REGION = "eu-west-2";
     expect(() => validateAgentApiKey({ ...params, model: "bedrock/byok" })).toThrow(
-      "BEDROCK_MODEL_ID"
+      "BEDROCK_MODEL_ID",
     );
   });
 
@@ -158,7 +162,7 @@ describe("validateAgentApiKey — Bedrock routing", () => {
     process.env.AWS_REGION = "eu-west-2";
     process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-6-v1";
     expect(() =>
-      validateAgentApiKey({ ...params, model: "eu.anthropic.claude-opus-4-6-v1" })
+      validateAgentApiKey({ ...params, model: "eu.anthropic.claude-opus-4-6-v1" }),
     ).not.toThrow();
   });
 
@@ -166,7 +170,7 @@ describe("validateAgentApiKey — Bedrock routing", () => {
     process.env.AWS_REGION = "eu-west-2";
     process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-6-v1";
     expect(() =>
-      validateAgentApiKey({ ...params, model: "eu.anthropic.claude-opus-4-6-v1" })
+      validateAgentApiKey({ ...params, model: "eu.anthropic.claude-opus-4-6-v1" }),
     ).toThrow("AWS_BEARER_TOKEN_BEDROCK");
   });
 });
@@ -187,7 +191,7 @@ describe("validateAgentApiKey — Vertex routing", () => {
     process.env.GOOGLE_CLOUD_PROJECT = "test-project";
     process.env.VERTEX_LOCATION = "europe-west2";
     expect(() => validateAgentApiKey({ ...params, model: "vertex/byok" })).toThrow(
-      "VERTEX_MODEL_ID"
+      "VERTEX_MODEL_ID",
     );
   });
 
@@ -204,7 +208,7 @@ describe("validateAgentApiKey — Vertex routing", () => {
     process.env.VERTEX_LOCATION = "europe-west2";
     process.env.VERTEX_MODEL_ID = "gemini-2.5-pro";
     expect(() => validateAgentApiKey({ ...params, model: "gemini-2.5-pro" })).toThrow(
-      "VERTEX_SERVICE_ACCOUNT_JSON"
+      "VERTEX_SERVICE_ACCOUNT_JSON",
     );
   });
 });
@@ -229,13 +233,13 @@ describe("isApiKeyAuthError", () => {
   it("matches direct-Anthropic 401 shapes", () => {
     expect(
       isApiKeyAuthError(
-        'Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"Invalid bearer token"}}'
-      )
+        'Failed to authenticate. API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"Invalid bearer token"}}',
+      ),
     ).toBe(true);
     expect(
       isApiKeyAuthError(
-        "» Terramend result error: subtype=success, api_error_status=401, message=Failed to authenticate."
-      )
+        "» Terramend result error: subtype=success, api_error_status=401, message=Failed to authenticate.",
+      ),
     ).toBe(true);
   });
 

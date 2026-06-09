@@ -17,7 +17,7 @@ export async function resolveRun(_params: ResolveRunParams): Promise<ResolveRunR
     ? Number.parseInt(process.env.GITHUB_RUN_ID, 10)
     : undefined;
   const githubRepo = process.env.GITHUB_REPOSITORY;
-  if (!githubRepo || !githubRepo.includes("/")) {
+  if (!githubRepo?.includes("/")) {
     throw new Error(`GITHUB_REPOSITORY env var must be set to "owner/repo", got: ${githubRepo}`);
   }
 

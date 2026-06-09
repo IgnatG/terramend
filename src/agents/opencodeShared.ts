@@ -1,18 +1,15 @@
-// Shared helpers for the OpenCode agent harnesses (`./opencode.ts` v1 and
-// `./opencode_v2.ts` v2). Pure config / model-registry / install glue —
-// nothing here touches the NDJSON event loop, which differs between v1 and v2.
-//
-// Once v1 is deleted post-burn-in this module collapses back into v2; until
-// then it keeps both runners synchronized so a config drift can't make v1 a
-// silently-broken fallback.
+// Shared helpers for the OpenCode agent harness (`./opencode.ts`). Pure config
+// / model-registry / install glue — nothing here touches the SDK event loop.
+// Kept as a separate module so this config surface stays unit-testable in
+// isolation (see `./opencodeShared.test.ts`).
 
+import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
+import { deriveSubagentModels } from "#app/agents/subagentModels";
 import { modelAliases } from "#app/models";
 import { log } from "#app/utils/cli";
 import { installFromNpmTarball } from "#app/utils/install";
 import { getAuthorizedModels } from "#app/utils/openCodeModels";
 import { getDevDependencyVersion } from "#app/utils/version";
-import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
-import { deriveSubagentModels } from "#app/agents/subagentModels";
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
@@ -39,7 +36,7 @@ export function geminiHighThinkingOverrides(): Record<string, { options: object 
       .map((a) => [
         a.resolve.replace(/^google\//, ""),
         { options: { thinkingConfig: { thinkingLevel: "high" } } },
-      ])
+      ]),
   );
 }
 
@@ -53,7 +50,7 @@ export function geminiHighThinkingOverrides(): Record<string, { options: object 
  * gemini-pro → gemini-flash. Other providers inherit (no override).
  */
 export function buildReviewerAgentConfig(
-  orchestratorModel: string | undefined
+  orchestratorModel: string | undefined,
 ): Record<string, unknown> {
   const overrides = deriveSubagentModels(orchestratorModel);
   return {
@@ -109,13 +106,13 @@ export function autoSelectModel(): string | undefined {
       modelAliases.find((a) => !a.hidden && authorized.has(a.resolve));
     if (match) {
       log.info(
-        `» model: ${match.resolve} (auto-selected${match.preferred ? " — preferred" : ""} curated match)`
+        `» model: ${match.resolve} (auto-selected${match.preferred ? " — preferred" : ""} curated match)`,
       );
       log.warning(`» model auto-selected. ${AUTO_SELECT_WARNING}`);
       return match.resolve;
     }
     log.info(
-      `» opencode has ${authorized.size} models but none match curated aliases — letting OpenCode auto-select`
+      `» opencode has ${authorized.size} models but none match curated aliases — letting OpenCode auto-select`,
     );
   }
 

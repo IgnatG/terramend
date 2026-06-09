@@ -273,7 +273,7 @@ function buildImageIfNeeded(ctx: {
     if (inspect.status === 0) return;
   }
   process.stderr.write(
-    `» building ${ctx.ref.tag}${ctx.noCache ? " (--no-cache)" : ""} (one-time, ~30-60s)…\n`
+    `» building ${ctx.ref.tag}${ctx.noCache ? " (--no-cache)" : ""} (one-time, ~30-60s)…\n`,
   );
   const buildArgs = ["build", "-t", ctx.ref.tag, "-f", ctx.dockerfile];
   if (ctx.noCache) buildArgs.push("--no-cache");
@@ -343,7 +343,7 @@ echo "host.docker.internal -> $(getent hosts host.docker.internal | awk '{print 
       "-c",
       script,
     ],
-    { stdio: "inherit" }
+    { stdio: "inherit" },
   );
   process.exit(result.status ?? 1);
 }
@@ -371,7 +371,7 @@ function initVolumeOwnership(ctx: { ref: ImageRef; uid: number; gid: number }): 
       `${ctx.uid}:${ctx.gid}`,
       "/app/action/node_modules",
     ],
-    { stdio: "ignore" }
+    { stdio: "ignore" },
   );
 }
 
@@ -411,7 +411,7 @@ function buildSshFlags(home: string | undefined): string[] {
       "-v",
       "/run/host-services/ssh-auth.sock:/run/host-services/ssh-auth.sock",
       "-e",
-      "SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock"
+      "SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock",
     );
   } else {
     const sshDir = join(home, ".ssh");

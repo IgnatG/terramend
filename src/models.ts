@@ -579,7 +579,7 @@ export const modelAliases: ModelAlias[] = Object.entries(providers).flatMap(
       // directly without re-deriving the provider.
       subagentModel: def.subagentModel ? `${providerKey}/${def.subagentModel}` : undefined,
       hidden: def.hidden ?? false,
-    }))
+    })),
 );
 
 /** OpenRouter target when Router or OSS funding is active and `repo.model` is null. */

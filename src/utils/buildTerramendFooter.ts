@@ -63,7 +63,7 @@ export function buildTerramendFooter(params: BuildTerramendFooterParams): string
 
   if (params.model) {
     parts.push(
-      `Using ${formatModelLabel({ model: params.model, fallbackFrom: params.fallbackFrom })}`
+      `Using ${formatModelLabel({ model: params.model, fallbackFrom: params.fallbackFrom })}`,
     );
   }
 

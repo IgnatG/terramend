@@ -13,7 +13,7 @@ type ReviewFixture = FormatReviewDataInput & {
 
 function loadFixture(file: string): ReviewFixture {
   return JSON.parse(
-    readFileSync(resolve(import.meta.dirname, "__fixtures__", file), "utf-8")
+    readFileSync(resolve(import.meta.dirname, "__fixtures__", file), "utf-8"),
   ) as ReviewFixture;
 }
 

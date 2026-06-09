@@ -16,7 +16,7 @@ Then call set_output with:
     shell: "disabled",
     timeout: "3m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const { getUuid, agentEnv } = generateAgentUuids(["TERRAMEND_NOBASH_TEST"]);
@@ -43,5 +43,5 @@ export const test: TestRunnerOptions = {
   validator,
   agentEnv,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
-  coverage: ["action/mcp/shell.ts", "action/agents/{claude,opencode,opencode_v2}.ts"],
+  coverage: ["src/mcp/shell.ts", "src/agents/{claude,opencode}.ts"],
 };

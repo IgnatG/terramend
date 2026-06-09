@@ -3,11 +3,6 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { regex } from "arkregex";
 import { type } from "arktype";
-import type { StoredPushDest } from "#app/toolState";
-import { log } from "#app/utils/cli";
-import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
-import { executeLifecycleHook, type LifecycleHookFailure } from "#app/utils/lifecycle";
-import { $ } from "#app/utils/shell";
 import {
   assertNoBlockedDestroy,
   assertNoSecretsInDiff,
@@ -16,6 +11,11 @@ import {
 } from "#app/mcp/guardrails";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import type { StoredPushDest } from "#app/toolState";
+import { log } from "#app/utils/cli";
+import { $git, $gitFetchWithDeepen } from "#app/utils/gitAuth";
+import { executeLifecycleHook, type LifecycleHookFailure } from "#app/utils/lifecycle";
+import { $ } from "#app/utils/shell";
 
 type PushDestination = {
   remoteName: string;
@@ -34,7 +34,7 @@ type PushDestination = {
  */
 function getPushDestination(
   branch: string,
-  storedDest: StoredPushDest | undefined
+  storedDest: StoredPushDest | undefined,
 ): PushDestination {
   // prefer stored destination from checkout_pr when it matches the current branch
   if (storedDest && storedDest.localBranch === branch) {
@@ -89,12 +89,12 @@ export function rejectSpecialRef(value: string, kind: string): void {
   rejectIfLeadingDash(value, kind);
   if (value.startsWith("refs/")) {
     throw new Error(
-      `Blocked: ${kind} '${value}' is a fully-qualified ref path. Use a bare branch name (e.g. 'feature/foo' or 'main'), not a 'refs/heads/...' form.`
+      `Blocked: ${kind} '${value}' is a fully-qualified ref path. Use a bare branch name (e.g. 'feature/foo' or 'main'), not a 'refs/heads/...' form.`,
     );
   }
   if (SYMBOLIC_REFS.has(value)) {
     throw new Error(
-      `Blocked: ${kind} '${value}' is a git symbolic ref, not a branch name. Pass the resolved branch name (e.g. 'main'), or omit branchName to push the current branch.`
+      `Blocked: ${kind} '${value}' is a git symbolic ref, not a branch name. Pass the resolved branch name (e.g. 'main'), or omit branchName to push the current branch.`,
     );
   }
   // SECURITY: git interprets ':' and leading '+' as refspec syntax, not as
@@ -113,7 +113,7 @@ export function rejectSpecialRef(value: string, kind: string): void {
   const badMatch = value.match(BAD);
   if (badMatch) {
     throw new Error(
-      `Blocked: ${kind} '${value}' contains '${badMatch[0]}', which git interprets as refspec/revision syntax, not as part of a branch name.`
+      `Blocked: ${kind} '${value}' contains '${badMatch[0]}', which git interprets as refspec/revision syntax, not as part of a branch name.`,
     );
   }
 }
@@ -129,7 +129,7 @@ export function validateTagName(tag: string): void {
   rejectIfLeadingDash(tag, "tag");
   if (!/^[A-Za-z0-9._/-]+$/.test(tag)) {
     throw new Error(
-      `Blocked: tag '${tag}' contains characters that could be parsed as a refspec or flag. Tags must match [A-Za-z0-9._/-]+.`
+      `Blocked: tag '${tag}' contains characters that could be parsed as a refspec or flag. Tags must match [A-Za-z0-9._/-]+.`,
     );
   }
 }
@@ -149,7 +149,7 @@ function validatePushDestination(ctx: ToolContext, branch: string): PushDestinat
       `Push blocked: destination does not match expected repository.\n` +
         `Expected: ${pushUrl}\n` +
         `Actual: ${dest.url}\n` +
-        `Git configuration may have been tampered with.`
+        `Git configuration may have been tampered with.`,
     );
   }
 
@@ -253,7 +253,7 @@ async function pushWithRetry(args: string[], token: string): Promise<void> {
         const baseDelay = TRANSIENT_RETRY_DELAYS_MS[attempt] ?? 5000;
         const delay = Math.round(baseDelay * (0.75 + Math.random() * 0.5));
         log.info(
-          `push attempt ${attempt + 1} failed (transient), retrying in ${delay}ms: ${msg.slice(0, 300)}`
+          `push attempt ${attempt + 1} failed (transient), retrying in ${delay}ms: ${msg.slice(0, 300)}`,
         );
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -300,7 +300,7 @@ export function PushBranchTool(ctx: ToolContext) {
             `git status:\n${status}` +
             (ctx.toolState.prepushFailureCount > 0
               ? "\n\nnote: the prepush hook failed earlier this run — once the working tree is clean, push_branch will skip the hook."
-              : "")
+              : ""),
         );
       }
 
@@ -341,7 +341,7 @@ export function PushBranchTool(ctx: ToolContext) {
               `the 'pr-${prNumber}' branch was created by a prior checkout_pr call (likely from a subagent — subagents share the working tree and toolState with the orchestrator). ` +
               `you have probably landed your commit on the wrong branch. ` +
               `switch to your own feature branch first (e.g. 'git checkout <feature-branch>') and then push. ` +
-              `if the push to PR #${prNumber} is intentional, this run needs to be triggered against that PR.`
+              `if the push to PR #${prNumber} is intentional, this run needs to be triggered against that PR.`,
           );
         }
       }
@@ -350,7 +350,7 @@ export function PushBranchTool(ctx: ToolContext) {
       if (pushPermission === "restricted" && pushDest.remoteBranch === defaultBranch) {
         throw new Error(
           `Push blocked: cannot push directly to default branch '${pushDest.remoteBranch}'. ` +
-            `Create a feature branch and open a PR instead.`
+            `Create a feature branch and open a PR instead.`,
         );
       }
 
@@ -383,7 +383,7 @@ export function PushBranchTool(ctx: ToolContext) {
         if (postHookStatus) {
           throw new Error(
             `push blocked: the prepush hook modified the working tree. those changes are not included in the push. commit or discard them (or change the hook to not mutate tracked files) before retrying.\n\n` +
-              `git status:\n${postHookStatus}`
+              `git status:\n${postHookStatus}`,
           );
         }
       }
@@ -415,7 +415,7 @@ export function PushBranchTool(ctx: ToolContext) {
               `1. use git_fetch to fetch the remote branch: git_fetch({ ref: "${pushDest.remoteBranch}" })\n` +
               `${integrateStep}\n` +
               `3. resolve any merge conflicts if needed\n` +
-              `4. retry push_branch`
+              `4. retry push_branch`,
           );
         }
         throw err;
@@ -423,7 +423,7 @@ export function PushBranchTool(ctx: ToolContext) {
 
       const pushedSha = $("git", ["rev-parse", "HEAD"], { log: false }).trim();
       log.info(
-        `» pushed branch ${branch} to ${pushDest.remoteName}/${pushDest.remoteBranch} (sha ${pushedSha})`
+        `» pushed branch ${branch} to ${pushDest.remoteName}/${pushDest.remoteBranch} (sha ${pushedSha})`,
       );
 
       const baseMsg = `successfully pushed ${branch} to ${pushDest.remoteName}/${pushDest.remoteBranch}`;
@@ -448,7 +448,7 @@ export function PushBranchTool(ctx: ToolContext) {
  * with no generic lifecycle retry advice (which would conflict). */
 function buildPrepushFailureMessage(
   failure: LifecycleHookFailure,
-  shell: ToolContext["payload"]["shell"]
+  shell: ToolContext["payload"]["shell"],
 ): string {
   const header =
     failure.kind === "exit"
@@ -555,7 +555,7 @@ const OVERFLOW_PREVIEW_MAX_CHARS = 5_000;
  * shorthand for a merge-base diff, also safe). see [run 26545933188](https://github.com/terramend/app/actions/runs/26545933188)
  * for the failure mode this guards against. */
 function detectSymmetricDiffTrap(
-  args: string[]
+  args: string[],
 ): { arg: string; aheadRef: string; ahead: number } | null {
   // git's own `--merge-base` flag (2.30+) produces a safe merge-base diff
   // regardless of the positional ref; the GHA runner has git 2.54.x.
@@ -563,7 +563,7 @@ function detectSymmetricDiffTrap(
   // ignore everything after `--` (pathspec separator)
   const endIdx = args.indexOf("--");
   const positionals = (endIdx === -1 ? args : args.slice(0, endIdx)).filter(
-    (a) => !a.startsWith("-")
+    (a) => !a.startsWith("-"),
   );
   for (const p of positionals) {
     if (p.includes("...")) continue; // three-dot = merge-base diff, safe
@@ -630,7 +630,7 @@ function spillGitOutput(params: {
       ? previewByLines
       : `${previewByLines.slice(0, OVERFLOW_PREVIEW_MAX_CHARS)}…`;
   log.info(
-    `» git ${params.command} ${params.args.join(" ")}: ${params.lineCount} lines / ${params.output.length} chars → ${outputPath}`
+    `» git ${params.command} ${params.args.join(" ")}: ${params.lineCount} lines / ${params.output.length} chars → ${outputPath}`,
   );
   return {
     output: `${preview}\n\n... [output truncated; full ${params.lineCount}-line / ${params.output.length}-char body saved to ${outputPath} — read selectively with \`read({ filePath: "${outputPath}" })\`] ...`,
@@ -682,7 +682,7 @@ export function GitTool(ctx: ToolContext) {
           `git ${command}: '${args[0]}' duplicates the subcommand — drop args[0] ` +
             `(the subcommand only belongs in 'command'). git would otherwise parse it as ` +
             `a pathspec and silently return empty/clean output when nothing matches. ` +
-            `if you really meant a pathspec named '${args[0]}', use args: ["--", "${args[0]}"].`
+            `if you really meant a pathspec named '${args[0]}', use args: ["--", "${args[0]}"].`,
         );
       }
 
@@ -703,11 +703,11 @@ export function GitTool(ctx: ToolContext) {
         // block subcommand-specific flags that execute arbitrary code
         for (const arg of args) {
           const isBlocked = NOSHELL_BLOCKED_ARGS.some(
-            (flag) => arg === flag || arg.startsWith(flag + "=")
+            (flag) => arg === flag || arg.startsWith(`${flag}=`),
           );
           if (isBlocked) {
             throw new Error(
-              `Blocked: '${arg}' flag can execute arbitrary code and is not allowed.`
+              `Blocked: '${arg}' flag can execute arbitrary code and is not allowed.`,
             );
           }
         }
@@ -726,7 +726,7 @@ export function GitTool(ctx: ToolContext) {
               `use one of:\n` +
               `  - git diff --merge-base ${trap.aheadRef}     (one MCP call; merge-base diff, includes uncommitted edits)\n` +
               `  - git diff ${trap.aheadRef}...HEAD            (three-dot; merge-base diff of committed-only changes)\n\n` +
-              `if you ALSO need the PR's pre-formatted diff, the orchestrator's checkout_pr response includes a \`diffPath\` you can \`read\` directly without invoking git at all.`
+              `if you ALSO need the PR's pre-formatted diff, the orchestrator's checkout_pr response includes a \`diffPath\` you can \`read\` directly without invoking git at all.`,
           );
         }
       }
@@ -748,7 +748,7 @@ export function GitTool(ctx: ToolContext) {
               .filter(Boolean)
               .join("\n");
             throw new Error(
-              `git merge-base --is-ancestor failed (exit ${r.status}): ${detail || "Unknown error"}`
+              `git merge-base --is-ancestor failed (exit ${r.status}): ${detail || "Unknown error"}`,
             );
           },
         });
@@ -816,7 +816,7 @@ export function DeleteBranchTool(ctx: ToolContext) {
       if (pushPermission !== "enabled") {
         throw new Error(
           "Branch deletion requires push: enabled permission. " +
-            "Current mode only allows pushing to non-protected branches."
+            "Current mode only allows pushing to non-protected branches.",
         );
       }
 
@@ -835,7 +835,7 @@ export function DeleteBranchTool(ctx: ToolContext) {
       if (params.branchName === defaultBranch) {
         throw new Error(
           `Blocked: cannot delete the default branch '${defaultBranch}'. ` +
-            `If you really need to delete or rename it, do it manually via the repository settings.`
+            `If you really need to delete or rename it, do it manually via the repository settings.`,
         );
       }
 
@@ -867,7 +867,7 @@ export function PushTagsTool(ctx: ToolContext) {
       if (pushPermission !== "enabled") {
         throw new Error(
           "Tag pushing requires push: enabled permission. " +
-            "Current mode only allows pushing branches."
+            "Current mode only allows pushing branches.",
         );
       }
 

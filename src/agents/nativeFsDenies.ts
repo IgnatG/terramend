@@ -78,5 +78,5 @@ export const GIT_NATIVE_WRITE_DENY_CLAUDE: string[] = [
 /** Claude `permissions.deny` entries for the narrow `.git/config` READ deny,
  * one per read/enumerate tool — mirrors {@link GIT_NATIVE_READ_DENY_OPENCODE}. */
 export const GIT_NATIVE_READ_DENY_CLAUDE: string[] = CLAUDE_READ_TOOLS.map(
-  (tool) => `${tool}(.git/config)`
+  (tool) => `${tool}(.git/config)`,
 );

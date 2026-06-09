@@ -30,7 +30,7 @@ export async function postReviewCleanup(ctx: ToolContext): Promise<void> {
   if (review.reviewedSha) {
     await bestEffort(
       () => dispatchFollowUpReReview(ctx, review.reviewedSha!),
-      "follow-up re-review dispatch"
+      "follow-up re-review dispatch",
     );
   }
 }
@@ -59,7 +59,7 @@ async function dispatchFollowUpReReview(ctx: ToolContext, reviewedSha: string): 
 
   log.info(
     `safety net: pr HEAD moved from ${reviewedSha.slice(0, 7)} to ${pr.data.head.sha.slice(0, 7)} ` +
-      `and agent did not review inline — dispatching follow-up re-review`
+      `and agent did not review inline — dispatching follow-up re-review`,
   );
 
   const event: WriteablePayload["event"] = {

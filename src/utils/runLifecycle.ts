@@ -174,7 +174,7 @@ export async function writeRunErrorOutputs(input: {
   try {
     const usageSummary = formatUsageSummary(input.toolState.usageEntries);
     const parts = [input.rendered.summary, input.toolState.lastProgressBody, usageSummary].filter(
-      Boolean
+      Boolean,
     );
     await writeSummary(parts.join("\n\n"));
   } catch {}

@@ -40,7 +40,7 @@ const fixture = defineFixture(
     push: "disabled",
     timeout: "4m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function parseOriginalRefresh(): string | null {
@@ -98,10 +98,10 @@ export const test: TestRunnerOptions = {
     TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
   },
   coverage: [
-    "action/utils/codexHome.ts",
-    "action/utils/codexRefreshDetect.ts",
-    "action/entryPost.ts",
-    "action/agents/{opencode,opencode_v2}.ts",
+    "src/utils/codexHome.ts",
+    "src/utils/codexRefreshDetect.ts",
+    "src/entryPost.ts",
+    "src/agents/opencode.ts",
   ],
   // forks + contributors without the Codex secret skip cleanly rather than
   // failing on `auth_materialized=✗` and (with fail-fast: true) cascading

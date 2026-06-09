@@ -1,10 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { $ } from "#app/utils/shell";
+import type { ToolContext } from "#app/mcp/server";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
-import type { ToolContext } from "#app/mcp/server";
+import { $ } from "#app/utils/shell";
 
 /**
  * Terraform-write guardrails — hard, code-level limits that back the prompt
@@ -22,7 +22,14 @@ export const DEFAULT_ALLOWED_PATHS = ["**/*.tf", "**/*.tfvars"] as const;
 /** §28 — extra paths the Terratest scaffold writes, allowed only when the
  * `terratest` input is enabled (Go test files + native `*.tftest.hcl` tests fall
  * outside the Terraform-only default). */
-export const TERRATEST_ALLOWED_PATHS = ["**/*_test.go", "**/*.tftest.hcl", "test/**", "tests/**", "go.mod", "go.sum"] as const;
+export const TERRATEST_ALLOWED_PATHS = [
+  "**/*_test.go",
+  "**/*.tftest.hcl",
+  "test/**",
+  "tests/**",
+  "go.mod",
+  "go.sum",
+] as const;
 
 /** modes whose pushes/PRs are bounded by these guardrails. */
 const GUARDED_MODES: ReadonlySet<string> = new Set([REMEDIATE_MODE, GENERATE_MODE]);
@@ -49,7 +56,7 @@ export function resolveAllowedPaths(ctx: ToolContext): string[] {
 export function globToRegex(glob: string): RegExp {
   let re = "";
   for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
+    const c = glob[i]!;
     if (c === "*") {
       if (glob[i + 1] === "*") {
         if (glob[i + 2] === "/") {
@@ -119,7 +126,7 @@ export function enforceRemediationPaths(ctx: ToolContext): void {
   if (!base) {
     throw new Error(
       "push blocked (Terraform-only guardrail): could not establish the run-start commit to verify the change is limited to Terraform files. " +
-        "Ensure the run started from a clean checkout."
+        "Ensure the run started from a clean checkout.",
     );
   }
 
@@ -130,10 +137,12 @@ export function enforceRemediationPaths(ctx: ToolContext): void {
     throw new Error(
       `push blocked (Terraform-only guardrail): this run changed files outside the allowed paths [${allowed.join(", ")}]. ` +
         `This mode must only touch Terraform files. Revert these and keep the change to Terraform only:\n` +
-        violations.map((v) => `  - ${v}`).join("\n")
+        violations.map((v) => `  - ${v}`).join("\n"),
     );
   }
-  log.info(`» Terraform-only path guardrail ok (${changed.length} file(s), all within [${allowed.join(", ")}])`);
+  log.info(
+    `» Terraform-only path guardrail ok (${changed.length} file(s), all within [${allowed.join(", ")}])`,
+  );
 }
 
 // --- §2.7 protected-resource allowlist -------------------------------------
@@ -161,7 +170,7 @@ export function enforceProtectedPaths(ctx: ToolContext): void {
   if (!base) {
     throw new Error(
       "push blocked (protected-paths guardrail): could not establish the run-start commit to verify no protected path was modified. " +
-        "Ensure the run started from a clean checkout."
+        "Ensure the run started from a clean checkout.",
     );
   }
 
@@ -171,7 +180,7 @@ export function enforceProtectedPaths(ctx: ToolContext): void {
     throw new Error(
       `push blocked (protected-paths guardrail): this run modified files matching the protected_paths globs [${protectedGlobs.join(", ")}], ` +
         `which are marked never-auto-modify. Revert these and leave them for a human:\n` +
-        violations.map((v) => `  - ${v}`).join("\n")
+        violations.map((v) => `  - ${v}`).join("\n"),
     );
   }
   log.info(`» protected-paths guardrail ok (no change matched [${protectedGlobs.join(", ")}])`);
@@ -194,7 +203,7 @@ export interface SecretHit {
 const SECRET_VALUE_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
   ["aws-access-key-id", /\b(?:AKIA|ASIA|AGPA|AIDA|AROA|AIPA|ANPA|ANVA)[0-9A-Z]{16}\b/],
   ["pem-private-key", /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/],
-  ["gcp-api-key", /\bAIza[0-9A-Za-z_\-]{35}\b/],
+  ["gcp-api-key", /\bAIza[0-9A-Za-z_-]{35}\b/],
   ["github-token", /\bgh[pousr]_[0-9A-Za-z]{36,}\b/],
   ["slack-token", /\bxox[baprs]-[0-9A-Za-z-]{10,}\b/],
   ["private-key-pem-block", /-----BEGIN PRIVATE KEY-----/],
@@ -224,7 +233,8 @@ export function scanDiffForSecrets(diff: string): SecretHit[] {
       file = path === "/dev/null" ? "(deleted)" : path;
       continue;
     }
-    if (raw.startsWith("--- ") || raw.startsWith("diff --git") || raw.startsWith("index ")) continue;
+    if (raw.startsWith("--- ") || raw.startsWith("diff --git") || raw.startsWith("index "))
+      continue;
     const hunk = raw.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
     if (hunk) {
       newLine = Number(hunk[1]);
@@ -289,22 +299,32 @@ function scanWithGitleaks(ctx: ToolContext, base: string): SecretHit[] | null {
     "gitleaks",
     [
       "detect",
-      "--source", ".",
-      "--log-opts", `${base}..HEAD`,
-      "--report-format", "json",
-      "--report-path", reportPath,
-      "--exit-code", "0",
+      "--source",
+      ".",
+      "--log-opts",
+      `${base}..HEAD`,
+      "--report-format",
+      "json",
+      "--report-path",
+      reportPath,
+      "--exit-code",
+      "0",
       "--no-banner",
       "--redact",
     ],
-    { cwd, encoding: "utf-8", env: resolveEnv("restricted") as NodeJS.ProcessEnv, maxBuffer: 64 * 1024 * 1024 }
+    {
+      cwd,
+      encoding: "utf-8",
+      env: resolveEnv("restricted") as NodeJS.ProcessEnv,
+      maxBuffer: 64 * 1024 * 1024,
+    },
   );
   if (result.error) {
     const missing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
     log.warning(
       missing
         ? "» gitleaks requested but not installed — falling back to the built-in secret scanner only"
-        : `» gitleaks could not run (${result.error.message}) — built-in secret scanner still enforced`
+        : `» gitleaks could not run (${result.error.message}) — built-in secret scanner still enforced`,
     );
     return null;
   }
@@ -340,7 +360,7 @@ export function assertNoSecretsInDiff(ctx: ToolContext): void {
   if (!base) {
     throw new Error(
       "push blocked (secret-scan guardrail): could not establish the run-start commit to scan the diff for inlined secrets. " +
-        "Ensure the run started from a clean checkout."
+        "Ensure the run started from a clean checkout.",
     );
   }
   const diff = $("git", ["diff", base, "HEAD"], { log: false });
@@ -356,11 +376,11 @@ export function assertNoSecretsInDiff(ctx: ToolContext): void {
     throw new Error(
       `push blocked (secret-scan guardrail): the change appears to inline ${hits.length} secret(s) — a fix must reference a variable/secret store, never paste a literal. ` +
         `Remove or parameterise these and re-push:\n` +
-        hits.map((h) => `  - ${h.file}:${h.line} (${h.rule})`).join("\n")
+        hits.map((h) => `  - ${h.file}:${h.line} (${h.rule})`).join("\n"),
     );
   }
   log.info(
-    `» secret-scan guardrail ok (no inlined secrets in the diff${ctx.payload.gitleaks ? ", built-in + gitleaks" : ""})`
+    `» secret-scan guardrail ok (no inlined secrets in the diff${ctx.payload.gitleaks ? ", built-in + gitleaks" : ""})`,
   );
 }
 
@@ -371,7 +391,7 @@ export function resolveAllowReplace(ctx: ToolContext): string[] {
 
 function isReplaceAllowed(address: string, allowList: string[]): boolean {
   return allowList.some(
-    (a) => a === "*" || a === "all" || a === address || globToRegex(a).test(address)
+    (a) => a === "*" || a === "all" || a === address || globToRegex(a).test(address),
   );
 }
 
@@ -395,7 +415,7 @@ export function assertNoBlockedDestroy(ctx: ToolContext): void {
   const blocked = planned.stateful.filter((r) => !isReplaceAllowed(r.address, allow));
   if (blocked.length === 0) {
     log.info(
-      `» destroy-block guardrail ok (${planned.stateful.length} stateful destroy/replace allowed via allow_replace)`
+      `» destroy-block guardrail ok (${planned.stateful.length} stateful destroy/replace allowed via allow_replace)`,
     );
     return;
   }
@@ -404,7 +424,7 @@ export function assertNoBlockedDestroy(ctx: ToolContext): void {
       `${blocked.length} stateful resource(s), which would likely cause data loss — a best-practice ` +
       `remediation should not. Abandon this change, or, ONLY if the replacement is genuinely intended, ` +
       `set the \`allow_replace\` input to include the resource address(es):\n` +
-      blocked.map((r) => `  - ${r.address} (${r.action}, ${r.type})`).join("\n")
+      blocked.map((r) => `  - ${r.address} (${r.action}, ${r.type})`).join("\n"),
   );
 }
 
@@ -425,7 +445,7 @@ export function assertUnderPrCap(ctx: ToolContext): void {
   if (opened >= cap) {
     throw new Error(
       `PR limit reached (Terraform-only guardrail): this run is configured to open at most ${cap} PR(s) and has already opened ${opened}. ` +
-        `Stop here and report the remaining work for a future run.`
+        `Stop here and report the remaining work for a future run.`,
     );
   }
 }

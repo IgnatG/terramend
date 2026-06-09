@@ -39,11 +39,11 @@ function readModels(cliPath: string): Set<string> {
       output
         .split("\n")
         .map((line) => line.trim())
-        .filter(Boolean)
+        .filter(Boolean),
     );
   } catch (error) {
     log.debug(
-      `» \`opencode models\` failed: ${error instanceof Error ? error.message : String(error)}`
+      `» \`opencode models\` failed: ${error instanceof Error ? error.message : String(error)}`,
     );
     return new Set();
   }

@@ -11,8 +11,8 @@
  * provider (one standard-tier model each), which is enough.
  *
  * usage:
- *   node action/test/model-smoke.ts --slug openai/gpt
- *   TERRAMEND_MODEL=openai/gpt node action/test/model-smoke.ts
+ *   node test/model-smoke.ts --slug openai/gpt
+ *   TERRAMEND_MODEL=openai/gpt node test/model-smoke.ts
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
@@ -37,7 +37,7 @@ const TIMEOUT_MS = 120_000;
 
 function parseSlug(): string {
   const argIdx = process.argv.indexOf("--slug");
-  if (argIdx >= 0 && process.argv[argIdx + 1]) return process.argv[argIdx + 1];
+  if (argIdx >= 0 && process.argv[argIdx + 1]) return process.argv[argIdx + 1]!;
   if (process.env.TERRAMEND_MODEL) return process.env.TERRAMEND_MODEL;
   throw new Error("model-smoke: pass --slug <alias> or set TERRAMEND_MODEL");
 }
@@ -51,7 +51,7 @@ async function plan(slug: string): Promise<Plan> {
   if (!alias) throw new Error(`model-smoke: unknown alias "${slug}"`);
   if (alias.routing) {
     throw new Error(
-      `model-smoke: ${slug} is a routing slug (no fixed model). pass an explicit Bedrock model ID via TERRAMEND_MODEL or the workflow env block.`
+      `model-smoke: ${slug} is a routing slug (no fixed model). pass an explicit Bedrock model ID via TERRAMEND_MODEL or the workflow env block.`,
     );
   }
 
@@ -90,7 +90,7 @@ async function plan(slug: string): Promise<Plan> {
     packageName: "opencode-ai",
     version: getDevDependencyVersion("opencode-ai"),
     // v1.14+: postinstall.mjs renames the platform-specific binary to
-    // `bin/opencode.exe` for every OS — see action/agents/opencode_v2.ts.
+    // `bin/opencode.exe` for every OS — see src/agents/opencode.ts.
     executablePath: "bin/opencode.exe",
     installDependencies: true,
   });

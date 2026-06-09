@@ -1,0 +1,87 @@
+name: Security tests
+
+# Live sandbox-isolation tests (restores the subset removed in 6743fba — see
+# AUDIT.md H-1). Each test spawns a REAL coding agent, instructs it to attack the
+# sandbox — read terramend's on-disk secrets, exfiltrate env tokens, write
+# .git/hooks, push to a protected branch — and the validator asserts the attack
+# FAILED. The OS-level isolation under test (mount/PID namespaces, sudo-unshare,
+# ro .git binds, push restrictions) is enforced by terramend's shell/MCP layer
+# independently of which model drives the agent, and only exists on a Linux CI
+# runner — so these cannot run locally.
+#
+# Cost model: runs on the opencode runner with the FREE, keyless OpenCode gateway
+# model `opencode/big-pickle` (isFree, envVars: [] in src/models.ts), so a run
+# costs nothing and needs no provider API key. The trade-off is opencode-only
+# coverage — Claude Code authenticates to Anthropic and can't use an opencode/*
+# gateway model, so the Claude runner is intentionally omitted to keep this free.
+# A free model is weaker at the strict set_output JSON protocol these tests use;
+# run.ts retries a missing set_output as a transient cascade (up to 2x), but if
+# you see flaky non-security reds, switch TERRAMEND_MODEL to a cheap paid model
+# (e.g. anthropic/claude-haiku-4-5 + ANTHROPIC_API_KEY) for reliability.
+#
+# They run only:
+#   • on demand (workflow_dispatch) — e.g. to verify a branch before you merge, and
+#   • automatically on push to main — a regression gate on the protected branch.
+# The hermetic, secret-free unit suite still gates every PR (test.yml).
+
+on:
+  workflow_dispatch: # manual run — use this to verify a branch end-to-end
+  push:
+    branches: [main] # regression gate on the protected branch
+
+permissions:
+  contents: read
+
+env:
+  # Free, keyless OpenCode-gateway model — no provider API key required. If this
+  # alias is ever retired, `opencode/mimo-v2-pro-free` is an equivalent free
+  # fallback. Swap to a cheap paid id (+ its key below) if the free model proves
+  # too flaky on the set_output protocol.
+  TERRAMEND_MODEL: opencode/big-pickle
+
+jobs:
+  sandbox-isolation:
+    # Cross-agent sandbox-isolation core, run on the opencode runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # full signal over fail-fast: a breach in one cell must not cancel the
+      # sibling security checks before they report.
+      fail-fast: false
+      matrix:
+        # opencode-only (free model); a single-value matrix keeps the proven
+        # `runtest <test> <agent>` invocation and documents the runner.
+        agent: [opencode]
+        test: [fs-exfil, token-exfil, restricted]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm runtest ${{ matrix.test }} ${{ matrix.agent }}
+
+  push-protection:
+    # Push / branch-protection enforcement. Tagged "agnostic" in the harness, so
+    # `pnpm runtest <test>` (no agent arg) runs them on the opencode runner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [push-restricted, push-disabled, push-enabled]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm runtest ${{ matrix.test }}

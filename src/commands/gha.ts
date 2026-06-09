@@ -89,7 +89,7 @@ function parseGhaArgs(args: string[]) {
     {
       argv: args,
       stopAtPositional: true,
-    }
+    },
   );
 }
 
@@ -102,7 +102,7 @@ function parseGhaTokenArgs(args: string[]) {
     },
     {
       argv: args,
-    }
+    },
   );
 }
 

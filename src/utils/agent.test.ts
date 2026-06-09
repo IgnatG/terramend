@@ -61,7 +61,7 @@ describe("resolveAgent", () => {
       process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
       process.env.BEDROCK_MODEL_ID = "anthropic.claude-haiku-4-5-20251001-v1:0";
       expect(resolveAgent({ model: "anthropic.claude-haiku-4-5-20251001-v1:0" }).name).toBe(
-        "claude"
+        "claude",
       );
     });
 
@@ -75,7 +75,7 @@ describe("resolveAgent", () => {
       process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
       process.env.BEDROCK_MODEL_ID = "eu.meta.llama4-scout-17b-instruct-v1:0";
       expect(resolveAgent({ model: "eu.meta.llama4-scout-17b-instruct-v1:0" }).name).toBe(
-        "opencode"
+        "opencode",
       );
     });
 
@@ -187,7 +187,7 @@ describe("materializeVertexCredentials", () => {
       expect(process.env.GOOGLE_APPLICATION_CREDENTIALS).toBe(credentials.credentialsPath);
       expect(process.env.GOOGLE_CLOUD_PROJECT).toBe("test-project");
       expect(readFileSync(credentials.credentialsPath, "utf8")).toBe(
-        process.env.VERTEX_SERVICE_ACCOUNT_JSON
+        process.env.VERTEX_SERVICE_ACCOUNT_JSON,
       );
       expect(statSync(credentials.credentialsPath).mode & 0o777).toBe(0o600);
       cleanupVertexCredentials(credentials);

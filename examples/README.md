@@ -15,8 +15,7 @@ to a release tag.
 
 All install the scanner toolchain (terraform / tflint / trivy / checkov) — any that's absent is reported
 *skipped*, never fatal. See the [main README](../README.md) for the full input reference, the guardrails,
-and the minimal plan-only OIDC role. A complete end-to-end demo repo (a deliberately-flawed module + the
-remediation workflow) lives in [`terraform-aws-repo-examples`](../../terraform-aws-repo-examples).
+and the minimal plan-only OIDC role.
 
 > **A note on the Node 20 deprecation warning.** If your run shows *"Node.js 20 actions are
 > deprecated … actions/checkout@v4, hashicorp/setup-terraform@v3, …"*, that's GitHub flagging the

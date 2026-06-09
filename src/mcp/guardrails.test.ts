@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { ToolContext } from "#app/mcp/server";
 import {
   assertNoBlockedDestroy,
   assertUnderPrCap,
@@ -9,10 +8,11 @@ import {
   globToRegex,
   isPathAllowed,
   parseGitleaksReport,
-  recordRemediationPrOpened,
   REMEDIATE_MODE,
+  recordRemediationPrOpened,
   scanDiffForSecrets,
 } from "#app/mcp/guardrails";
+import type { ToolContext } from "#app/mcp/server";
 
 describe("globToRegex", () => {
   it("matches **/*.tf at any depth", () => {
@@ -34,6 +34,52 @@ describe("globToRegex", () => {
     const re = globToRegex("*.tf");
     expect(re.test("main.tf")).toBe(true);
     expect(re.test("modules/main.tf")).toBe(false);
+  });
+});
+
+// Adversarial coverage for the hand-rolled glob compiler — it backs the path
+// allow-list and the protected-paths deny-list, so a regex-injection or a
+// segment-crossing bypass here would defeat those guardrails.
+describe("globToRegex (adversarial / injection)", () => {
+  it("escapes regex metacharacters in the glob (no injection from the pattern)", () => {
+    // `.` is a literal dot, not 'any char'
+    expect(globToRegex("a.tf").test("axtf")).toBe(false);
+    expect(globToRegex("a.tf").test("a.tf")).toBe(true);
+    // anchors/alternation/group chars from the pattern are treated literally
+    const re = globToRegex("a(b|c)$.tf");
+    expect(re.test("a(b|c)$.tf")).toBe(true);
+    expect(re.test("ab.tf")).toBe(false);
+    // `+` is a literal plus, not a regex quantifier
+    expect(globToRegex("a+.tf").test("a+.tf")).toBe(true);
+    expect(globToRegex("a+.tf").test("aaaa.tf")).toBe(false);
+  });
+
+  it("is fully anchored — no partial-match bypass", () => {
+    const re = globToRegex("*.tf");
+    expect(re.test("main.tf.bak")).toBe(false);
+    expect(re.test("evil/main.tf")).toBe(false);
+    // a separator anywhere defeats a single-segment glob, so a slash-bearing
+    // suffix can't be smuggled past the anchored pattern
+    expect(re.test("main.tf/../etc/passwd")).toBe(false);
+    expect(re.test("main.tf\n/etc/passwd")).toBe(false);
+  });
+
+  it("`*`/`?` never cross a path separator, blocking `../` traversal", () => {
+    // single-segment globs reject any path containing a separator…
+    expect(isPathAllowed("../secret.tf", ["*.tf"])).toBe(false);
+    expect(isPathAllowed("..\\secret.tf", ["*.tf"])).toBe(false); // windows sep normalized then rejected
+    expect(isPathAllowed("a/b.tf", ["*.tf"])).toBe(false);
+    expect(globToRegex("?.tf").test("/.tf")).toBe(false);
+  });
+
+  it("`**` deliberately spans separators (documented power of the deny-list)", () => {
+    // protected-paths rely on this: `prod/**` must catch nested files. The
+    // safety of the allow-list against `..` does NOT come from `**` globs — it
+    // comes from changed-file paths being git-relative (no `..`), which is
+    // enforced upstream in changedFilesSinceRunStart.
+    expect(isPathAllowed("prod/db/main.tf", ["prod/**"])).toBe(true);
+    expect(isPathAllowed("prod/a/b/c/secret", ["prod/**"])).toBe(true);
+    expect(isPathAllowed("staging/main.tf", ["prod/**"])).toBe(false);
   });
 });
 
@@ -98,7 +144,7 @@ describe("destroy-block guardrail (§2.5 — never delete/replace a stateful res
   const ctx = (
     selectedMode: string | undefined,
     plannedDestroy: ToolContext["toolState"]["plannedDestroy"],
-    allowReplace?: string[]
+    allowReplace?: string[],
   ) =>
     ({
       toolState: { selectedMode, plannedDestroy },
@@ -112,19 +158,19 @@ describe("destroy-block guardrail (§2.5 — never delete/replace a stateful res
 
   it("blocks a push that would destroy/replace a stateful resource", () => {
     expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy))).toThrow(
-      /DESTROY or REPLACE 1 stateful/
+      /DESTROY or REPLACE 1 stateful/,
     );
     expect(() => assertNoBlockedDestroy(ctx(GENERATE_MODE, statefulDestroy))).toThrow(
-      /aws_db_instance\.main/
+      /aws_db_instance\.main/,
     );
   });
 
   it("allows the destroy when the operator opted in via allow_replace (address, glob, or *)", () => {
     expect(() =>
-      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.main"]))
+      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.main"])),
     ).not.toThrow();
     expect(() =>
-      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.*"]))
+      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.*"])),
     ).not.toThrow();
     expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["*"]))).not.toThrow();
   });
@@ -181,15 +227,15 @@ describe("scanDiffForSecrets (§2.8)", () => {
       "--- a/main.tf",
       "+++ b/main.tf",
       "@@ -1,2 +1,3 @@",
-      " resource \"aws_iam_user\" \"x\" {",
-      "+  access_key = \"AKIAIOSFODNN7EXAMPLE\"",
-      " }"
+      ' resource "aws_iam_user" "x" {',
+      '+  access_key = "AKIAIOSFODNN7EXAMPLE"',
+      " }",
     );
     const hits = scanDiffForSecrets(d);
     expect(hits).toHaveLength(2); // AKIA value pattern + sensitive-assignment
     expect(hits.some((h) => h.rule === "aws-access-key-id")).toBe(true);
-    expect(hits[0].file).toBe("main.tf");
-    expect(hits[0].line).toBe(2); // second new-side line in the hunk
+    expect(hits[0]!.file).toBe("main.tf");
+    expect(hits[0]!.line).toBe(2); // second new-side line in the hunk
   });
 
   it("flags a hardcoded password literal but NOT a variable reference", () => {
@@ -204,7 +250,7 @@ describe("scanDiffForSecrets (§2.8)", () => {
   });
 
   it("flags a PEM private-key header", () => {
-    const d = diff("+++ b/key.tf", "@@ -0,0 +1 @@", "+  key = \"-----BEGIN RSA PRIVATE KEY-----\"");
+    const d = diff("+++ b/key.tf", "@@ -0,0 +1 @@", '+  key = "-----BEGIN RSA PRIVATE KEY-----"');
     expect(scanDiffForSecrets(d).some((h) => h.rule === "pem-private-key")).toBe(true);
   });
 
@@ -213,7 +259,7 @@ describe("scanDiffForSecrets (§2.8)", () => {
       "+++ b/main.tf",
       "@@ -1,2 +1,1 @@",
       '-  password = "hunter2"', // removed — pre-existing, not this run's doing
-      ' resource "x" "y" {}'
+      ' resource "x" "y" {}',
     );
     expect(scanDiffForSecrets(d)).toEqual([]);
   });

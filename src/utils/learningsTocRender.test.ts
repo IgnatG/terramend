@@ -17,7 +17,7 @@ describe("renderLearningsToc", () => {
     ];
     expect(renderLearningsToc(headings)).toBe(
       `- Build & test (L1-L18)
-- Architecture (L19-L60)`
+- Architecture (L19-L60)`,
     );
   });
 
@@ -34,7 +34,7 @@ describe("renderLearningsToc", () => {
   - Local (L3-L18)
   - CI (L19-L42)
 - Architecture (L43-L210)
-  - Background workers (L80-L210)`
+  - Background workers (L80-L210)`,
     );
   });
 
@@ -42,7 +42,7 @@ describe("renderLearningsToc", () => {
     const headings: LearningsHeading[] = [h(3, "Only h3", 1, 5), h(4, "Sub h4", 2, 5)];
     expect(renderLearningsToc(headings)).toBe(
       `- Only h3 (L1-L5)
-  - Sub h4 (L2-L5)`
+  - Sub h4 (L2-L5)`,
     );
   });
 
@@ -59,7 +59,7 @@ describe("renderLearningsToc", () => {
   - Three (L2-L10)
     - Four (L3-L10)
       - Five (L4-L10)
-        - Six (L5-L10)`
+        - Six (L5-L10)`,
     );
   });
 });

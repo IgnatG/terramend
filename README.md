@@ -114,9 +114,7 @@ jobs:
 > **Ready-to-use workflows:** [`examples/`](examples/) has copy-pasteable workflows — scheduled
 > [remediation](examples/remediate.yml), [generation](examples/generate-terraform.yml),
 > [comment-triggered fixes](examples/comment-fix.yml), and the full
-> [SARIF + plan-gate + policy setup](examples/remediate-advanced.yml). A complete end-to-end demo
-> (a deliberately-flawed module + its remediation workflow) lives in the separate
-> [`terramend/terraform-aws-repo-examples`](https://github.com/terramend/terraform-aws-repo-examples) repo.
+> [SARIF + plan-gate + policy setup](examples/remediate-advanced.yml).
 
 ---
 
@@ -306,7 +304,7 @@ an explicit value.
 | `module_catalogue` | (none) | Newline/comma list of approved modules to prefer, each `[name=]<source>[ <version>]` — a registry module (`terraform-aws-modules/vpc/aws ~> 5.0`), a private git library (`git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2`), or a local/house module (`./modules/net`). |
 | `terratest` | `false` | `true` to scaffold a plan-only Go Terratest test + native `*.tftest.hcl` test when generating a reusable module (both plan the module directly — no `examples/` fixture). Widens `allowed_paths` to permit the test files. |
 
-Standard agent inputs (`prompt`, `model`, `timeout`, `push`, `shell`, `token`, `output_schema`) are
+Standard agent inputs (`prompt`, `model`, `timeout`, `cwd`, `push`, `shell`, `token`, `output_schema`) are
 also available.
 
 ### Scope out a finding

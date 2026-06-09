@@ -17,6 +17,7 @@ import {
 } from "#app/utils/activity";
 import { resolveAgent, resolveModel } from "#app/utils/agent";
 import { validateAgentApiKey } from "#app/utils/apiKeys";
+import { isBackendConfigured } from "#app/utils/apiUrl";
 import { resolveBody } from "#app/utils/body";
 import {
   buildUnavailableModelError,
@@ -30,7 +31,6 @@ import { onExitSignal } from "#app/utils/exitHandler";
 import { resolveGit, setGitAuthServer } from "#app/utils/gitAuth";
 import { startGitAuthServer } from "#app/utils/gitAuthServer";
 import { createOctokit, writeGitHubUsageSummaryToFile } from "#app/utils/github";
-import { isBackendConfigured } from "#app/utils/apiUrl";
 import { resolveInstructions } from "#app/utils/instructions";
 import { persistLearnings, seedLearningsFile } from "#app/utils/learnings";
 import { describeSetupFailure, executeLifecycleHook } from "#app/utils/lifecycle";
@@ -99,7 +99,7 @@ export async function main(): Promise<MainResult> {
     }
     if (result.denied.length > 0) {
       log.warning(
-        `» refused to override ${result.denied.length} protected env var(s): ${result.denied.join(", ")}`
+        `» refused to override ${result.denied.length} protected env var(s): ${result.denied.join(", ")}`,
       );
     }
   }
@@ -131,11 +131,11 @@ export async function main(): Promise<MainResult> {
   const runContext = await resolveRunContextData({ octokit: initialOctokit, token: jobToken });
   timer.checkpoint("runContextData");
 
-  // tmpdir hoisted out of the try block: `installFromNpmTarball` reads
-  // TERRAMEND_TEMP_DIR (set as a side effect of createTempDirectory) when
-  // the opencode CLI install runs below for BYOK introspection. agent +
-  // mcp server setup further down also consume the same tmpdir.
-  const tmpdir = createTempDirectory();
+  // Called for its side effect: `createTempDirectory()` sets TERRAMEND_TEMP_DIR,
+  // which `installFromNpmTarball` reads when the opencode CLI install runs below
+  // for BYOK introspection, and which agent + mcp server setup further down also
+  // consume. The returned path isn't needed directly here.
+  createTempDirectory();
 
   // install OpenCode + capture the BASELINE model set BEFORE Codex auth.json
   // is in scope. this is the set of models OpenCode can route from the runner's
@@ -257,7 +257,7 @@ export async function main(): Promise<MainResult> {
     const resolvedModel = decision.kind === "fallback" ? decision.to : initialResolvedModel;
     if (decision.kind === "fallback") {
       log.warning(
-        `» fell back from ${decision.from} to ${decision.to} — no provider key present in runner env. add a provider key in repo secrets to use ${decision.from} instead.`
+        `» fell back from ${decision.from} to ${decision.to} — no provider key present in runner env. add a provider key in repo secrets to use ${decision.from} instead.`,
       );
       toolState.modelFallback = { from: decision.from };
     }
@@ -387,17 +387,19 @@ export async function main(): Promise<MainResult> {
         // byte-compares against the trimmed read-back to skip no-op PATCHes.
         toolState.learningsSeed = (runContext.repoSettings.learnings ?? "").trim();
         log.info(
-          `» learnings seeded at ${learningsPath} (existing=${runContext.repoSettings.learnings ? "yes" : "no"})`
+          `» learnings seeded at ${learningsPath} (existing=${runContext.repoSettings.learnings ? "yes" : "no"})`,
         );
         const ctxForExit = toolContext;
         onExitSignal(() => persistLearnings(ctxForExit));
       } catch (err) {
         log.warning(
-          `» learnings seed failed: ${err instanceof Error ? err.message : String(err)} — continuing without learnings file`
+          `» learnings seed failed: ${err instanceof Error ? err.message : String(err)} — continuing without learnings file`,
         );
       }
     } else {
-      log.debug("no backend configured (API_URL unset) — skipping learnings seed + reflection turn");
+      log.debug(
+        "no backend configured (API_URL unset) — skipping learnings seed + reflection turn",
+      );
     }
 
     // seed the rolling PR summary tmpfile when the dispatcher requested it.
@@ -418,7 +420,7 @@ export async function main(): Promise<MainResult> {
         // intentionally empty — summarySeed stays undefined
       }
       log.info(
-        `» summary snapshot seeded at ${filePath} (previous=${previousSnapshot ? "yes" : "no"})`
+        `» summary snapshot seeded at ${filePath} (previous=${previousSnapshot ? "yes" : "no"})`,
       );
       // on SIGINT/SIGTERM we still want to persist whatever the agent has
       // written so far. handler is best-effort: any failure inside is
@@ -467,7 +469,7 @@ export async function main(): Promise<MainResult> {
         existsSync(pluginDir) && readdirSync(pluginDir).some((f) => /\.[jt]sx?$/.test(f));
       if (hasPlugins && toolState.dependencyInstallation?.promise) {
         log.info(
-          "» .opencode/plugin/ detected — awaiting dependency installation before agent start"
+          "» .opencode/plugin/ detected — awaiting dependency installation before agent start",
         );
         await toolState.dependencyInstallation.promise.catch(() => {});
         timer.checkpoint("awaitDepsForPlugins");
@@ -512,22 +514,22 @@ export async function main(): Promise<MainResult> {
       if (innerTimeoutFired) return;
       innerTimeoutFired = true;
       log.info(
-        "» inner activity timeout fired — stopping MCP server and starting 5min safety-net timer"
+        "» inner activity timeout fired — stopping MCP server and starting 5min safety-net timer",
       );
       // fire and forget — the server's dispose is idempotent so the
       // `await using` cleanup at block exit is still safe.
       mcpHttpServer[Symbol.asyncDispose]().catch((err) => {
         log.debug(
-          `mcp server stop after inner kill failed: ${err instanceof Error ? err.message : String(err)}`
+          `mcp server stop after inner kill failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
       safetyNetTimer = setTimeout(
         () => {
           activityTimeout?.forceReject(
-            "agent still pending 5min after inner activity kill — forcing exit"
+            "agent still pending 5min after inner activity kill — forcing exit",
           );
         },
-        5 * 60 * 1000
+        5 * 60 * 1000,
       );
       safetyNetTimer.unref?.();
     };
@@ -561,7 +563,7 @@ export async function main(): Promise<MainResult> {
         if (!wasTracked) return;
         const trackedRanges = toolState.diffCoverage?.coveredRanges ?? [];
         log.debug(
-          `» diff coverage tracked from tool ${event.toolName} (${trackedRanges.length} merged range${trackedRanges.length === 1 ? "" : "s"})`
+          `» diff coverage tracked from tool ${event.toolName} (${trackedRanges.length} merged range${trackedRanges.length === 1 ? "" : "s"})`,
         );
       },
     });
@@ -613,7 +615,7 @@ export async function main(): Promise<MainResult> {
     // validate this before writing job summary to avoid masking the error
     if (outputSchema && !toolState.output) {
       throw new Error(
-        "output_schema was provided but agent did not call set_output — structured output is required"
+        "output_schema was provided but agent did not call set_output — structured output is required",
       );
     }
 
@@ -671,7 +673,7 @@ export async function main(): Promise<MainResult> {
         await writeGitHubUsageSummaryToFile(usageSummaryPath);
       } catch (err) {
         log.debug(
-          `failed to write usage summary to ${usageSummaryPath}: ${err instanceof Error ? err.message : String(err)}`
+          `failed to write usage summary to ${usageSummaryPath}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

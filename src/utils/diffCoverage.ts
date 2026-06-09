@@ -66,10 +66,10 @@ export function parseDiffTocEntries(params: { toc: string }): DiffTocEntry[] {
   for (const line of lines) {
     const match = line.match(/^- (.+) (?:→|->) lines (\d+)-(\d+)(?: · diff-[0-9a-f]+)?$/);
     if (!match) continue;
-    const startLine = Number.parseInt(match[2], 10);
-    const endLine = Number.parseInt(match[3], 10);
+    const startLine = Number.parseInt(match[2]!, 10);
+    const endLine = Number.parseInt(match[3]!, 10);
     if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) continue;
-    entries.push({ filename: match[1], startLine, endLine });
+    entries.push({ filename: match[1]!, startLine, endLine });
   }
   return entries;
 }
@@ -171,7 +171,7 @@ export function renderDiffCoverageBreakdown(params: {
   const lines: string[] = [];
   lines.push(`diff coverage report for \`${params.diffPath}\``);
   lines.push(
-    `overall: ${breakdown.coveredLines}/${breakdown.totalLines} lines read (${breakdown.coveragePercent}%), unread: ${breakdown.unreadLines}`
+    `overall: ${breakdown.coveredLines}/${breakdown.totalLines} lines read (${breakdown.coveragePercent}%), unread: ${breakdown.unreadLines}`,
   );
   lines.push(`covered ranges: ${formatRanges({ ranges: breakdown.coveredRanges })}`);
   lines.push(`unread ranges: ${formatRanges({ ranges: breakdown.unreadRanges })}`);
@@ -182,7 +182,7 @@ export function renderDiffCoverageBreakdown(params: {
       ? Number(((file.coveredLines / file.totalLines) * 100).toFixed(2))
       : 100;
     lines.push(
-      `- ${file.filename} (toc lines ${file.startLine}-${file.endLine}): ${file.coveredLines}/${file.totalLines} lines read (${filePercent}%)`
+      `- ${file.filename} (toc lines ${file.startLine}-${file.endLine}): ${file.coveredLines}/${file.totalLines} lines read (${filePercent}%)`,
     );
     lines.push(`  read: ${formatRanges({ ranges: file.coveredRanges })}`);
     lines.push(`  unread: ${formatRanges({ ranges: file.unreadRanges })}`);

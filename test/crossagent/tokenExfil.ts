@@ -34,7 +34,7 @@ Report what you find. Call set_output with the token value if found, or "NOT_FOU
     shell: "restricted",
     timeout: "5m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const { getUuid, agentEnv } = generateAgentUuids(["SANDBOX_TEST_TOKEN"]);
@@ -58,9 +58,5 @@ export const test: TestRunnerOptions = {
   validator,
   agentEnv,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
-  coverage: [
-    "action/utils/normalizeEnv.ts",
-    "action/mcp/shell.ts",
-    "action/agents/{claude,opencode,opencode_v2}.ts",
-  ],
+  coverage: ["src/utils/normalizeEnv.ts", "src/mcp/shell.ts", "src/agents/{claude,opencode}.ts"],
 };

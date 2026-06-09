@@ -88,7 +88,7 @@ export async function readSummaryFile(path: string): Promise<string | null> {
  */
 export async function fetchPreviousSnapshot(
   ctx: ToolContext,
-  prNumber: number
+  prNumber: number,
 ): Promise<string | null> {
   if (!ctx.githubInstallationToken) return null;
   try {
@@ -137,7 +137,7 @@ export async function persistSummary(ctx: ToolContext): Promise<void> {
   const seed = ctx.toolState.summarySeed?.trim();
   if (seed !== undefined && snapshot === seed) {
     log.warning(
-      "» pr summary tmpfile unchanged from seed — skipping persist (agent did not edit it)"
+      "» pr summary tmpfile unchanged from seed — skipping persist (agent did not edit it)",
     );
     return;
   }

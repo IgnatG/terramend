@@ -178,7 +178,7 @@ function bootstrapTerramendDataDir(): void {
         `the MCP shell's mount-namespace sandbox cannot protect the auth file when it lives under $HOME, ` +
         `and silently falling back would contradict the "three independent layers" claim in wiki/codex-auth.md. ` +
         `passwordless sudo is required for codex auth on this runner — either configure it, or remove ` +
-        `CODEX_AUTH_JSON from the run.`
+        `CODEX_AUTH_JSON from the run.`,
     );
   }
 }

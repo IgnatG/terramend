@@ -34,7 +34,7 @@ function extractImports(filePath: string): string[] {
   const specs: string[] = [];
   for (const re of [IMPORT_RE, SIDE_EFFECT_RE]) {
     re.lastIndex = 0;
-    for (const m of source.matchAll(re)) specs.push(m[1]);
+    for (const m of source.matchAll(re)) specs.push(m[1]!);
   }
   return specs;
 }

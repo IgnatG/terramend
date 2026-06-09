@@ -18,7 +18,8 @@ import {
 // real source strings copied verbatim from the hepcare repo + the UKHSA
 // data-integration-terraform-modules library it consumes — these are the
 // patterns the parser MUST handle.
-const HEPCARE_GIT = "git::https://github.com/UKHSA-Internal/data-integration-terraform-modules.git//aws/kms?ref=kms-v0.1.0";
+const HEPCARE_GIT =
+  "git::https://github.com/UKHSA-Internal/data-integration-terraform-modules.git//aws/kms?ref=kms-v0.1.0";
 const REGISTRY_SUBMODULE = "terraform-aws-modules/cloudwatch/aws//modules/log-group";
 
 describe("splitModuleSource", () => {
@@ -48,7 +49,10 @@ describe("splitModuleSource", () => {
       ref: null,
       kind: "local",
     });
-    expect(splitModuleSource("terraform-aws-modules/vpc/aws")).toMatchObject({ kind: "registry", subdir: null });
+    expect(splitModuleSource("terraform-aws-modules/vpc/aws")).toMatchObject({
+      kind: "registry",
+      subdir: null,
+    });
   });
 });
 
@@ -90,13 +94,19 @@ describe("parseModuleCatalogue (real-world sources)", () => {
   });
 
   it("derives a registry-submodule name from its subdir", () => {
-    expect(parseModuleCatalogue(REGISTRY_SUBMODULE)[0].name).toBe("log-group");
+    expect(parseModuleCatalogue(REGISTRY_SUBMODULE)[0]!.name).toBe("log-group");
   });
 
   it("handles local paths, newline/comma splitting, and dedup", () => {
-    const out = parseModuleCatalogue("./modules/networking\nterraform-aws-modules/vpc/aws, ./modules/networking");
+    const out = parseModuleCatalogue(
+      "./modules/networking\nterraform-aws-modules/vpc/aws, ./modules/networking",
+    );
     expect(out).toHaveLength(2);
-    expect(out[0]).toMatchObject({ source: "./modules/networking", kind: "local", name: "networking" });
+    expect(out[0]).toMatchObject({
+      source: "./modules/networking",
+      kind: "local",
+      name: "networking",
+    });
   });
 
   it("returns nothing for empty input", () => {
@@ -112,7 +122,14 @@ describe("parseModuleBlocks (real-world)", () => {
       for_each = local.upload_buckets
     }`;
     expect(parseModuleBlocks(hcl)).toEqual([
-      { name: "kms_uploads", source: HEPCARE_GIT, version: "kms-v0.1.0", subdir: "aws/kms", kind: "git", declaredIn: "" },
+      {
+        name: "kms_uploads",
+        source: HEPCARE_GIT,
+        version: "kms-v0.1.0",
+        subdir: "aws/kms",
+        kind: "git",
+        declaredIn: "",
+      },
     ]);
   });
 
@@ -121,7 +138,11 @@ describe("parseModuleBlocks (real-world)", () => {
       source  = "terraform-aws-modules/vpc/aws"
       version = "~> 5.0"
     }`;
-    expect(parseModuleBlocks(hcl)[0]).toMatchObject({ version: "~> 5.0", kind: "registry", subdir: null });
+    expect(parseModuleBlocks(hcl)[0]).toMatchObject({
+      version: "~> 5.0",
+      kind: "registry",
+      subdir: null,
+    });
   });
 
   it("parses a local module and brace-matches a nested map", () => {
@@ -129,7 +150,11 @@ describe("parseModuleBlocks (real-world)", () => {
       source    = "./modules/cloudwatch_logs"
       providers = { aws = aws.useast1 }
     }`;
-    expect(parseModuleBlocks(hcl)[0]).toMatchObject({ name: "a", source: "./modules/cloudwatch_logs", kind: "local" });
+    expect(parseModuleBlocks(hcl)[0]).toMatchObject({
+      name: "a",
+      source: "./modules/cloudwatch_logs",
+      kind: "local",
+    });
   });
 
   it("returns nothing when there are no module blocks", () => {
@@ -192,11 +217,14 @@ describe("parseModuleInterface", () => {
     const iface = parseModuleInterface(hcl);
     expect(iface.variables).toHaveLength(1);
     expect(iface.variables[0]).toMatchObject({ name: "cfg", required: false });
-    expect(iface.variables[0].type).toContain("object(");
+    expect(iface.variables[0]!.type).toContain("object(");
   });
 
   it("returns empty for HCL with no variables/outputs", () => {
-    expect(parseModuleInterface('resource "aws_s3_bucket" "b" {}')).toEqual({ variables: [], outputs: [] });
+    expect(parseModuleInterface('resource "aws_s3_bucket" "b" {}')).toEqual({
+      variables: [],
+      outputs: [],
+    });
   });
 
   it("keeps a variable REQUIRED when only a nested object field is named `default`", () => {
@@ -216,7 +244,7 @@ describe("parseModuleInterface", () => {
       type    = map(string)
       default = {}
     }`;
-    expect(parseModuleInterface(hcl).variables[0].required).toBe(false);
+    expect(parseModuleInterface(hcl).variables[0]!.required).toBe(false);
   });
 });
 
@@ -232,15 +260,21 @@ describe("walkTfFiles + collectModuleGraph (recursive, multi-root)", () => {
     mkdirSync(join(root, ".terraform", "modules"), { recursive: true });
     writeFileSync(
       join(root, "api_gateway.tf"),
-      `module "api_gateway_logs" { source = "./modules/cloudwatch_logs" }`
+      `module "api_gateway_logs" { source = "./modules/cloudwatch_logs" }`,
     );
     writeFileSync(
       join(root, "core", "main.tf"),
-      `module "bootstrap" { source = "git::https://github.com/x/mods.git//aws/bootstrap?ref=v1" }`
+      `module "bootstrap" { source = "git::https://github.com/x/mods.git//aws/bootstrap?ref=v1" }`,
     );
-    writeFileSync(join(root, "modules", "cloudwatch_logs", "main.tf"), `resource "aws_cloudwatch_log_group" "g" {}`);
+    writeFileSync(
+      join(root, "modules", "cloudwatch_logs", "main.tf"),
+      `resource "aws_cloudwatch_log_group" "g" {}`,
+    );
     // noise that must be skipped:
-    writeFileSync(join(root, ".terraform", "modules", "junk.tf"), `module "skip" { source = "./nope" }`);
+    writeFileSync(
+      join(root, ".terraform", "modules", "junk.tf"),
+      `module "skip" { source = "./nope" }`,
+    );
   });
 
   afterAll(() => {
@@ -262,14 +296,16 @@ describe("walkTfFiles + collectModuleGraph (recursive, multi-root)", () => {
     ]);
     expect(graph.externalCount).toBe(1); // the git bootstrap module in core/
     // a concern in the house module is fixable at source:
-    expect(isInLocalModule("modules/cloudwatch_logs/main.tf", graph)?.callers).toEqual(["api_gateway.tf"]);
+    expect(isInLocalModule("modules/cloudwatch_logs/main.tf", graph)?.callers).toEqual([
+      "api_gateway.tf",
+    ]);
   });
 });
 
 describe("dependencyOrderedModuleDirs (§24)", () => {
   const graph = (
     localModuleDirs: { dir: string; callers: string[] }[],
-    modules: { source: string; declaredIn: string; kind?: string }[]
+    modules: { source: string; declaredIn: string; kind?: string }[],
   ): ModuleGraph => ({
     localModuleDirs,
     externalCount: 0,
@@ -286,16 +322,22 @@ describe("dependencyOrderedModuleDirs (§24)", () => {
   it("orders a depended-on module before its dependent", () => {
     // modules/a calls ../b → a depends on b → b must be fixed first.
     const g = graph(
-      [{ dir: "modules/a", callers: [] }, { dir: "modules/b", callers: [] }],
-      [{ source: "../b", declaredIn: "modules/a/main.tf" }]
+      [
+        { dir: "modules/a", callers: [] },
+        { dir: "modules/b", callers: [] },
+      ],
+      [{ source: "../b", declaredIn: "modules/a/main.tf" }],
     );
     expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/b", "modules/a"]);
   });
 
   it("breaks ties between independent modules by path", () => {
     const g = graph(
-      [{ dir: "modules/z", callers: [] }, { dir: "modules/a", callers: [] }],
-      []
+      [
+        { dir: "modules/z", callers: [] },
+        { dir: "modules/a", callers: [] },
+      ],
+      [],
     );
     expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/a", "modules/z"]);
   });
@@ -303,8 +345,14 @@ describe("dependencyOrderedModuleDirs (§24)", () => {
   it("ignores module calls declared in a root (not inside a local module)", () => {
     // the call lives in the repo root, so neither module depends on the other.
     const g = graph(
-      [{ dir: "modules/a", callers: ["main.tf"] }, { dir: "modules/b", callers: ["main.tf"] }],
-      [{ source: "./modules/a", declaredIn: "main.tf" }, { source: "./modules/b", declaredIn: "main.tf" }]
+      [
+        { dir: "modules/a", callers: ["main.tf"] },
+        { dir: "modules/b", callers: ["main.tf"] },
+      ],
+      [
+        { source: "./modules/a", declaredIn: "main.tf" },
+        { source: "./modules/b", declaredIn: "main.tf" },
+      ],
     );
     expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/a", "modules/b"]);
   });
@@ -319,7 +367,7 @@ describe("dependencyOrderedModuleDirs (§24)", () => {
         { dir: "modules/network/subnet", callers: [] },
         { dir: "modules/shared", callers: [] },
       ],
-      [{ source: "../../shared", declaredIn: "modules/network/subnet/main.tf" }]
+      [{ source: "../../shared", declaredIn: "modules/network/subnet/main.tf" }],
     );
     const order = dependencyOrderedModuleDirs(g);
     expect(order.indexOf("modules/shared")).toBeLessThan(order.indexOf("modules/network/subnet"));
@@ -327,11 +375,14 @@ describe("dependencyOrderedModuleDirs (§24)", () => {
 
   it("is cycle-safe (appends remaining nodes deterministically)", () => {
     const g = graph(
-      [{ dir: "modules/a", callers: [] }, { dir: "modules/b", callers: [] }],
+      [
+        { dir: "modules/a", callers: [] },
+        { dir: "modules/b", callers: [] },
+      ],
       [
         { source: "../b", declaredIn: "modules/a/main.tf" },
         { source: "../a", declaredIn: "modules/b/main.tf" },
-      ]
+      ],
     );
     expect(dependencyOrderedModuleDirs(g)).toEqual(["modules/a", "modules/b"]);
   });

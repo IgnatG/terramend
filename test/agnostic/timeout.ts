@@ -13,7 +13,7 @@ const fixture = defineFixture(
 Finally call set_output with "TIMEOUT TEST COMPLETED".`,
     timeout: "5s",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {
@@ -30,10 +30,10 @@ export const test: TestRunnerOptions = {
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   tags: ["agnostic"],
   coverage: [
-    "action/utils/timer.ts",
-    "action/utils/subprocess.ts",
-    "action/utils/exitHandler.ts",
-    "action/utils/activity.ts",
-    "action/mcp/selectMode.ts",
+    "src/utils/timer.ts",
+    "src/utils/subprocess.ts",
+    "src/utils/exitHandler.ts",
+    "src/utils/activity.ts",
+    "src/mcp/selectMode.ts",
   ],
 };

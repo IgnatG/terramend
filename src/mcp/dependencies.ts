@@ -1,9 +1,9 @@
 import { type } from "arktype";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import type { PrepOptions, PrepResult } from "#app/prep/index";
 import { runPrepPhase } from "#app/prep/index";
 import { packageManagerBinDir } from "#app/utils/packageManager";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 // empty schema for tools with no parameters
 const EmptyParams = type({});
@@ -30,11 +30,11 @@ Inspect the repository structure to determine how dependencies should be install
     if (result.dependenciesInstalled) {
       if (result.language === "node") {
         lines.push(
-          `${langDisplay} dependencies installed successfully via ${result.packageManager}.`
+          `${langDisplay} dependencies installed successfully via ${result.packageManager}.`,
         );
       } else if (result.language === "python") {
         lines.push(
-          `${langDisplay} dependencies installed successfully via ${result.packageManager} (from ${result.configFile}).`
+          `${langDisplay} dependencies installed successfully via ${result.packageManager} (from ${result.configFile}).`,
         );
       }
     } else {
@@ -105,7 +105,7 @@ export function startInstallation(ctx: ToolContext): void {
       if (ctx.toolState.dependencyInstallation) {
         ctx.toolState.dependencyInstallation.status = "failed";
       }
-    }
+    },
   );
 }
 

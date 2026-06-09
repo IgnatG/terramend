@@ -18,7 +18,7 @@ export function getApiUrl(): string {
 
   if (parsed.protocol !== "https:" && !isLocalUrl(parsed)) {
     throw new Error(
-      `API_URL must use https:// (got ${parsed.protocol}). only localhost is exempt.`
+      `API_URL must use https:// (got ${parsed.protocol}). only localhost is exempt.`,
     );
   }
 

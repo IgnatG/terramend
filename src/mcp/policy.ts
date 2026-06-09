@@ -2,10 +2,10 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { type } from "arktype";
-import { log } from "#app/utils/cli";
-import { resolveEnv } from "#app/utils/secrets";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool, toolOk, toolSkip } from "#app/mcp/shared";
+import { log } from "#app/utils/cli";
+import { resolveEnv } from "#app/utils/secrets";
 
 /**
  * Policy-as-code gate (§3.5 OPA/Conftest). An optional, opt-in tool that runs
@@ -69,8 +69,10 @@ export function parseConftestOutput(stdout: string): PolicyResult {
     const fails = entry.failures ?? [];
     const warns = entry.warnings ?? [];
     tested += (entry.successes ?? 0) + fails.length + warns.length;
-    for (const f of fails) failures.push({ msg: f.msg || "policy violation", file, level: "failure" });
-    for (const w of warns) warnings.push({ msg: w.msg || "policy warning", file, level: "warning" });
+    for (const f of fails)
+      failures.push({ msg: f.msg || "policy violation", file, level: "failure" });
+    for (const w of warns)
+      warnings.push({ msg: w.msg || "policy warning", file, level: "warning" });
   }
   return { passed: failures.length === 0, failures, warnings, tested };
 }
@@ -94,10 +96,10 @@ function resolvePolicyDir(cwd: string, explicit: string | undefined): string | n
 
 export const PolicyCheckParams = type({
   "target?": type.string.describe(
-    "the file conftest evaluates — a terraform plan JSON (preferred; produce it with `terraform show -json plan.tfplan`) or an HCL file. Default: ./plan.json, then ./tfplan.json, in the workspace."
+    "the file conftest evaluates — a terraform plan JSON (preferred; produce it with `terraform show -json plan.tfplan`) or an HCL file. Default: ./plan.json, then ./tfplan.json, in the workspace.",
   ),
   "policy_dir?": type.string.describe(
-    "dir holding the Rego policies. Default: the first of ./policy, ./policies, ./.conftest that exists."
+    "dir holding the Rego policies. Default: the first of ./policy, ./policies, ./.conftest that exists.",
   ),
 });
 
@@ -118,7 +120,7 @@ export function PolicyCheckTool(ctx: ToolContext) {
       if (!policyDir) {
         return toolSkip(
           "no_policy_dir",
-          "no Rego policy dir found (looked for ./policy, ./policies, ./.conftest, or the policy_dir arg) — policy_check is opt-in"
+          "no Rego policy dir found (looked for ./policy, ./policies, ./.conftest, or the policy_dir arg) — policy_check is opt-in",
         );
       }
       // resolve the target file: explicit arg, else a conventional plan JSON.
@@ -127,7 +129,10 @@ export function PolicyCheckTool(ctx: ToolContext) {
         const abs = isAbsolute(target) ? target : join(cwd, target);
         targetFile = existsSync(abs) ? abs : null;
         if (!targetFile) {
-          return toolSkip("target_not_found", `policy target '${target}' not found in the workspace`);
+          return toolSkip(
+            "target_not_found",
+            `policy target '${target}' not found in the workspace`,
+          );
         }
       } else {
         for (const candidate of ["plan.json", "tfplan.json"]) {
@@ -140,7 +145,7 @@ export function PolicyCheckTool(ctx: ToolContext) {
         if (!targetFile) {
           return toolSkip(
             "no_target",
-            "no plan JSON to evaluate — produce one with `terraform show -json plan.tfplan > plan.json`, or pass `target`"
+            "no plan JSON to evaluate — produce one with `terraform show -json plan.tfplan > plan.json`, or pass `target`",
           );
         }
       }
@@ -154,7 +159,7 @@ export function PolicyCheckTool(ctx: ToolContext) {
       if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
         return toolSkip(
           "conftest_not_installed",
-          "conftest (OPA) is not installed — policy_check is opt-in and best-effort; install conftest to enable it"
+          "conftest (OPA) is not installed — policy_check is opt-in and best-effort; install conftest to enable it",
         );
       }
       // conftest exits non-zero when a policy DENY fires — that's a normal
@@ -170,11 +175,11 @@ export function PolicyCheckTool(ctx: ToolContext) {
       if (r.status !== 0 && !evaluated) {
         return toolSkip(
           "conftest_failed",
-          `conftest could not evaluate the target: ${r.stderr.trim().slice(0, 300) || "unknown error"}`
+          `conftest could not evaluate the target: ${r.stderr.trim().slice(0, 300) || "unknown error"}`,
         );
       }
       log.info(
-        `» policy_check: ${result.passed ? "PASS" : "FAIL"} — ${result.failures.length} failure(s), ${result.warnings.length} warning(s) over ${result.tested} test(s)`
+        `» policy_check: ${result.passed ? "PASS" : "FAIL"} — ${result.failures.length} failure(s), ${result.warnings.length} warning(s) over ${result.tested} test(s)`,
       );
       return toolOk({
         passed: result.passed,

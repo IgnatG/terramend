@@ -6,17 +6,13 @@ import { DEFAULT_PROXY_MODEL, modelAliases, resolveDisplayAlias } from "#app/mod
 // these tests fetch models.dev and openrouter.ai to verify that every alias in
 // models.ts still corresponds to a live, non-deprecated upstream model. upstream
 // catalog drift (new model ships, old model deprecated, etc.) causes failures
-// that are unrelated to any code change in a typical PR — so these are gated
-// off for normal PRs and run only on main pushes plus PRs from the
-// `terramend/models-bump` branch (the bot-authored bump PR — this test IS the
-// integrity gate for its edits, so it has to run on the PR itself, not just
-// post-merge).
+// that are unrelated to any code change in a typical PR — so the default vitest
+// config (vitest.config.ts) excludes *.main.test.ts and they never run in PR CI.
 //
-// the registry is kept in sync with upstreams by the `models-bump` cron
-// (`.github/workflows/models-bump.yml`), which scans models.dev every 12h and
-// opens a PR bumping `resolve` / `openRouterResolve` for any alias whose
-// upstream has shipped a newer GA version. these tests are the integrity gate
-// for that PR — they catch typos, removed models, and openrouter mismatches.
+// instead they run via the `Catalog drift` workflow
+// (`.github/workflows/catalog.yml`): on a daily schedule, so drift surfaces as a
+// failing run maintainers can act on, and on demand via workflow_dispatch. They
+// catch typos, removed models, and openrouter mismatches.
 //
 // run locally with `pnpm test:catalog`.
 
@@ -61,10 +57,10 @@ describe("models.dev validity", async () => {
     it(`${alias.resolve} exists on models.dev`, () => {
       const providerData = data[parsed.provider];
       expect(providerData, `provider "${parsed.provider}" not found on models.dev`).toBeDefined();
-      const model = providerData.models[parsed.modelId];
+      const model = providerData!.models[parsed.modelId];
       expect(
         model,
-        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`
+        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
       ).toBeDefined();
     });
 
@@ -90,10 +86,10 @@ describe("openRouterResolve models.dev validity", async () => {
     it(`${alias.openRouterResolve} exists on models.dev`, () => {
       const providerData = data[parsed.provider];
       expect(providerData, `provider "${parsed.provider}" not found on models.dev`).toBeDefined();
-      const model = providerData.models[parsed.modelId];
+      const model = providerData!.models[parsed.modelId];
       expect(
         model,
-        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`
+        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
       ).toBeDefined();
     });
   }
@@ -106,10 +102,10 @@ describe("DEFAULT_PROXY_MODEL models.dev validity", async () => {
   it(`${DEFAULT_PROXY_MODEL} exists on models.dev`, () => {
     const providerData = data[parsed.provider];
     expect(providerData, `provider "${parsed.provider}" not found on models.dev`).toBeDefined();
-    const model = providerData.models[parsed.modelId];
+    const model = providerData!.models[parsed.modelId];
     expect(
       model,
-      `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`
+      `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
     ).toBeDefined();
   });
 
@@ -117,7 +113,7 @@ describe("DEFAULT_PROXY_MODEL models.dev validity", async () => {
     const model = data[parsed.provider]?.models[parsed.modelId];
     if (!model) return;
     expect(model.status, `${DEFAULT_PROXY_MODEL} is deprecated on models.dev`).not.toBe(
-      "deprecated"
+      "deprecated",
     );
   });
 });
@@ -126,7 +122,7 @@ type OpenRouterModel = { id: string };
 type OpenRouterModelsResponse = { data: OpenRouterModel[] };
 
 const openRouterApi = fetch("https://openrouter.ai/api/v1/models").then(
-  (r) => r.json() as Promise<OpenRouterModelsResponse>
+  (r) => r.json() as Promise<OpenRouterModelsResponse>,
 );
 
 describe("openRouterResolve OpenRouter API validity", async () => {
@@ -143,7 +139,7 @@ describe("openRouterResolve OpenRouter API validity", async () => {
     it(`${orModelId} exists on OpenRouter`, () => {
       expect(
         orModelIds.has(orModelId),
-        `model "${orModelId}" not found in OpenRouter API (/api/v1/models)`
+        `model "${orModelId}" not found in OpenRouter API (/api/v1/models)`,
       ).toBe(true);
     });
   }
@@ -169,7 +165,7 @@ type ZenModel = { id: string };
 type ZenModelsResponse = { data: ZenModel[] };
 
 const zenApi = fetch("https://opencode.ai/zen/v1/models").then(
-  (r) => r.json() as Promise<ZenModelsResponse>
+  (r) => r.json() as Promise<ZenModelsResponse>,
 );
 
 describe("opencode Zen served list", async () => {
@@ -188,7 +184,7 @@ describe("opencode Zen served list", async () => {
     it(`${alias.slug} terminal resolve ${terminal.resolve} is served by Zen`, () => {
       expect(
         zenIds.has(parsed.modelId),
-        `terminal resolve "${terminal.resolve}" for alias "${alias.slug}" is not in https://opencode.ai/zen/v1/models — Zen no longer serves it. either point a fallback at a Zen-served alias or remove the entry.`
+        `terminal resolve "${terminal.resolve}" for alias "${alias.slug}" is not in https://opencode.ai/zen/v1/models — Zen no longer serves it. either point a fallback at a Zen-served alias or remove the entry.`,
       ).toBe(true);
     });
   }
@@ -210,7 +206,7 @@ describe("isFree models.dev cost", async () => {
       expect(model, `terminal resolve "${terminal.resolve}" missing on models.dev`).toBeDefined();
       expect(
         model?.cost?.input,
-        `isFree alias "${alias.slug}" walks to "${terminal.resolve}" which reports cost.input=${model?.cost?.input} on models.dev — either repoint the fallback or drop \`isFree\``
+        `isFree alias "${alias.slug}" walks to "${terminal.resolve}" which reports cost.input=${model?.cost?.input} on models.dev — either repoint the fallback or drop \`isFree\``,
       ).toBe(0);
     });
   }

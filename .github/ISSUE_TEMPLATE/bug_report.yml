@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a problem with the Terramend action or CLI.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please do **not** include secrets,
+        tokens, or private Terraform in logs you paste below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, workflow YAML, or command that triggers the issue.
+      placeholder: |
+        1. Workflow / command used (redact secrets) …
+        2. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Terramend version
+      description: The action ref or `terramend` CLI version (e.g. `@v0.1.1` or `main`).
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent backend
+      options:
+        - claude
+        - opencode
+        - not sure
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant log output (redact secrets/tokens). This is automatically formatted as code.
+      render: shell
+    validations:
+      required: false

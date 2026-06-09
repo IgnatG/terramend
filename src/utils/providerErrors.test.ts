@@ -52,22 +52,22 @@ describe("detectProviderError", () => {
       // bare `"code":401` lacks a status-key prefix so the 401 status pattern
       // intentionally doesn't fire; the User-not-found pattern catches it.
       expect(detectProviderError('{"error":{"message":"User not found","code":401}}')).toBe(
-        "auth error (invalid/disabled key)"
+        "auth error (invalid/disabled key)",
       );
       expect(detectProviderError("APIError: User not found.")).toBe(
-        "auth error (invalid/disabled key)"
+        "auth error (invalid/disabled key)",
       );
     });
 
     it("detects 'Invalid authentication' phrasing", () => {
       expect(detectProviderError("Invalid authentication credentials")).toBe(
-        "auth error (invalid credentials)"
+        "auth error (invalid credentials)",
       );
     });
 
     it("detects 'No auth credentials found' phrasing", () => {
       expect(detectProviderError("AI_APICallError: No auth credentials found")).toBe(
-        "auth error (missing credentials)"
+        "auth error (missing credentials)",
       );
     });
   });
@@ -120,7 +120,7 @@ describe("detectProviderError", () => {
     it("detects 429 only when adjacent to a status key", () => {
       expect(detectProviderError('{"statusCode": 429}')).toBe("rate limited (429)");
       expect(detectProviderError('{"status_code": 429, "message": "..."}')).toBe(
-        "rate limited (429)"
+        "rate limited (429)",
       );
       expect(detectProviderError("http_status: 429")).toBe("rate limited (429)");
       expect(detectProviderError("status=429")).toBe("rate limited (429)");
@@ -231,7 +231,7 @@ describe("isProviderBillingExhausted (#835)", () => {
 
   it("matches Anthropic 'credit balance is too low' payloads", () => {
     expect(
-      isProviderBillingExhausted("Your credit balance is too low to access the Anthropic API")
+      isProviderBillingExhausted("Your credit balance is too low to access the Anthropic API"),
     ).toBe(true);
   });
 
@@ -251,8 +251,8 @@ describe("extractProviderId", () => {
   it("parses providerID= from OpenCode harness logs", () => {
     expect(
       extractProviderId(
-        'ERROR providerID=deepseek modelID=deepseek-v4-pro error={"name":"AI_APICallError"}'
-      )
+        'ERROR providerID=deepseek modelID=deepseek-v4-pro error={"name":"AI_APICallError"}',
+      ),
     ).toBe("deepseek");
   });
 
@@ -271,20 +271,20 @@ describe("isRouterKeylimitExhaustedError", () => {
       isRouterKeylimitExhaustedError(
         "APIError: This request requires more credits, or fewer max_tokens. " +
           "You requested up to 32000 tokens, but can only afford 22800. " +
-          "To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit"
-      )
+          "To increase, visit https://openrouter.ai/settings/keys and create a key with a higher total limit",
+      ),
     ).toBe(true);
   });
 
   it("matches the 'requires more credits' phrasing on its own", () => {
     expect(
-      isRouterKeylimitExhaustedError("This request requires more credits, or fewer max_tokens.")
+      isRouterKeylimitExhaustedError("This request requires more credits, or fewer max_tokens."),
     ).toBe(true);
   });
 
   it("matches the 'requested up to ... can only afford' phrasing on its own", () => {
     expect(
-      isRouterKeylimitExhaustedError("You requested up to 8000 tokens but can only afford 1234")
+      isRouterKeylimitExhaustedError("You requested up to 8000 tokens but can only afford 1234"),
     ).toBe(true);
   });
 
@@ -296,18 +296,20 @@ describe("isRouterKeylimitExhaustedError", () => {
 
   it("does not match unrelated mentions of max_tokens", () => {
     expect(isRouterKeylimitExhaustedError("max_tokens parameter must be a positive integer")).toBe(
-      false
+      false,
     );
   });
 
   it("matches across newlines (defends against upstream wrapping/reformatting)", () => {
     expect(
       isRouterKeylimitExhaustedError(
-        "APIError: This request requires more credits, or\nfewer max_tokens. You requested up to 32000 tokens"
-      )
+        "APIError: This request requires more credits, or\nfewer max_tokens. You requested up to 32000 tokens",
+      ),
     ).toBe(true);
     expect(
-      isRouterKeylimitExhaustedError("You requested up to 32000 tokens,\nbut can only afford 22800")
+      isRouterKeylimitExhaustedError(
+        "You requested up to 32000 tokens,\nbut can only afford 22800",
+      ),
     ).toBe(true);
   });
 });

@@ -22,34 +22,34 @@
 /** patterns that, when matched by any changed file, force the full matrix. */
 export const ALWAYS_RUN_ALL: string[] = [
   // agent loader + cross-agent shared code
-  "action/agents/shared.ts",
-  "action/agents/index.ts",
-  "action/agents/postRun.ts",
+  "src/agents/shared.ts",
+  "src/agents/index.ts",
+  "src/agents/postRun.ts",
   // test harness — changing these can affect every test
-  "action/test/run.ts",
-  "action/test/utils.ts",
-  "action/test/matrix.ts",
-  "action/test/list-aliases.ts",
-  "action/test/coverage.ts",
-  "action/test/providers.ts",
+  "test/run.ts",
+  "test/utils.ts",
+  "test/matrix.ts",
+  "test/list-aliases.ts",
+  "test/coverage.ts",
+  "test/providers.ts",
   // boot + lifecycle
-  "action/main.ts",
-  "action/index.ts",
-  "action/cli.ts",
-  "action/utils/setup.ts",
-  "action/utils/install.ts",
-  "action/utils/runFixture.ts",
-  "action/utils/globals.ts",
+  "src/main.ts",
+  "src/index.ts",
+  "src/cli.ts",
+  "src/utils/setup.ts",
+  "src/utils/install.ts",
+  "src/utils/runFixture.ts",
+  "src/utils/globals.ts",
   // local docker container plumbing (changes invalidate every test's environment)
-  "action/Dockerfile",
-  "action/docker-entrypoint.sh",
-  "action/docker.ts",
+  "Dockerfile",
+  "docker-entrypoint.sh",
+  "docker.ts",
   // MCP orchestrator (every test runs through it)
-  "action/mcp/server.ts",
-  "action/mcp/shared.ts",
+  "src/mcp/server.ts",
+  "src/mcp/shared.ts",
   // dependency graph
-  "action/package.json",
-  "action/pnpm-lock.yaml",
+  "package.json",
+  "pnpm-lock.yaml",
   // workflow itself
   ".github/workflows/test.yml",
 ];
@@ -66,7 +66,7 @@ function expandBraces(pattern: string): string[] {
   if (!m || m.index === undefined) return [pattern];
   const before = pattern.slice(0, m.index);
   const after = pattern.slice(m.index + m[0].length);
-  const opts = m[1].split(",");
+  const opts = m[1]!.split(",");
   return opts.flatMap((opt) => expandBraces(`${before}${opt}${after}`));
 }
 

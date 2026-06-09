@@ -3,11 +3,11 @@ import * as core from "@actions/core";
 import { type } from "arktype";
 import type { AuthorPermission, PayloadEvent } from "#app/external";
 import { BUILTIN_MODE_NAMES } from "#app/modes";
-import packageJson from "#package.json" with { type: "json" };
 import { log } from "#app/utils/cli";
 import { parseRemediationCommand } from "#app/utils/remediationCommand";
 import type { RepoSettings } from "#app/utils/runContext";
 import { validateCompatibility } from "#app/utils/versioning";
+import packageJson from "#package.json" with { type: "json" };
 
 // tool permission enum types for inputs
 const ShellPermissionInput = type.enumerated("disabled", "restricted", "enabled");
@@ -146,7 +146,7 @@ export function parseMode(raw: string | undefined): string | undefined {
   const match = BUILTIN_MODE_NAMES.find((name) => name.toLowerCase() === v.toLowerCase());
   if (!match) {
     log.warning(
-      `» unknown mode "${v}" — agent will select a mode (valid: ${BUILTIN_MODE_NAMES.join(", ")})`
+      `» unknown mode "${v}" — agent will select a mode (valid: ${BUILTIN_MODE_NAMES.join(", ")})`,
     );
     return undefined;
   }
@@ -226,7 +226,7 @@ const isTerramend = (actor: string | null | undefined): boolean => {
 
 export function resolvePayload(
   resolvedPromptInput: ResolvedPromptInput,
-  repoSettings: RepoSettings
+  repoSettings: RepoSettings,
 ) {
   const [prompt, jsonPayload] =
     typeof resolvedPromptInput !== "string"

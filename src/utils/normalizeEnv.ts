@@ -24,13 +24,13 @@ export function sanitizeSecret(key: string, value: string): string | null {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     log.warning(
-      `» ${key} is whitespace-only — leaving env var unchanged. check your secret value.`
+      `» ${key} is whitespace-only — leaving env var unchanged. check your secret value.`,
     );
     return null;
   }
   if (trimmed !== value) {
     log.warning(
-      `» stripped whitespace from ${key} (whitespace in secret values breaks GitHub Actions log masking)`
+      `» stripped whitespace from ${key} (whitespace in secret values breaks GitHub Actions log masking)`,
     );
   }
   core.setSecret(trimmed);
@@ -61,7 +61,7 @@ export function normalizeEnv(): void {
   // process each group
   for (const [upperKey, keys] of upperKeys) {
     if (keys.length === 1) {
-      const key = keys[0];
+      const key = keys[0]!;
       if (key !== upperKey) {
         // single key, just needs uppercasing
         process.env[upperKey] = process.env[key];
@@ -77,12 +77,12 @@ export function normalizeEnv(): void {
     if (uniqueValues.size > 1) {
       // conflict: different values for different capitalizations
       log.warning(
-        `env var conflict: ${keys.join(", ")} have different values. using uppercase ${upperKey}.`
+        `env var conflict: ${keys.join(", ")} have different values. using uppercase ${upperKey}.`,
       );
     }
 
     // prefer the uppercase version if it exists, otherwise use the first one
-    const preferredKey = keys.find((k) => k === upperKey) || keys[0];
+    const preferredKey = keys.find((k) => k === upperKey) || keys[0]!;
     const preferredValue = process.env[preferredKey];
 
     // delete all variants

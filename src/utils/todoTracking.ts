@@ -149,7 +149,7 @@ export function createTodoTracker(onUpdate: (body: string) => Promise<void>): To
       const todos = Array.from(state.values()).map((item) =>
         shouldCompleteInProgress && item.status === "in_progress"
           ? { ...item, status: "completed" as const }
-          : item
+          : item,
       );
       const completed = todos.filter((t) => t.status === "completed").length;
       const markdown = renderTodoMarkdown(todos);

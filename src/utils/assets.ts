@@ -36,11 +36,11 @@ const ALLOWED_EXTENSIONS = new Set([
 export async function downloadAssetsInMarkdown(
   markdown: string,
   tmpdir: string,
-  githubToken: string
+  githubToken: string,
 ): Promise<string> {
   const urls = new Set<string>();
-  for (const match of markdown.matchAll(MARKDOWN_IMAGE)) urls.add(match[1]);
-  for (const match of markdown.matchAll(HTML_IMAGE)) urls.add(match[1]);
+  for (const match of markdown.matchAll(MARKDOWN_IMAGE)) urls.add(match[1]!);
+  for (const match of markdown.matchAll(HTML_IMAGE)) urls.add(match[1]!);
 
   if (urls.size === 0) return markdown;
 
@@ -60,7 +60,7 @@ export async function downloadAssetsInMarkdown(
 async function downloadAsset(
   url: string,
   assetsDir: string,
-  githubToken: string
+  githubToken: string,
 ): Promise<string | null> {
   // only github.com itself needs the installation token; the githubusercontent CDN
   // urls carry their own signature. `redirect: "follow"` (undici default) strips the

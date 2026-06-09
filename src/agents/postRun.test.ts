@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ToolState } from "#app/toolState";
 import { getUnsubmittedReview } from "#app/agents/postRun";
+import type { ToolState } from "#app/toolState";
 
 function makeToolState(overrides: Partial<ToolState> = {}): ToolState {
   return {
@@ -25,8 +25,8 @@ describe("getUnsubmittedReview", () => {
         makeToolState({
           selectedMode: "Review",
           review: { id: 1, nodeId: "n", reviewedSha: undefined },
-        })
-      )
+        }),
+      ),
     ).toBeNull();
   });
 
@@ -35,7 +35,7 @@ describe("getUnsubmittedReview", () => {
     // comment is not a substitute, and accepting it here previously let
     // subagent-flipped `finalSummaryWritten` silence the gate.
     expect(
-      getUnsubmittedReview(makeToolState({ selectedMode: "Review", finalSummaryWritten: true }))
+      getUnsubmittedReview(makeToolState({ selectedMode: "Review", finalSummaryWritten: true })),
     ).toBe("Review");
   });
 
@@ -44,21 +44,21 @@ describe("getUnsubmittedReview", () => {
     // "no review warranted" exit, matching the post-failure error message.
     expect(
       getUnsubmittedReview(
-        makeToolState({ selectedMode: "IncrementalReview", finalSummaryWritten: true })
-      )
+        makeToolState({ selectedMode: "IncrementalReview", finalSummaryWritten: true }),
+      ),
     ).toBeNull();
   });
 
   it("returns null when there is no progress comment to anchor the failure to", () => {
     expect(
-      getUnsubmittedReview(makeToolState({ selectedMode: "Review", hadProgressComment: false }))
+      getUnsubmittedReview(makeToolState({ selectedMode: "Review", hadProgressComment: false })),
     ).toBeNull();
   });
 
   it("returns the selected mode when the gate should fire", () => {
     expect(getUnsubmittedReview(makeToolState({ selectedMode: "Review" }))).toBe("Review");
     expect(getUnsubmittedReview(makeToolState({ selectedMode: "IncrementalReview" }))).toBe(
-      "IncrementalReview"
+      "IncrementalReview",
     );
   });
 });

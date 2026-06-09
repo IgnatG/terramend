@@ -22,8 +22,12 @@ on:
   pull_request_target:
     types: [opened, synchronize, closed]
 
+# Least-privilege: this workflow runs on `pull_request_target` (base-repo
+# context, with secrets), so the token scopes are kept to exactly what the
+# CLA Assistant action needs — write the signatures file, comment/label the PR,
+# and set the status check. No `actions: write` (the `recreate-cla` re-trigger
+# is comment-driven, not via the Actions API).
 permissions:
-  actions: write
   contents: write        # write the signatures file to the cla-signatures branch
   pull-requests: write   # comment + label the PR
   statuses: write        # set the CLA status check

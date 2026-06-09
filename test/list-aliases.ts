@@ -4,7 +4,7 @@
  * (anthropic/* → claude, everything else → opencode).
  *
  * MODE=aliases (default) — every alias. consumed by `models-live`, which runs
- *   the cheap top-level CLI smoke per alias (`action/test/model-smoke.ts`) to
+ *   the cheap top-level CLI smoke per alias (`test/model-smoke.ts`) to
  *   validate resolution + auth.
  *
  * MODE=flagships — one standard-tier model per provider. consumed by
@@ -23,9 +23,9 @@
  * actual model id from a per-run env var.
  *
  * usage:
- *   node action/test/list-aliases.ts
- *   MODE=flagships node action/test/list-aliases.ts
- *   MATRIX_FILTER=gemini node action/test/list-aliases.ts
+ *   node test/list-aliases.ts
+ *   MODE=flagships node test/list-aliases.ts
+ *   MATRIX_FILTER=gemini node test/list-aliases.ts
  *
  * NOTE: the per-PR-precision matrix lives in `matrix.ts`, which calls into
  * this file. raw invocation here emits the unfiltered matrix.
@@ -70,7 +70,7 @@ export function buildFlagshipMatrix(opts: { filter?: string }): MatrixEntry[] {
       const alias = aliasBySlug.get(p.flagship);
       if (!alias) {
         throw new Error(
-          `list-aliases: flagship "${p.flagship}" missing from modelAliases — update providers.ts`
+          `list-aliases: flagship "${p.flagship}" missing from modelAliases — update providers.ts`,
         );
       }
       return alias;

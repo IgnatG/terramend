@@ -66,11 +66,11 @@ describe("postProcessRangeDiff", () => {
   it("trims context lines around changes", () => {
     const contextBefore = Array.from(
       { length: 9 },
-      (_, i) => `     +const line${i + 1} = ${i + 1};`
+      (_, i) => `     +const line${i + 1} = ${i + 1};`,
     );
     const contextAfter = Array.from(
       { length: 6 },
-      (_, i) => `     +const line${i + 11} = ${i + 11};`
+      (_, i) => `     +const line${i + 11} = ${i + 11};`,
     );
     const input = [
       "1:  abc1234 ! 1:  def5678 x",
@@ -179,11 +179,11 @@ describe("postProcessRangeDiff", () => {
   it("uses custom context line count", () => {
     const contextBefore = Array.from(
       { length: 5 },
-      (_, i) => `     +const line${i + 1} = ${i + 1};`
+      (_, i) => `     +const line${i + 1} = ${i + 1};`,
     );
     const contextAfter = Array.from(
       { length: 5 },
-      (_, i) => `     +const line${i + 7} = ${i + 7};`
+      (_, i) => `     +const line${i + 7} = ${i + 7};`,
     );
     const input = [
       "1:  abc1234 ! 1:  def5678 x",

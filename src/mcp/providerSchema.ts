@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { type } from "arktype";
-import { log } from "#app/utils/cli";
-import { resolveEnv } from "#app/utils/secrets";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { log } from "#app/utils/cli";
+import { resolveEnv } from "#app/utils/secrets";
 
 /**
  * Provider-schema awareness (§4.15 next). A "correct" fix for the wrong provider
@@ -78,7 +78,7 @@ export function parseProvidersSchema(json: string): ProvidersSchema {
 export function unknownArgsForResource(
   schema: ProvidersSchema,
   resourceType: string,
-  args: string[]
+  args: string[],
 ): { unknownResourceType: boolean; unknown: string[] } {
   const res = schema.get(resourceType);
   if (!res) return { unknownResourceType: true, unknown: [] };
@@ -114,10 +114,14 @@ export function _clearProviderSchemaCache(): void {
 }
 
 export const TerraformProviderSchemaParams = type({
-  resource_type: type.string.describe("the Terraform resource type to inspect, e.g. 'aws_s3_bucket'."),
+  resource_type: type.string.describe(
+    "the Terraform resource type to inspect, e.g. 'aws_s3_bucket'.",
+  ),
   "args?": type.string
     .array()
-    .describe("optional argument/block names a fix introduces — the tool reports which are NOT valid for the installed provider version."),
+    .describe(
+      "optional argument/block names a fix introduces — the tool reports which are NOT valid for the installed provider version.",
+    ),
 });
 
 export function TerraformProviderSchemaTool(ctx: ToolContext) {
@@ -149,10 +153,11 @@ export function TerraformProviderSchemaTool(ctx: ToolContext) {
           detail: `no schema for '${resource_type}' in the installed providers — check the type name and that its provider is required.`,
         };
       }
-      const verdict = args && args.length > 0 ? unknownArgsForResource(schema, resource_type, args) : null;
+      const verdict =
+        args && args.length > 0 ? unknownArgsForResource(schema, resource_type, args) : null;
       log.info(
         `» terraform_provider_schema(${resource_type}): ${res.attributes.size} attr / ${res.blocks.size} block(s)` +
-          (verdict ? `, ${verdict.unknown.length} unknown arg(s)` : "")
+          (verdict ? `, ${verdict.unknown.length} unknown arg(s)` : ""),
       );
       return {
         ok: true,

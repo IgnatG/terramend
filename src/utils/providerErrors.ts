@@ -168,5 +168,5 @@ export function isProviderBillingExhausted(text: string): boolean {
  */
 export function extractProviderId(text: string): string | null {
   const match = text.match(/\bproviderID=([a-z0-9_-]+)/i);
-  return match ? match[1].toLowerCase() : null;
+  return match ? match[1]!.toLowerCase() : null;
 }

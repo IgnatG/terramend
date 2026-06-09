@@ -37,6 +37,19 @@
 import { SUBAGENT_DENIED_TOOLS } from "#app/agents/subagentToolGates";
 
 /**
+ * The pinned `@anthropic-ai/claude-code` version against which the subagent
+ * gate's `agent_id` discriminator was last verified (see the contract notes in
+ * the gate source below). The gate fails OPEN for subagents if claude-code ever
+ * stops populating `agent_id` in the PreToolUse hook payload, so a version bump
+ * must be paired with a re-verification of `createBaseHookInput`.
+ *
+ * `claudePretoolGate.test.ts` asserts this equals the version pinned in
+ * `package.json` — that test fails on any bump, forcing the re-verification
+ * before the pin and this constant are updated together.
+ */
+export const CLAUDE_CODE_AGENT_ID_VERIFIED_VERSION = "2.1.168" as const;
+
+/**
  * Source written to `<ctx.tmpdir>/terramend-pretool-gate.mjs`. Plain ESM,
  * no TypeScript, no dependencies — node executes it directly via the
  * `#!/usr/bin/env node` shebang and the executable bit set by the harness.
@@ -75,9 +88,10 @@ process.stdin.on("end", () => {
   // source). on the orchestrator's main thread agent_id is undefined.
   // agent_type can be set on the orchestrator itself via --agent, so it's
   // not a reliable subagent discriminator on its own; agent_id is.
-  // contract verified against @anthropic-ai/claude-code 2.1.112 (pinned in
-  // action/package.json); re-verify createBaseHookInput if that bumps — if
-  // agent_id ever stops being populated the gate fails OPEN for subagents.
+  // contract verified against @anthropic-ai/claude-code 2.1.168 (pinned in
+  // package.json; see CLAUDE_CODE_AGENT_ID_VERIFIED_VERSION + the version
+  // tripwire in claudePretoolGate.test.ts); re-verify createBaseHookInput if
+  // that bumps — if agent_id ever stops being populated the gate fails OPEN.
   const agentId = typeof payload?.agent_id === "string" ? payload.agent_id : "";
   if (!agentId) process.exit(0);
   const bare = stripMcpPrefix(toolName);

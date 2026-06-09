@@ -18,7 +18,7 @@ const fixture = defineFixture(
     prompt: `Call the get_test_value tool from the robinMCP server. It returns a JSON object with a "value" field. Extract that inner value string and pass it to set_output.`,
     shell: "disabled",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {
@@ -44,5 +44,5 @@ export const test: TestRunnerOptions = {
   repoSetup:
     'mkdir -p /tmp/terramend-mcp-secret && printf "%s" "$TERRAMEND_MCP_SECRET" > /tmp/terramend-mcp-secret/secret.txt',
   // any MCP-layer change can affect repo-MCP merging; agents own MCP wiring.
-  coverage: ["action/mcp/**", "action/agents/{claude,opencode,opencode_v2}.ts"],
+  coverage: ["src/mcp/**", "src/agents/{claude,opencode}.ts"],
 };
