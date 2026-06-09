@@ -73,8 +73,14 @@ prefixes map to version bumps and changelog sections:
 | `feat:` | minor | Features |
 | `fix:` | patch | Bug Fixes |
 | `deps:` | patch | Dependencies (Dependabot uses this) |
+| `perf:` | patch | Performance Improvements |
+| `revert:` | patch | Reverts |
 | `feat!:` / `BREAKING CHANGE:` | major | — |
-| `perf:` `refactor:` `docs:` `build:` `ci:` `test:` `chore:` | patch | (respective section) |
+| `refactor:` `docs:` `build:` `ci:` `test:` `style:` `chore:` | **none** | hidden — does not cut a release or appear in the changelog |
+
+Only `feat` / `fix` / `deps` / `perf` / `revert` (and breaking changes) cut a
+release. Housekeeping types (`docs`, `ci`, `chore`, …) are deliberately
+non-releasing so routine maintenance doesn't churn the version.
 
 release-please keeps an open "release PR" that accumulates the changelog and the
 `package.json` bump; merging it cuts the `vX.Y.Z` tag + GitHub release, and the
