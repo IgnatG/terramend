@@ -1,8 +1,8 @@
 import { performance } from "node:perf_hooks";
-import { log } from "#app/utils/cli";
 import { installNodeDependencies } from "#app/prep/installNodeDependencies";
 import { installPythonDependencies } from "#app/prep/installPythonDependencies";
 import type { PrepDefinition, PrepOptions, PrepResult } from "#app/prep/types";
+import { log } from "#app/utils/cli";
 
 export type { PrepOptions, PrepResult } from "#app/prep/types";
 

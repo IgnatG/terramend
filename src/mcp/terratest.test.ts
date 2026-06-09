@@ -5,10 +5,7 @@ describe("scaffoldTerratest (§28)", () => {
   it("emits a plan-only Go test + a native test, and no examples/ fixture", () => {
     const s = scaffoldTerratest({ moduleName: "vpc", modulePath: "modules/vpc" });
     const paths = s.files.map((f) => f.path);
-    expect(paths).toEqual([
-      "test/vpc_test.go",
-      "modules/vpc/tests/vpc.tftest.hcl",
-    ]);
+    expect(paths).toEqual(["test/vpc_test.go", "modules/vpc/tests/vpc.tftest.hcl"]);
     expect(paths.some((p) => p.startsWith("examples/"))).toBe(false);
   });
 

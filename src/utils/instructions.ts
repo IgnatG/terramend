@@ -99,7 +99,7 @@ function buildEventMetadata(event: PayloadEvent): string {
 
 function getShellInstructions(
   shell: ResolvedPayload["shell"],
-  t: (name: string) => string
+  t: (name: string) => string,
 ): string {
   switch (shell) {
     case "disabled":
@@ -130,7 +130,7 @@ Use your native file read/write/edit tools for all file operations.`;
 function getStandaloneModeInstructions(
   trigger: string,
   t: (name: string) => string,
-  outputSchema?: Record<string, unknown> | undefined
+  outputSchema?: Record<string, unknown> | undefined,
 ): string {
   if (trigger !== "unknown") {
     return "";

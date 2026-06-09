@@ -13,7 +13,10 @@ const SCHEMA = JSON.stringify({
           },
         },
         aws_instance: {
-          block: { attributes: { ami: {}, instance_type: {} }, block_types: { metadata_options: {} } },
+          block: {
+            attributes: { ami: {}, instance_type: {} },
+            block_types: { metadata_options: {} },
+          },
         },
       },
     },
@@ -38,8 +41,12 @@ describe("parseProvidersSchema", () => {
   it("merges resource schemas across multiple providers", () => {
     const merged = JSON.stringify({
       provider_schemas: {
-        "registry.terraform.io/hashicorp/aws": { resource_schemas: { aws_s3_bucket: { block: { attributes: { bucket: {} } } } } },
-        "registry.terraform.io/hashicorp/random": { resource_schemas: { random_id: { block: { attributes: { byte_length: {} } } } } },
+        "registry.terraform.io/hashicorp/aws": {
+          resource_schemas: { aws_s3_bucket: { block: { attributes: { bucket: {} } } } },
+        },
+        "registry.terraform.io/hashicorp/random": {
+          resource_schemas: { random_id: { block: { attributes: { byte_length: {} } } } },
+        },
       },
     });
     const schema = parseProvidersSchema(merged);
@@ -52,7 +59,9 @@ describe("unknownArgsForResource", () => {
   const schema = parseProvidersSchema(SCHEMA);
 
   it("accepts valid attributes and nested blocks", () => {
-    expect(unknownArgsForResource(schema, "aws_s3_bucket", ["bucket", "acl", "versioning"])).toEqual({
+    expect(
+      unknownArgsForResource(schema, "aws_s3_bucket", ["bucket", "acl", "versioning"]),
+    ).toEqual({
       unknownResourceType: false,
       unknown: [],
     });
@@ -60,12 +69,17 @@ describe("unknownArgsForResource", () => {
 
   it("flags an argument that does not exist for the resource (would break plan)", () => {
     // `server_side_encryption_configuration` is inline-deprecated on aws v5 → not in schema.
-    expect(unknownArgsForResource(schema, "aws_s3_bucket", ["bucket", "server_side_encryption_configuration"])).toEqual(
-      { unknownResourceType: false, unknown: ["server_side_encryption_configuration"] }
-    );
+    expect(
+      unknownArgsForResource(schema, "aws_s3_bucket", [
+        "bucket",
+        "server_side_encryption_configuration",
+      ]),
+    ).toEqual({ unknownResourceType: false, unknown: ["server_side_encryption_configuration"] });
   });
 
   it("reports an unknown resource type rather than guessing", () => {
-    expect(unknownArgsForResource(schema, "aws_not_a_real_type", ["x"]).unknownResourceType).toBe(true);
+    expect(unknownArgsForResource(schema, "aws_not_a_real_type", ["x"]).unknownResourceType).toBe(
+      true,
+    );
   });
 });

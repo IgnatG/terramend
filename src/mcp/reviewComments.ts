@@ -2,11 +2,11 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Octokit } from "@octokit/rest";
 import { type } from "arktype";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import { resolveBodyAssets } from "#app/utils/body";
 import { stripExistingFooter } from "#app/utils/buildTerramendFooter";
 import { log } from "#app/utils/log";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 // GraphQL query to fetch all review threads for a PR with full comment history
 export const REVIEW_THREADS_QUERY = `
@@ -116,7 +116,7 @@ function extractCommentedLines(
   diffHunk: string,
   startLine: number | null,
   endLine: number | null,
-  side: "LEFT" | "RIGHT"
+  side: "LEFT" | "RIGHT",
 ): string {
   const lines = diffHunk.split("\n");
   if (lines.length <= 1) return diffHunk;
@@ -233,7 +233,7 @@ function findOverlappingHunks(
   hunks: ParsedHunk[],
   startLine: number,
   endLine: number,
-  side: "LEFT" | "RIGHT"
+  side: "LEFT" | "RIGHT",
 ): ParsedHunk[] {
   return hunks.filter((hunk) => {
     const hunkStart = side === "LEFT" ? hunk.oldStart : hunk.newStart;
@@ -250,7 +250,7 @@ function extractFromFilePatches(
   hunks: ParsedHunk[],
   startLine: number,
   endLine: number,
-  side: "LEFT" | "RIGHT"
+  side: "LEFT" | "RIGHT",
 ): string {
   const overlapping = findOverlappingHunks(hunks, startLine, endLine, side);
 
@@ -261,7 +261,7 @@ function extractFromFilePatches(
   if (overlapping.length === 1) {
     // single hunk - use existing extraction logic
     const hunk = overlapping[0];
-    const fullHunk = hunk.header + "\n" + hunk.content.join("\n");
+    const fullHunk = `${hunk.header}\n${hunk.content.join("\n")}`;
     return extractCommentedLines(fullHunk, startLine, endLine, side);
   }
 
@@ -315,7 +315,7 @@ function threadHasThumbsUpFrom(thread: ReviewThread, username: string): boolean 
  */
 export function formatReviewThreads(
   threadBlocks: Array<{ path: string; lineRange: string; content: string[] }>,
-  header: { pullNumber: number; reviewId: number; reviewer: string; reviewBody?: string }
+  header: { pullNumber: number; reviewId: number; reviewer: string; reviewBody?: string },
 ) {
   // header section takes: title (1) + blank (1) + "## TOC" (1) + blank (1) + N TOC entries + blank (1) + "---" (1) + blank (1)
   const tocHeaderLines = 4;
@@ -343,7 +343,7 @@ export function formatReviewThreads(
 
   const lines: string[] = [];
   lines.push(
-    `# Review Threads (${threadBlocks.length}) for PR #${header.pullNumber} - Review ${header.reviewId} by ${header.reviewer}`
+    `# Review Threads (${threadBlocks.length}) for PR #${header.pullNumber} - Review ${header.reviewId} by ${header.reviewer}`,
   );
   lines.push("");
   if (threadBlocks.length > 0) {
@@ -370,7 +370,7 @@ export function formatReviewThreads(
 export function buildThreadBlocks(
   threads: ReviewThread[],
   filePatchMap: Map<string, ParsedHunk[]>,
-  reviewId: number
+  reviewId: number,
 ) {
   // sort threads by file path, then by line number
   threads.sort((a, b) => {
@@ -385,7 +385,7 @@ export function buildThreadBlocks(
 
   for (const thread of threads) {
     const allComments = (thread.comments?.nodes ?? []).filter(
-      (c): c is ReviewThreadComment => c !== null
+      (c): c is ReviewThreadComment => c !== null,
     );
     if (allComments.length === 0) continue;
 
@@ -410,7 +410,7 @@ export function buildThreadBlocks(
       const marker = isTargetReview ? " *" : "";
 
       block.push(
-        `\`\`\`\`comment author=${author} id=${comment.fullDatabaseId ?? "unknown"} review=${comment.pullRequestReview?.databaseId ?? "unknown"} thread=${thread.id}${marker}`
+        `\`\`\`\`comment author=${author} id=${comment.fullDatabaseId ?? "unknown"} review=${comment.pullRequestReview?.databaseId ?? "unknown"} thread=${thread.id}${marker}`,
       );
       block.push(comment.body || "(no comment body)");
       block.push("````");
@@ -434,7 +434,7 @@ export function buildThreadBlocks(
         firstCommentWithHunk.diffHunk,
         startLine,
         line,
-        thread.diffSide
+        thread.diffSide,
       );
     }
 
@@ -467,13 +467,13 @@ async function getReviewThreads(input: GetReviewDataInput) {
 
   if (allThreads.length >= 100) {
     log.warning(
-      `PR ${input.owner}/${input.name}#${input.pullNumber}: reviewThreads returned 100 results (limit reached, some threads may be missing)`
+      `PR ${input.owner}/${input.name}#${input.pullNumber}: reviewThreads returned 100 results (limit reached, some threads may be missing)`,
     );
   }
   for (const thread of allThreads) {
     if (thread?.comments?.nodes && thread.comments.nodes.length >= 50) {
       log.warning(
-        `PR ${input.owner}/${input.name}#${input.pullNumber}: review thread at ${thread.path}:${thread.line} has 50 comments (limit reached, some comments may be missing)`
+        `PR ${input.owner}/${input.name}#${input.pullNumber}: review thread at ${thread.path}:${thread.line} has 50 comments (limit reached, some comments may be missing)`,
       );
     }
   }
@@ -732,7 +732,7 @@ export function ListPullRequestReviewsTool(ctx: ToolContext) {
           submitted_at: review.submitted_at,
           commit_id: review.commit_id,
           html_url: review.html_url,
-        }))
+        })),
       );
 
       return {

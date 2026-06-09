@@ -5,7 +5,7 @@ const fixture = defineFixture(
   {
     prompt: `Call set_output with "VERTEX OPENCODE SMOKE PASSED".`,
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {

@@ -49,10 +49,10 @@ export function logRunStartup(ctx: {
   agentName: string;
 }): void {
   log.info(
-    `» model:   ${resolveModelForLog({ payload: ctx.payload, resolvedModel: ctx.resolvedModel })}`
+    `» model:   ${resolveModelForLog({ payload: ctx.payload, resolvedModel: ctx.resolvedModel })}`,
   );
   log.info(
-    `» agent:   ${resolveAgentForLog({ agentName: ctx.agentName, resolvedModel: ctx.resolvedModel })}`
+    `» agent:   ${resolveAgentForLog({ agentName: ctx.agentName, resolvedModel: ctx.resolvedModel })}`,
   );
   log.info(`» push:    ${ctx.payload.push}`);
   log.info(`» shell:   ${ctx.payload.shell}`);

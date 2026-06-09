@@ -66,13 +66,13 @@ describe("detectCodexRefresh", () => {
 
   it("returns null for malformed JSON", () => {
     expect(
-      detectCodexRefresh({ authFileContent: "{not json", originalRefresh: original })
+      detectCodexRefresh({ authFileContent: "{not json", originalRefresh: original }),
     ).toBeNull();
   });
 
   it("returns null for non-object content", () => {
     expect(
-      detectCodexRefresh({ authFileContent: '"a string"', originalRefresh: original })
+      detectCodexRefresh({ authFileContent: '"a string"', originalRefresh: original }),
     ).toBeNull();
   });
 

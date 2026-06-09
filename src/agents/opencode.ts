@@ -57,20 +57,10 @@ import {
   type TextPartInput,
 } from "@opencode-ai/sdk/v2";
 import { Agent, fetch as undiciFetch } from "undici";
-import { terramendMcpName } from "#app/external";
-import { BEDROCK_MODEL_ID_ENV } from "#app/models";
-import type { ToolState } from "#app/toolState";
-import { AGENT_ACTIVITY_TIMEOUT_MS, markActivity } from "#app/utils/activity";
-import type { AgentDiagnostic } from "#app/utils/agentHangReport";
-import { formatJsonValue, log } from "#app/utils/cli";
-import { installCodexAuth } from "#app/utils/codexHome";
-import { findProviderErrorMatch } from "#app/utils/providerErrors";
-import { addSkill, installBundledSkills } from "#app/utils/skills";
-import { trackChild, untrackChild } from "#app/utils/subprocess";
-import type { TodoTracker } from "#app/utils/todoTracking";
-import { getDevDependencyVersion } from "#app/utils/version";
-import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
-import { GIT_NATIVE_READ_DENY_OPENCODE, GIT_NATIVE_WRITE_DENY_OPENCODE } from "#app/agents/nativeFsDenies";
+import {
+  GIT_NATIVE_READ_DENY_OPENCODE,
+  GIT_NATIVE_WRITE_DENY_OPENCODE,
+} from "#app/agents/nativeFsDenies";
 import {
   TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME,
   TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE,
@@ -97,6 +87,19 @@ import {
   logTokenTable,
   MAX_STDERR_LINES,
 } from "#app/agents/shared";
+import { terramendMcpName } from "#app/external";
+import { BEDROCK_MODEL_ID_ENV } from "#app/models";
+import type { ToolState } from "#app/toolState";
+import { AGENT_ACTIVITY_TIMEOUT_MS, markActivity } from "#app/utils/activity";
+import type { AgentDiagnostic } from "#app/utils/agentHangReport";
+import { formatJsonValue, log } from "#app/utils/cli";
+import { installCodexAuth } from "#app/utils/codexHome";
+import { findProviderErrorMatch } from "#app/utils/providerErrors";
+import { addSkill, installBundledSkills } from "#app/utils/skills";
+import { trackChild, untrackChild } from "#app/utils/subprocess";
+import type { TodoTracker } from "#app/utils/todoTracking";
+import { getDevDependencyVersion } from "#app/utils/version";
+import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
 
 const installCli = () => installOpencodeCli({ binPath: "bin/opencode.exe" });
 
@@ -172,7 +175,7 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
 
 /** split `<providerID>/<modelID>` into the SDK's prompt model shape. */
 function parseModel(
-  value: string | undefined
+  value: string | undefined,
 ): { providerID: string; modelID: string } | undefined {
   if (!value) return undefined;
   const slash = value.indexOf("/");
@@ -297,8 +300,8 @@ function bootOpencodeServer(params: {
         const tail = recentStderr.slice(-5).join("\n");
         reject(
           new Error(
-            `opencode serve exited before ready (code=${code} signal=${signal})${tail ? `\n${tail}` : ""}`
-          )
+            `opencode serve exited before ready (code=${code} signal=${signal})${tail ? `\n${tail}` : ""}`,
+          ),
         );
       }
     });
@@ -311,8 +314,8 @@ function bootOpencodeServer(params: {
         void close();
         reject(
           new Error(
-            `timed out after 30s waiting for opencode serve to bind${tail ? `\n${tail}` : ""}`
-          )
+            `timed out after 30s waiting for opencode serve to bind${tail ? `\n${tail}` : ""}`,
+          ),
         );
       }
     }, 30_000);
@@ -419,7 +422,7 @@ async function consumeEvents(ctx: RunnerContext, signal: AbortSignal): Promise<v
       await dispatchEvent(ctx, event);
     } catch (err) {
       log.debug(
-        `» event dispatch threw for type=${(event as { type?: string }).type ?? "?"}: ${err instanceof Error ? err.message : String(err)}`
+        `» event dispatch threw for type=${(event as { type?: string }).type ?? "?"}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -519,7 +522,7 @@ async function onToolPart(
   ctx: RunnerContext,
   part: Extract<Part, { type: "tool" }>,
   label: string,
-  isOrchestrator: boolean
+  isOrchestrator: boolean,
 ): Promise<void> {
   const status = part.state.status;
   const toolName = part.tool;
@@ -543,7 +546,7 @@ async function onToolPart(
     ctx.taskDispatchByCallID.set(toolId, { label: dispatched, startedAt: performance.now() });
     log.info(
       `» dispatching subagent: ${dispatched}` +
-        (input.subagent_type ? ` (subagent_type=${input.subagent_type})` : "")
+        (input.subagent_type ? ` (subagent_type=${input.subagent_type})` : ""),
     );
     return;
   }
@@ -571,7 +574,7 @@ function processTerminalToolPart(
   ctx: RunnerContext,
   part: Extract<Part, { type: "tool" }>,
   label: string,
-  isOrchestrator: boolean
+  isOrchestrator: boolean,
 ): void {
   const toolName = part.tool;
   const toolId = part.callID;
@@ -607,7 +610,7 @@ function processTerminalToolPart(
           : outputStr;
       log.info(
         `» subagent finished: ${dispatch.label} (${dur}s, status=${state.status})` +
-          (preview ? ` — ${String(preview).replace(/\n/g, " ")}` : "")
+          (preview ? ` — ${String(preview).replace(/\n/g, " ")}` : ""),
       );
       ctx.taskDispatchByCallID.delete(toolId);
     }
@@ -686,7 +689,7 @@ async function runPromptTurn(
     text: string;
     model: { providerID: string; modelID: string } | undefined;
     signal: AbortSignal;
-  }
+  },
 ): Promise<AgentResult> {
   const start = performance.now();
   // record the turn boundary in milliseconds (matches AssistantMessage.time.created)
@@ -711,7 +714,7 @@ async function runPromptTurn(
       // wire the inner activity watchdog's abort signal into the SDK request
       // — without this a hung HTTP keeps the run stuck even after the
       // watchdog fires.
-      { signal: params.signal }
+      { signal: params.signal },
     );
     if (response.error) {
       networkError = formatPromptError(response.error);
@@ -807,7 +810,7 @@ async function runPromptTurn(
  */
 async function aggregateTurnUsage(
   ctx: RunnerContext,
-  turnStartMs: number
+  turnStartMs: number,
 ): Promise<AgentUsage | undefined> {
   // labeler tracks every sessionID we've observed events from on the
   // global SSE stream, including any subagent (task tool) child sessions.
@@ -840,7 +843,7 @@ async function aggregateTurnUsage(
       }
     } catch (err) {
       log.debug(
-        `» aggregateTurnUsage failed for session ${sessionID}: ${err instanceof Error ? err.message : String(err)}`
+        `» aggregateTurnUsage failed for session ${sessionID}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
@@ -862,7 +865,7 @@ async function aggregateTurnUsage(
 
 function buildUsage(
   turn: TurnAccumulator,
-  assistant: AssistantMessage | undefined
+  assistant: AssistantMessage | undefined,
 ): AgentUsage | undefined {
   // Prefer the step-finish accumulator: it sums every LLM call across the
   // whole turn (orchestrator iterations + any subagent dispatches). The
@@ -954,14 +957,14 @@ function startInnerActivityWatchdog(params: {
     fired = true;
     const idleSec = Math.round(idleMs / 1000);
     log.info(
-      `» no opencode events for ${idleSec}s — aborting in-flight prompt and notifying harness`
+      `» no opencode events for ${idleSec}s — aborting in-flight prompt and notifying harness`,
     );
     params.abortController.abort();
     try {
       params.ctx.onActivityTimeout?.();
     } catch (err) {
       log.debug(
-        `inner activity callback threw: ${err instanceof Error ? err.message : String(err)}`
+        `inner activity callback threw: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }, 5_000);
@@ -1001,7 +1004,7 @@ export const opencode = agent({
     mkdirSync(opencodePluginDir, { recursive: true });
     writeFileSync(
       join(opencodePluginDir, TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME),
-      TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE
+      TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE,
     );
 
     const agentBrowserVersion = getDevDependencyVersion("agent-browser");
@@ -1064,7 +1067,7 @@ export const opencode = agent({
           apiToken: ctx.apiToken,
           authPath: codexAuth.authPath,
           originalRefresh: codexAuth.originalRefresh,
-        })
+        }),
       );
     }
 
@@ -1171,7 +1174,7 @@ export const opencode = agent({
         // active operation.
         if (!abortController.signal.aborted) {
           log.warning(
-            `» opencode event subscription ended: ${err instanceof Error ? err.message : String(err)}`
+            `» opencode event subscription ended: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       });
@@ -1198,7 +1201,7 @@ export const opencode = agent({
             text: ctx.instructions.full,
             model: sdkModel,
             signal: abortController.signal,
-          })
+          }),
         );
 
         // post-run gate retry loop — every resume is another session.prompt()
@@ -1218,7 +1221,7 @@ export const opencode = agent({
                 text: c.prompt,
                 model: sdkModel,
                 signal: abortController.signal,
-              })
+              }),
             ),
         });
 
@@ -1242,7 +1245,7 @@ export const opencode = agent({
     } finally {
       await server.close().catch((err) => {
         log.debug(
-          `opencode server close failed: ${err instanceof Error ? err.message : String(err)}`
+          `opencode server close failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       });
       await dispatcher.close().catch(() => {});
@@ -1263,7 +1266,7 @@ export const opencode = agent({
  */
 async function runTurnGuarded(
   ctx: RunnerContext,
-  fn: () => Promise<AgentResult>
+  fn: () => Promise<AgentResult>,
 ): Promise<AgentResult> {
   try {
     return await fn();

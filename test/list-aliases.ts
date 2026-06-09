@@ -70,7 +70,7 @@ export function buildFlagshipMatrix(opts: { filter?: string }): MatrixEntry[] {
       const alias = aliasBySlug.get(p.flagship);
       if (!alias) {
         throw new Error(
-          `list-aliases: flagship "${p.flagship}" missing from modelAliases — update providers.ts`
+          `list-aliases: flagship "${p.flagship}" missing from modelAliases — update providers.ts`,
         );
       }
       return alias;

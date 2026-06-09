@@ -52,7 +52,9 @@ describe("parseRemediationCommand (§3.12)", () => {
   });
 
   it("tolerates surrounding prose and the [bot] suffix", () => {
-    expect(parseRemediationCommand("hey @terramend[bot] please fix all medium-severity thanks")).toEqual({
+    expect(
+      parseRemediationCommand("hey @terramend[bot] please fix all medium-severity thanks"),
+    ).toEqual({
       kind: "severity",
       severity: "medium",
     });

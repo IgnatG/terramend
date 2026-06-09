@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { log } from "#app/utils/cli";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { log } from "#app/utils/cli";
 
 /**
  * §28 Terratest scaffolding (opt-in via the `terratest` input). When Terramend
@@ -45,7 +45,10 @@ function pascalCase(name: string): string {
 /** compute a repo-relative POSIX path from `fromDir` up to `toPath` — both are
  * repo-relative POSIX paths (e.g. from `test` to `modules/vpc` → `../modules/vpc`). */
 function relativeUp(fromDir: string, toPath: string): string {
-  const up = fromDir.split("/").filter(Boolean).map(() => "..");
+  const up = fromDir
+    .split("/")
+    .filter(Boolean)
+    .map(() => "..");
   const rel = `${up.join("/")}/${toPath}`.replace(/\/+/g, "/");
   return rel.startsWith(".") ? rel : `./${rel}`;
 }
@@ -156,7 +159,9 @@ export const ScaffoldTerratestParams = type({
   module_path: type.string.describe("the module's repo-relative dir (e.g. 'modules/vpc')."),
   "variables?": type({ name: "string", "required?": "boolean" })
     .array()
-    .describe("optional list of the module's variables, surfaced as TODO placeholders in the tests."),
+    .describe(
+      "optional list of the module's variables, surfaced as TODO placeholders in the tests.",
+    ),
 });
 
 export function ScaffoldTerratestTool(ctx: ToolContext) {

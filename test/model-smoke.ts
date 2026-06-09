@@ -51,7 +51,7 @@ async function plan(slug: string): Promise<Plan> {
   if (!alias) throw new Error(`model-smoke: unknown alias "${slug}"`);
   if (alias.routing) {
     throw new Error(
-      `model-smoke: ${slug} is a routing slug (no fixed model). pass an explicit Bedrock model ID via TERRAMEND_MODEL or the workflow env block.`
+      `model-smoke: ${slug} is a routing slug (no fixed model). pass an explicit Bedrock model ID via TERRAMEND_MODEL or the workflow env block.`,
     );
   }
 

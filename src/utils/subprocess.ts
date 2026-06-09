@@ -1,6 +1,9 @@
 import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { performance } from "node:perf_hooks";
-import { DEFAULT_ACTIVITY_CHECK_INTERVAL_MS, DEFAULT_ACTIVITY_TIMEOUT_MS } from "#app/utils/activity";
+import {
+  DEFAULT_ACTIVITY_CHECK_INTERVAL_MS,
+  DEFAULT_ACTIVITY_TIMEOUT_MS,
+} from "#app/utils/activity";
 import { log } from "#app/utils/cli";
 import { onExitSignal } from "#app/utils/exitHandler";
 
@@ -20,7 +23,7 @@ export class SpawnTimeoutError extends Error {
   readonly code: typeof SPAWN_TIMEOUT_CODE | typeof SPAWN_ACTIVITY_TIMEOUT_CODE;
   constructor(
     message: string,
-    code: typeof SPAWN_TIMEOUT_CODE | typeof SPAWN_ACTIVITY_TIMEOUT_CODE
+    code: typeof SPAWN_TIMEOUT_CODE | typeof SPAWN_ACTIVITY_TIMEOUT_CODE,
   ) {
     super(message);
     this.name = "SpawnTimeoutError";
@@ -274,19 +277,19 @@ export async function spawn(options: SpawnOptions): Promise<SpawnResult> {
     // activity timeout: kill if no output for too long
     if (activityTimeoutMs > 0) {
       log.debug(
-        `spawn activity timer: pid=${child.pid} cmd=${options.cmd} timeout=${activityTimeoutMs}ms`
+        `spawn activity timer: pid=${child.pid} cmd=${options.cmd} timeout=${activityTimeoutMs}ms`,
       );
       activityCheckIntervalId = setInterval(() => {
         const idleMs = performance.now() - lastActivityTime;
         log.debug(
-          `spawn activity check: pid=${child.pid} idle=${Math.round(idleMs)}ms / ${activityTimeoutMs}ms`
+          `spawn activity check: pid=${child.pid} idle=${Math.round(idleMs)}ms / ${activityTimeoutMs}ms`,
         );
         if (idleMs > activityTimeoutMs) {
           isActivityTimedOut = true;
           killedAtIdleMs = idleMs;
           const idleSec = Math.round(idleMs / 1000);
           log.info(
-            `no output for ${idleSec}s from pid=${child.pid} (${options.cmd}), killing process${killGroup ? " group" : ""}`
+            `no output for ${idleSec}s from pid=${child.pid} (${options.cmd}), killing process${killGroup ? " group" : ""}`,
           );
           killSelf("SIGKILL");
           clearInterval(activityCheckIntervalId);
@@ -294,7 +297,7 @@ export async function spawn(options: SpawnOptions): Promise<SpawnResult> {
             options.onActivityTimeout?.();
           } catch (err) {
             log.debug(
-              `spawn onActivityTimeout handler threw: ${err instanceof Error ? err.message : String(err)}`
+              `spawn onActivityTimeout handler threw: ${err instanceof Error ? err.message : String(err)}`,
             );
           }
         }
@@ -328,7 +331,7 @@ export async function spawn(options: SpawnOptions): Promise<SpawnResult> {
           options.onStdout?.(chunk);
         } catch (err) {
           log.debug(
-            `spawn stdout handler threw: ${err instanceof Error ? err.message : String(err)}`
+            `spawn stdout handler threw: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       });
@@ -342,7 +345,7 @@ export async function spawn(options: SpawnOptions): Promise<SpawnResult> {
           options.onStderr?.(chunk);
         } catch (err) {
           log.debug(
-            `spawn stderr handler threw: ${err instanceof Error ? err.message : String(err)}`
+            `spawn stderr handler threw: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       });
@@ -358,7 +361,7 @@ export async function spawn(options: SpawnOptions): Promise<SpawnResult> {
 
       if (isTimedOut) {
         reject(
-          new SpawnTimeoutError(`process timed out after ${options.timeout}ms`, SPAWN_TIMEOUT_CODE)
+          new SpawnTimeoutError(`process timed out after ${options.timeout}ms`, SPAWN_TIMEOUT_CODE),
         );
         return;
       }
@@ -374,8 +377,8 @@ export async function spawn(options: SpawnOptions): Promise<SpawnResult> {
         reject(
           new SpawnTimeoutError(
             `activity timeout: no output for ${idleSec}s`,
-            SPAWN_ACTIVITY_TIMEOUT_CODE
-          )
+            SPAWN_ACTIVITY_TIMEOUT_CODE,
+          ),
         );
         return;
       }

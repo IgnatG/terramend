@@ -1,16 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type { ToolContext } from "#app/mcp/server";
 import { pickBaseBranch, resolveBaseBranch } from "#app/mcp/pr";
+import type { ToolContext } from "#app/mcp/server";
 
 describe("pickBaseBranch (deterministic base: declared → default → main → master → main)", () => {
   it("an explicit declaration always wins", () => {
     expect(
-      pickBaseBranch({ declared: "release", defaultBranch: "main", mainExists: true, masterExists: true })
+      pickBaseBranch({
+        declared: "release",
+        defaultBranch: "main",
+        mainExists: true,
+        masterExists: true,
+      }),
     ).toBe("release");
   });
 
   it("uses the repository default branch when nothing is declared", () => {
-    expect(pickBaseBranch({ defaultBranch: "master", mainExists: true, masterExists: true })).toBe("master");
+    expect(pickBaseBranch({ defaultBranch: "master", mainExists: true, masterExists: true })).toBe(
+      "master",
+    );
   });
 
   it("prefers main when neither a declaration nor a default branch is known", () => {
@@ -34,11 +41,15 @@ describe("resolveBaseBranch (ctx wiring; git not probed when a declaration or de
     }) as unknown as ToolContext;
 
   it("prefers the explicit base_branch override", () => {
-    expect(resolveBaseBranch(ctx({ baseBranch: "release", defaultBranch: "main" }))).toBe("release");
+    expect(resolveBaseBranch(ctx({ baseBranch: "release", defaultBranch: "main" }))).toBe(
+      "release",
+    );
   });
 
   it("trims the override", () => {
-    expect(resolveBaseBranch(ctx({ baseBranch: "  release  ", defaultBranch: "main" }))).toBe("release");
+    expect(resolveBaseBranch(ctx({ baseBranch: "  release  ", defaultBranch: "main" }))).toBe(
+      "release",
+    );
   });
 
   it("uses the repository default branch when no override is set", () => {

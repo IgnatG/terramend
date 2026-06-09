@@ -4,13 +4,6 @@ import { createServer } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { FastMCP, type Tool } from "fastmcp";
 import { type AgentId, terramendMcpName } from "#app/external";
-import type { Mode } from "#app/modes";
-import type { ToolState } from "#app/toolState";
-import { closeBrowserDaemon } from "#app/utils/browser";
-import type { OctokitWithPlugins } from "#app/utils/github";
-import type { ResolvedPayload } from "#app/utils/payload";
-import type { AccountPlan } from "#app/utils/runContext";
-import type { RunContextData } from "#app/utils/runContextData";
 import { CheckoutPrTool } from "#app/mcp/checkout";
 import { GetCheckSuiteLogsTool } from "#app/mcp/checkSuite";
 import {
@@ -20,27 +13,43 @@ import {
   ReportProgressTool,
 } from "#app/mcp/comment";
 import { CommitInfoTool } from "#app/mcp/commitInfo";
+import { ComplianceCrosswalkTool } from "#app/mcp/crosswalk";
 import {
   AwaitDependencyInstallationTool,
   StartDependencyInstallationTool,
 } from "#app/mcp/dependencies";
-import { DeleteBranchTool, GitFetchTool, GitTool, PushBranchTool, PushTagsTool } from "#app/mcp/git";
+import {
+  DeleteBranchTool,
+  GitFetchTool,
+  GitTool,
+  PushBranchTool,
+  PushTagsTool,
+} from "#app/mcp/git";
 import { IssueTool } from "#app/mcp/issue";
 import { GetIssueCommentsTool } from "#app/mcp/issueComments";
 import { GetIssueEventsTool } from "#app/mcp/issueEvents";
 import { IssueInfoTool } from "#app/mcp/issueInfo";
 import { AddLabelsTool } from "#app/mcp/labels";
+import {
+  ListModulesTool,
+  TerraformModuleGraphTool,
+  TerraformModuleInterfaceTool,
+} from "#app/mcp/modules";
 import { SetOutputTool } from "#app/mcp/output";
+import { PolicyCheckTool } from "#app/mcp/policy";
 import { CreatePullRequestTool, UpdatePullRequestBodyTool } from "#app/mcp/pr";
 import { PullRequestInfoTool } from "#app/mcp/prInfo";
+import { TerraformProviderSchemaTool } from "#app/mcp/providerSchema";
 import { CreatePullRequestReviewTool } from "#app/mcp/review";
 import {
   GetReviewCommentsTool,
   ListPullRequestReviewsTool,
   ResolveReviewThreadTool,
 } from "#app/mcp/reviewComments";
+import { TerraformRootsTool } from "#app/mcp/roots";
 import { SelectModeTool } from "#app/mcp/selectMode";
 import { addTools } from "#app/mcp/shared";
+import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
 import {
   InfracostDiffTool,
   ReadFindingsTool,
@@ -50,18 +59,15 @@ import {
   TerraformValidateTool,
   TerraformVerifyRemediationTool,
 } from "#app/mcp/terraform";
-import {
-  ListModulesTool,
-  TerraformModuleGraphTool,
-  TerraformModuleInterfaceTool,
-} from "#app/mcp/modules";
-import { ComplianceCrosswalkTool } from "#app/mcp/crosswalk";
-import { PolicyCheckTool } from "#app/mcp/policy";
-import { TerraformProviderSchemaTool } from "#app/mcp/providerSchema";
-import { TerraformRootsTool } from "#app/mcp/roots";
 import { ScaffoldTerratestTool } from "#app/mcp/terratest";
-import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
 import { UploadFileTool } from "#app/mcp/upload";
+import type { Mode } from "#app/modes";
+import type { ToolState } from "#app/toolState";
+import { closeBrowserDaemon } from "#app/utils/browser";
+import type { OctokitWithPlugins } from "#app/utils/github";
+import type { ResolvedPayload } from "#app/utils/payload";
+import type { AccountPlan } from "#app/utils/runContext";
+import type { RunContextData } from "#app/utils/runContextData";
 
 export interface ToolContext {
   agentId: AgentId;
@@ -210,7 +216,7 @@ type McpStartResult = {
 async function tryStartMcpServer(
   ctx: ToolContext,
   tools: Tool<any, any>[],
-  port: number
+  port: number,
 ): Promise<McpStartResult | null> {
   const server = new FastMCP({ name: terramendMcpName, version: "0.0.1" });
   addTools(ctx, server, tools);
@@ -275,7 +281,7 @@ async function selectMcpPort(ctx: ToolContext, tools: Tool<any, any>[]): Promise
 
   const message = getErrorMessage(lastError);
   throw new Error(
-    `could not find available mcp port starting at ${mcpPortStart} (last error: ${message})`
+    `could not find available mcp port starting at ${mcpPortStart} (last error: ${message})`,
   );
 }
 
@@ -314,7 +320,7 @@ type McpHttpServerOptions = {
  */
 export async function startMcpHttpServer(
   ctx: ToolContext,
-  options?: McpHttpServerOptions
+  options?: McpHttpServerOptions,
 ): Promise<{ url: string; [Symbol.asyncDispose]: () => Promise<void> }> {
   const tools = buildOrchestratorTools(ctx, options?.outputSchema);
   const startResult = await selectMcpPort(ctx, tools);

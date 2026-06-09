@@ -38,7 +38,7 @@ export function validateCompatibility(payloadVersion: string, actionVersion: str
   if (!semver.satisfies(actionVersion, compatibilityRange)) {
     throw new Error(
       `Payload version ${payloadVersion} is incompatible with action version ${actionVersion}. ` +
-        `Please update your workflow to use at least ${semver.minVersion(compatibilityRange)} version of the action.`
+        `Please update your workflow to use at least ${semver.minVersion(compatibilityRange)} version of the action.`,
     );
   }
 }

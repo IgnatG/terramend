@@ -24,7 +24,7 @@ const fixture = defineFixture(
     prompt: "Reply with exactly the single character: 4",
     timeout: "5m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {

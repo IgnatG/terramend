@@ -20,10 +20,11 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm check:entrypoints
-      # NOTE: once Biome is installed (`pnpm add -D @biomejs/biome`, which also
-      # updates the lockfile), enable linting in CI by uncommenting:
-      # - run: pnpm lint
-      - run: pnpm test
+      # Biome: format + lint + import-sort, no writes (fails on errors/diffs).
+      - run: pnpm lint:ci
+      # Run the suite with coverage so the thresholds in vitest.config.ts gate
+      # backsliding (instrumented run also serves as the test signal).
+      - run: pnpm test:coverage
       # Verify the esbuild bundle + type-declaration emit on every PR, so a
       # broken build is caught here rather than at release-publish time.
       - run: pnpm build

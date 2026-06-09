@@ -52,7 +52,7 @@ export class ThinkingTimer {
   markToolResult(): void {
     this.lastToolResultTimestamp = performance.now();
     log.debug(
-      this.formatLine(`» thinking timer: markToolResult at ${this.lastToolResultTimestamp}`)
+      this.formatLine(`» thinking timer: markToolResult at ${this.lastToolResultTimestamp}`),
     );
   }
 
@@ -60,8 +60,8 @@ export class ThinkingTimer {
     const now = performance.now();
     log.debug(
       this.formatLine(
-        `» thinking timer: markToolCall at ${now}, lastToolResult=${this.lastToolResultTimestamp}`
-      )
+        `» thinking timer: markToolCall at ${now}, lastToolResult=${this.lastToolResultTimestamp}`,
+      ),
     );
     if (this.lastToolResultTimestamp === null) return;
     const elapsed = now - this.lastToolResultTimestamp;

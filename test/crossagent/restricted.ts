@@ -20,7 +20,7 @@ FILTER_TOKEN=<value or "empty">`,
     shell: "restricted",
     timeout: "3m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const { getUuid, agentEnv } = generateAgentUuids(["RUNNER_TEST_VALUE", "RUNNER_TEST_TOKEN"]);
@@ -52,9 +52,5 @@ export const test: TestRunnerOptions = {
   validator,
   agentEnv,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
-  coverage: [
-    "src/utils/normalizeEnv.ts",
-    "src/mcp/shell.ts",
-    "src/agents/{claude,opencode}.ts",
-  ],
+  coverage: ["src/utils/normalizeEnv.ts", "src/mcp/shell.ts", "src/agents/{claude,opencode}.ts"],
 };

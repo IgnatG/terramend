@@ -40,7 +40,7 @@ const fixture = defineFixture(
     push: "disabled",
     timeout: "4m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function parseOriginalRefresh(): string | null {

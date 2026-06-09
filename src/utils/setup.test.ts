@@ -42,7 +42,7 @@ describe("removeIncludeIfEntries", () => {
         cwd: repoDir,
         encoding: "utf-8",
         env: cleanEnv,
-      }).trim()
+      }).trim(),
     ).toBe("/tmp/included-config");
 
     removeIncludeIfEntries(repoDir);
@@ -52,7 +52,7 @@ describe("removeIncludeIfEntries", () => {
         cwd: repoDir,
         stdio: "pipe",
         env: cleanEnv,
-      })
+      }),
     ).toThrow();
   });
 
@@ -77,7 +77,7 @@ describe("removeIncludeIfEntries", () => {
         `[includeIf "gitdir:$(touch\${IFS}${proof})safe"]`,
         `\tpath = /tmp/unused`,
         "",
-      ].join("\n")
+      ].join("\n"),
     );
 
     removeIncludeIfEntries(repoDir);
@@ -98,7 +98,7 @@ describe("removeIncludeIfEntries", () => {
         '[includeIf "gitdir:/a b c"]',
         "\tpath = /tmp/unused",
         "",
-      ].join("\n")
+      ].join("\n"),
     );
 
     removeIncludeIfEntries(repoDir);

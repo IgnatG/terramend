@@ -1,4 +1,6 @@
 import { type } from "arktype";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import { getApiUrl } from "#app/utils/apiUrl";
 import { buildTerramendFooter, stripExistingFooter } from "#app/utils/buildTerramendFooter";
 import { log } from "#app/utils/cli";
@@ -9,8 +11,6 @@ import {
   deleteProgressCommentApi,
   updateProgressComment,
 } from "#app/utils/progressComment";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 // re-export for backward compat with anything importing the leaping helpers from mcp/comment
 export {
@@ -35,7 +35,7 @@ function buildImplementPlanLink(ctx: ToolContext, issueNumber: number, commentId
 export function addFooter(ctx: ToolContext, body: string): string {
   if (/<br\s*\/?>[ \t]*\n(?!\s*\n)/i.test(body)) {
     throw new Error(
-      "body contains <br/> followed by a non-blank line, which breaks GitHub markdown rendering. always add a blank line after <br/> tags."
+      "body contains <br/> followed by a non-blank line, which breaks GitHub markdown rendering. always add a blank line after <br/> tags.",
     );
   }
   const bodyWithoutFooter = stripExistingFooter(fixDoubleEscapedString(body));
@@ -143,7 +143,7 @@ export function EditCommentTool(ctx: ToolContext) {
 export const ReportProgress = type({
   body: type.string.describe("the progress update content to share"),
   "target_plan_comment?": type("boolean").describe(
-    "for revising an existing plan comment ONLY. set to true only when the PlanEdit checklist from select_mode tells you to (i.e. a prior plan comment was found for this issue). NEVER set on the initial plan post — the initial plan reuses the run's progress comment and is posted by calling report_progress without this flag."
+    "for revising an existing plan comment ONLY. set to true only when the PlanEdit checklist from select_mode tells you to (i.e. a prior plan comment was found for this issue). NEVER set on the initial plan post — the initial plan reuses the run's progress comment and is posted by calling report_progress without this flag.",
   ),
 });
 
@@ -163,7 +163,7 @@ export const ReportProgress = type({
  */
 export async function reportProgress(
   ctx: ToolContext,
-  params: { body: string; target_plan_comment?: boolean; liveProgress?: boolean }
+  params: { body: string; target_plan_comment?: boolean; liveProgress?: boolean },
 ): Promise<{
   commentId?: number;
   url?: string;
@@ -206,7 +206,7 @@ export async function reportProgress(
     const result = await updateProgressComment(
       apiCtx,
       { id: commentId, type: "issue" },
-      bodyWithFooter
+      bodyWithFooter,
     );
 
     if (!params.liveProgress) ctx.toolState.wasUpdated = true;
@@ -272,7 +272,7 @@ export async function reportProgress(
   const created = await createLeapingProgressComment(
     apiCtx,
     { kind: "issue", issueNumber },
-    initialBody
+    initialBody,
   );
 
   ctx.toolState.progressComment = created.comment;
@@ -376,7 +376,7 @@ export async function deleteProgressComment(ctx: ToolContext): Promise<boolean> 
   try {
     await deleteProgressCommentApi(
       { octokit: ctx.octokit, owner: ctx.repo.owner, repo: ctx.repo.name },
-      existing
+      existing,
     );
   } catch (error) {
     // ignore 404 - comment already deleted
@@ -397,7 +397,7 @@ export const ReplyToReviewComment = type({
   pull_number: type.number.describe("the pull request number"),
   comment_id: type.number.describe("the ID of the review comment to reply to"),
   body: type.string.describe(
-    "extremely brief reply (1 sentence max) explaining what was fixed, e.g. 'Fixed by renaming to X' or 'Added null check'"
+    "extremely brief reply (1 sentence max) explaining what was fixed, e.g. 'Fixed by renaming to X' or 'Added null check'",
   ),
 });
 

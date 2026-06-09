@@ -15,7 +15,7 @@ Then call set_output with exactly this token and nothing else: ${token}`,
     push: "disabled",
     timeout: "4m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const repoSetup = `mkdir -p .claude/skills/${skillName} .opencode/skills/${skillName} && printf '%s\\n' '---' 'name: ${skillName}' 'description: local skill test token source' '---' '' 'token: ${token}' > .claude/skills/${skillName}/SKILL.md && cp .claude/skills/${skillName}/SKILL.md .opencode/skills/${skillName}/SKILL.md`;
@@ -44,8 +44,5 @@ export const test: TestRunnerOptions = {
     TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
     TERRAMEND_MODEL: "anthropic/claude-sonnet-4-6",
   },
-  coverage: [
-    "src/agents/opencode.ts",
-    "src/agents/opencodePlugin.ts",
-  ],
+  coverage: ["src/agents/opencode.ts", "src/agents/opencodePlugin.ts"],
 };

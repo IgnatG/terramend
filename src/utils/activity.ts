@@ -114,7 +114,7 @@ function wrapWrite(original: WriteFunction, onActivity: () => void): WriteFuncti
   const wrapped: WriteFunction = (
     chunk: string | Uint8Array,
     encodingOrCb?: BufferEncoding | WriteCallback,
-    cb?: WriteCallback
+    cb?: WriteCallback,
   ): boolean => {
     if (!isActivityNoise(chunk)) {
       onActivity();

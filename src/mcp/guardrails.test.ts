@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { ToolContext } from "#app/mcp/server";
 import {
   assertNoBlockedDestroy,
   assertUnderPrCap,
@@ -9,10 +8,11 @@ import {
   globToRegex,
   isPathAllowed,
   parseGitleaksReport,
-  recordRemediationPrOpened,
   REMEDIATE_MODE,
+  recordRemediationPrOpened,
   scanDiffForSecrets,
 } from "#app/mcp/guardrails";
+import type { ToolContext } from "#app/mcp/server";
 
 describe("globToRegex", () => {
   it("matches **/*.tf at any depth", () => {
@@ -144,7 +144,7 @@ describe("destroy-block guardrail (§2.5 — never delete/replace a stateful res
   const ctx = (
     selectedMode: string | undefined,
     plannedDestroy: ToolContext["toolState"]["plannedDestroy"],
-    allowReplace?: string[]
+    allowReplace?: string[],
   ) =>
     ({
       toolState: { selectedMode, plannedDestroy },
@@ -158,19 +158,19 @@ describe("destroy-block guardrail (§2.5 — never delete/replace a stateful res
 
   it("blocks a push that would destroy/replace a stateful resource", () => {
     expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy))).toThrow(
-      /DESTROY or REPLACE 1 stateful/
+      /DESTROY or REPLACE 1 stateful/,
     );
     expect(() => assertNoBlockedDestroy(ctx(GENERATE_MODE, statefulDestroy))).toThrow(
-      /aws_db_instance\.main/
+      /aws_db_instance\.main/,
     );
   });
 
   it("allows the destroy when the operator opted in via allow_replace (address, glob, or *)", () => {
     expect(() =>
-      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.main"]))
+      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.main"])),
     ).not.toThrow();
     expect(() =>
-      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.*"]))
+      assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["aws_db_instance.*"])),
     ).not.toThrow();
     expect(() => assertNoBlockedDestroy(ctx(REMEDIATE_MODE, statefulDestroy, ["*"]))).not.toThrow();
   });
@@ -227,9 +227,9 @@ describe("scanDiffForSecrets (§2.8)", () => {
       "--- a/main.tf",
       "+++ b/main.tf",
       "@@ -1,2 +1,3 @@",
-      " resource \"aws_iam_user\" \"x\" {",
-      "+  access_key = \"AKIAIOSFODNN7EXAMPLE\"",
-      " }"
+      ' resource "aws_iam_user" "x" {',
+      '+  access_key = "AKIAIOSFODNN7EXAMPLE"',
+      " }",
     );
     const hits = scanDiffForSecrets(d);
     expect(hits).toHaveLength(2); // AKIA value pattern + sensitive-assignment
@@ -250,7 +250,7 @@ describe("scanDiffForSecrets (§2.8)", () => {
   });
 
   it("flags a PEM private-key header", () => {
-    const d = diff("+++ b/key.tf", "@@ -0,0 +1 @@", "+  key = \"-----BEGIN RSA PRIVATE KEY-----\"");
+    const d = diff("+++ b/key.tf", "@@ -0,0 +1 @@", '+  key = "-----BEGIN RSA PRIVATE KEY-----"');
     expect(scanDiffForSecrets(d).some((h) => h.rule === "pem-private-key")).toBe(true);
   });
 
@@ -259,7 +259,7 @@ describe("scanDiffForSecrets (§2.8)", () => {
       "+++ b/main.tf",
       "@@ -1,2 +1,1 @@",
       '-  password = "hunter2"', // removed — pre-existing, not this run's doing
-      ' resource "x" "y" {}'
+      ' resource "x" "y" {}',
     );
     expect(scanDiffForSecrets(d)).toEqual([]);
   });

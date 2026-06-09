@@ -84,7 +84,7 @@ export async function installFromNpmTarball(params: InstallFromNpmTarballParams)
       log.debug(`» resolved to version ${resolvedVersion}`);
     } catch (error) {
       log.warning(
-        `Failed to resolve version from registry: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to resolve version from registry: ${error instanceof Error ? error.message : String(error)}`,
       );
       throw error;
     }
@@ -126,7 +126,7 @@ export async function installFromNpmTarball(params: InstallFromNpmTarballParams)
   });
   if (extractResult.status !== 0) {
     throw new Error(
-      `Failed to extract tarball: ${extractResult.stderr || extractResult.stdout || "Unknown error"}`
+      `Failed to extract tarball: ${extractResult.stderr || extractResult.stdout || "Unknown error"}`,
     );
   }
 
@@ -150,7 +150,7 @@ export async function installFromNpmTarball(params: InstallFromNpmTarballParams)
     });
     if (installResult.status !== 0) {
       throw new Error(
-        `Failed to install dependencies: ${installResult.stderr || installResult.stdout || "Unknown error"}`
+        `Failed to install dependencies: ${installResult.stderr || installResult.stdout || "Unknown error"}`,
       );
     }
     log.debug(`» dependencies installed`);
@@ -170,7 +170,7 @@ export async function installFromNpmTarball(params: InstallFromNpmTarballParams)
 async function fetchWithRetry(
   url: string,
   headers: Record<string, string>,
-  errorMessage: string
+  errorMessage: string,
 ): Promise<Response> {
   const response = await fetch(url, { headers });
   if (!response.ok) {
@@ -183,7 +183,7 @@ async function fetchWithRetry(
         const retryResponse = await fetch(url, { headers });
         if (!retryResponse.ok) {
           throw new Error(
-            `${errorMessage}: ${retryResponse.status} ${retryResponse.statusText} (retry failed)`
+            `${errorMessage}: ${retryResponse.status} ${retryResponse.statusText} (retry failed)`,
           );
         }
         return retryResponse;
@@ -280,7 +280,7 @@ export async function installFromGithub(params: InstallFromGithubParams): Promis
  * The temp directory will be cleaned up by the OS automatically
  */
 export async function installFromGithubTarball(
-  params: InstallFromGithubTarballParams
+  params: InstallFromGithubTarballParams,
 ): Promise<string> {
   const tempDir = process.env.TERRAMEND_TEMP_DIR;
   if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR is not set");
@@ -348,7 +348,7 @@ export async function installFromGithubTarball(
   });
   if (extractResult.status !== 0) {
     throw new Error(
-      `Failed to extract tarball: ${extractResult.stderr || extractResult.stdout || "Unknown error"}`
+      `Failed to extract tarball: ${extractResult.stderr || extractResult.stdout || "Unknown error"}`,
     );
   }
 
@@ -369,7 +369,7 @@ export async function installFromGithubTarball(
  * Downloads the tarball, extracts it to a temp directory, and returns the path to the CLI executable.
  */
 export async function installFromDirectTarball(
-  params: InstallFromDirectTarballParams
+  params: InstallFromDirectTarballParams,
 ): Promise<string> {
   const tempDir = process.env.TERRAMEND_TEMP_DIR;
   if (!tempDir) throw new Error("TERRAMEND_TEMP_DIR is not set");
@@ -407,7 +407,7 @@ export async function installFromDirectTarball(
   });
   if (extractResult.status !== 0) {
     throw new Error(
-      `failed to extract tarball: ${extractResult.stderr || extractResult.stdout || "unknown error"}`
+      `failed to extract tarball: ${extractResult.stderr || extractResult.stdout || "unknown error"}`,
     );
   }
 
@@ -476,7 +476,7 @@ export async function installFromCurl(params: InstallFromCurlParams): Promise<st
   if (installResult.status !== 0) {
     const errorOutput = installResult.stderr || installResult.stdout || "No output";
     throw new Error(
-      `Failed to install ${params.executableName}. Install script exited with code ${installResult.status}. Output: ${errorOutput}`
+      `Failed to install ${params.executableName}. Install script exited with code ${installResult.status}. Output: ${errorOutput}`,
     );
   }
 

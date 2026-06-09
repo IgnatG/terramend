@@ -1,16 +1,16 @@
 import { type } from "arktype";
 import { formatMcpToolRef } from "#app/external";
-import type { Mode } from "#app/modes";
-import { apiFetch } from "#app/utils/apiFetch";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import type { Mode } from "#app/modes";
+import { apiFetch } from "#app/utils/apiFetch";
 
 export const SelectModeParams = type({
   mode: type.string.describe(
-    "the name of the mode to select (e.g., 'Build', 'Plan', 'Review', 'IncrementalReview', 'Fix', 'AddressReviews', 'Task', 'ResolveConflicts')"
+    "the name of the mode to select (e.g., 'Build', 'Plan', 'Review', 'IncrementalReview', 'Fix', 'AddressReviews', 'Task', 'ResolveConflicts')",
   ),
   "issue_number?": type("number").describe(
-    "optional issue number; when provided with Plan mode, used to look up an existing plan comment for this issue (edit vs create)"
+    "optional issue number; when provided with Plan mode, used to look up an existing plan comment for this issue (edit vs create)",
   ),
 });
 
@@ -50,7 +50,7 @@ const modeInstructionParent: Record<string, string> = {
 function buildOrchestratorGuidance(
   ctx: ToolContext,
   mode: Mode,
-  overrideGuidance?: string
+  overrideGuidance?: string,
 ): OrchestratorGuidance {
   const hardcoded = overrideGuidance ?? mode.prompt ?? "";
   const lookupKey = modeInstructionParent[mode.name] ?? mode.name;
@@ -71,7 +71,7 @@ export type PlanCommentResponsePayload = { error: string } | { commentId: number
 // see wiki/api-auth.md for the two auth patterns.
 async function fetchExistingPlanComment(
   ctx: ToolContext,
-  issueNumber: number
+  issueNumber: number,
 ): Promise<Extract<PlanCommentResponsePayload, { commentId: number }> | null> {
   if (!ctx.githubInstallationToken) return null;
   try {

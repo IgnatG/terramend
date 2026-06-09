@@ -56,11 +56,15 @@ describe("deriveRemediationOutcome (§6.20)", () => {
   });
 
   it("classifies a merge with added lines as merged_with_edits", () => {
-    expect(deriveRemediationOutcome(true, diff("x = 1"), diff("x = 1", "y = 2"))).toBe("merged_with_edits");
+    expect(deriveRemediationOutcome(true, diff("x = 1"), diff("x = 1", "y = 2"))).toBe(
+      "merged_with_edits",
+    );
   });
 
   it("classifies a merge that dropped a Terramend line as merged_with_edits", () => {
-    expect(deriveRemediationOutcome(true, diff("x = 1", "y = 2"), diff("x = 1"))).toBe("merged_with_edits");
+    expect(deriveRemediationOutcome(true, diff("x = 1", "y = 2"), diff("x = 1"))).toBe(
+      "merged_with_edits",
+    );
   });
 });
 

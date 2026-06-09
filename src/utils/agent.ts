@@ -48,7 +48,7 @@ function resolveSlug(slug: string): string | undefined {
       throw new Error(
         `${BEDROCK_MODEL_ID_ENV} env var is required when the model is set to "${slug}". ` +
           `set it to an AWS Bedrock model ID from the Bedrock console. ` +
-          `see https://docs.terramend.com/bedrock for setup.`
+          `see https://docs.terramend.com/bedrock for setup.`,
       );
     }
     return bedrockId;
@@ -59,7 +59,7 @@ function resolveSlug(slug: string): string | undefined {
       throw new Error(
         `${VERTEX_MODEL_ID_ENV} env var is required when the model is set to "${slug}". ` +
           `set it to a Google Vertex AI model ID from Model Garden. ` +
-          `see https://docs.terramend.com/vertex for setup.`
+          `see https://docs.terramend.com/vertex for setup.`,
       );
     }
     return vertexId;

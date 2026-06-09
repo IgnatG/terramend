@@ -37,7 +37,7 @@ export class BillingError extends Error {
       code?: string | null;
       declineCode?: string | null;
       needsReauthentication?: boolean;
-    } = {}
+    } = {},
   ) {
     super(message);
     this.name = "BillingError";

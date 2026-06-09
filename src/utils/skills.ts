@@ -105,7 +105,7 @@ export function addSkill(params: {
       env: { ...process.env, ...params.env },
       stdio: "pipe",
       timeout: 30_000,
-    }
+    },
   );
   if (result.status === 0) {
     log.success(`installed ${params.skill} skill (${params.agent})`);

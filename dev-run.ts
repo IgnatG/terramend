@@ -10,9 +10,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import arg from "arg";
 import { config } from "dotenv";
 import type { Inputs } from "#app/main";
-import { defineFixture } from "./test/utils.ts";
 import { log } from "#app/utils/cli";
 import { run } from "#app/utils/runFixture";
+import { defineFixture } from "./test/utils.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -30,7 +30,7 @@ export const devFixture = defineFixture(
   {
     prompt: `List every MCP tool you have access to. Call set_output with a JSON array of all tool names you can see.`,
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const isDirectExecution = process.argv[1]

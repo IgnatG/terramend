@@ -48,11 +48,7 @@ const sharedConfig = {
   sourcemap: false,
   // Bundle all dependencies - GitHub Actions doesn't have node_modules
   // Only mark optional peer dependencies as external
-  external: [
-    "@valibot/to-json-schema",
-    "effect",
-    "sury",
-  ],
+  external: ["@valibot/to-json-schema", "effect", "sury"],
   // Provide a proper require shim for CommonJS modules bundled into ESM
   // We use a unique variable name to avoid conflicts with bundled imports
   banner: {

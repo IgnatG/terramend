@@ -24,7 +24,7 @@ export type ProgressComment = {
  * positive integer so callers can short-circuit cleanly. Callers handle logging.
  */
 export function parseProgressComment(
-  raw: { id: string; type: ProgressCommentType } | null | undefined
+  raw: { id: string; type: ProgressCommentType } | null | undefined,
 ): ProgressComment | undefined {
   if (!raw?.id) return undefined;
   const id = parseInt(raw.id, 10);
@@ -104,7 +104,7 @@ interface ApiCtx {
  */
 export async function getProgressComment(
   ctx: ApiCtx,
-  comment: ProgressComment
+  comment: ProgressComment,
 ): Promise<{ id: number; body: string | undefined; html_url: string }> {
   const result = await (comment.type === "review"
     ? ctx.octokit.rest.pulls.getReviewComment({
@@ -131,7 +131,7 @@ export async function getProgressComment(
 export async function updateProgressComment(
   ctx: ApiCtx,
   comment: ProgressComment,
-  body: string
+  body: string,
 ): Promise<{
   id: number;
   body: string | undefined;
@@ -167,7 +167,7 @@ export async function updateProgressComment(
  */
 export async function deleteProgressCommentApi(
   ctx: ApiCtx,
-  comment: ProgressComment
+  comment: ProgressComment,
 ): Promise<void> {
   if (comment.type === "review") {
     await ctx.octokit.rest.pulls.deleteReviewComment({
@@ -210,7 +210,7 @@ export interface CreatedProgressComment {
 export async function createLeapingProgressComment(
   ctx: ApiCtx,
   target: CreateProgressCommentTarget,
-  body: string
+  body: string,
 ): Promise<CreatedProgressComment> {
   if (target.kind === "reviewReply") {
     try {
@@ -232,7 +232,7 @@ export async function createLeapingProgressComment(
       // ::warning:: GitHub Actions annotation leaking into Vercel logs.
       console.warn(
         `[progressComment] review reply failed (parent ${target.replyToCommentId} on PR #${target.pullNumber}), falling back to issue comment:`,
-        error
+        error,
       );
       const fallback = await ctx.octokit.rest.issues.createComment({
         owner: ctx.owner,

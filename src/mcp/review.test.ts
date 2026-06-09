@@ -147,7 +147,7 @@ describe("validateInlineComments", () => {
   it("partitions a batch — valid and invalid comments survive independently", () => {
     const result = validateInlineComments(
       [base({ line: 12 }), base({ line: 9999 }), base({ path: "missing.ts" })],
-      diffMap
+      diffMap,
     );
     expect(result.valid).toHaveLength(1);
     expect(result.dropped).toHaveLength(2);

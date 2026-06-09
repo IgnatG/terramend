@@ -16,7 +16,7 @@ Then call set_output with:
     shell: "disabled",
     timeout: "3m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const { getUuid, agentEnv } = generateAgentUuids(["TERRAMEND_NOBASH_TEST"]);

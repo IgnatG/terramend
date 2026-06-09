@@ -13,7 +13,7 @@ const fixture = defineFixture(
   {
     prompt: `First call the git tool with command "status" to confirm the repo is reachable. Then call set_output with exactly the literal string "SMOKE TEST PASSED".`,
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {

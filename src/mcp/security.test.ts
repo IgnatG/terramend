@@ -50,7 +50,7 @@ function validateGitCommand(params: ValidateGitParams): string | null {
 
     for (const arg of params.args) {
       const isBlocked = NOSHELL_BLOCKED_ARGS.some(
-        (flag) => arg === flag || arg.startsWith(flag + "=")
+        (flag) => arg === flag || arg.startsWith(`${flag}=`),
       );
       if (isBlocked) {
         return `Blocked: '${arg}' flag can execute arbitrary code and is not allowed.`;
@@ -482,7 +482,7 @@ function shouldIgnoreScripts(shellPermission: ShellPermission): boolean {
 describe("git tool security - rejectIfLeadingDash", () => {
   it("rejects refs starting with --", () => {
     expect(() => rejectIfLeadingDash("--upload-pack=evil", "ref")).toThrow(
-      /Blocked: ref '--upload-pack=evil' starts with '-'/
+      /Blocked: ref '--upload-pack=evil' starts with '-'/,
     );
   });
 
@@ -515,7 +515,7 @@ describe("git tool security - rejectSpecialRef (default-branch bypass)", () => {
   it("rejects fully-qualified refs/heads/... branch names", () => {
     expect(() => rejectSpecialRef("refs/heads/main", "branch")).toThrow(/fully-qualified ref path/);
     expect(() => rejectSpecialRef("refs/heads/feature/foo", "branch")).toThrow(
-      /fully-qualified ref path/
+      /fully-qualified ref path/,
     );
   });
 
@@ -524,7 +524,7 @@ describe("git tool security - rejectSpecialRef (default-branch bypass)", () => {
     // illegitimate here — no need to whitelist refs/heads/ alone.
     expect(() => rejectSpecialRef("refs/tags/v1", "branch")).toThrow(/fully-qualified ref path/);
     expect(() => rejectSpecialRef("refs/remotes/origin/main", "branch")).toThrow(
-      /fully-qualified ref path/
+      /fully-qualified ref path/,
     );
   });
 
@@ -554,13 +554,13 @@ describe("git tool security - rejectSpecialRef (default-branch bypass)", () => {
   // rejection closes.
   it("rejects ':' (refspec src:dst split that targets main)", () => {
     expect(() => rejectSpecialRef("evil:refs/heads/main", "branch")).toThrow(
-      /refspec\/revision syntax/
+      /refspec\/revision syntax/,
     );
   });
 
   it("rejects leading ':' (delete-ref refspec deletes remote main)", () => {
     expect(() => rejectSpecialRef(":refs/heads/main", "branch")).toThrow(
-      /refspec\/revision syntax/
+      /refspec\/revision syntax/,
     );
   });
 
@@ -638,7 +638,7 @@ describe("DeleteBranchTool - default-branch guard", () => {
     const tool = DeleteBranchTool(makeCtx("main"));
     const result = (await (tool.execute as (p: unknown, ctx: unknown) => Promise<unknown>)(
       { branchName: "main" },
-      {} as Parameters<NonNullable<typeof tool.execute>>[1]
+      {} as Parameters<NonNullable<typeof tool.execute>>[1],
     )) as { content: [{ text: string }]; isError?: boolean };
     /* cast: FastMCP execute returns a union of content shapes; these tests
        always return the handleToolError envelope, which matches this shape. */
@@ -650,7 +650,7 @@ describe("DeleteBranchTool - default-branch guard", () => {
     const tool = DeleteBranchTool(makeCtx("trunk"));
     const result = (await (tool.execute as (p: unknown, ctx: unknown) => Promise<unknown>)(
       { branchName: "trunk" },
-      {} as Parameters<NonNullable<typeof tool.execute>>[1]
+      {} as Parameters<NonNullable<typeof tool.execute>>[1],
     )) as { content: [{ text: string }]; isError?: boolean };
     /* cast: FastMCP execute returns a union of content shapes; these tests
        always return the handleToolError envelope, which matches this shape. */
@@ -665,7 +665,7 @@ describe("DeleteBranchTool - default-branch guard", () => {
     const tool = DeleteBranchTool(makeCtx("main"));
     const result = (await (tool.execute as (p: unknown, ctx: unknown) => Promise<unknown>)(
       { branchName: "refs/heads/main" },
-      {} as Parameters<NonNullable<typeof tool.execute>>[1]
+      {} as Parameters<NonNullable<typeof tool.execute>>[1],
     )) as { content: [{ text: string }]; isError?: boolean };
     /* cast: FastMCP execute returns a union of content shapes; these tests
        always return the handleToolError envelope, which matches this shape. */
@@ -694,13 +694,13 @@ describe("git tool security - checkoutPrBranch rejects malicious PR refs", () =>
 
   it("rejects a leading-dash headRef before any git call", async () => {
     await expect(
-      checkoutPrBranch({ ...basePr, headRef: "-upload-pack=evil" }, dummyParams)
+      checkoutPrBranch({ ...basePr, headRef: "-upload-pack=evil" }, dummyParams),
     ).rejects.toThrow(/PR head ref.*starts with '-'/);
   });
 
   it("rejects a leading-dash baseRef before any git call", async () => {
     await expect(
-      checkoutPrBranch({ ...basePr, baseRef: "--config-env=FOO=BAR" }, dummyParams)
+      checkoutPrBranch({ ...basePr, baseRef: "--config-env=FOO=BAR" }, dummyParams),
     ).rejects.toThrow(/PR base ref.*starts with '-'/);
   });
 });

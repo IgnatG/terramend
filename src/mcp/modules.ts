@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import { log } from "#app/utils/cli";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool, toolOk } from "#app/mcp/shared";
+import { log } from "#app/utils/cli";
 
 /**
  * Terraform module support (§4.14 + module catalogue). Two related capabilities:
@@ -50,7 +50,9 @@ function deriveName(source: string): string {
     if (seg) return seg.replace(/[^A-Za-z0-9_-]/g, "_");
   }
   const cleaned = parsed.base.replace(/\.git$/, "").replace(/\/+$/, "");
-  const registry = cleaned.match(/^(?:[^/]+\/)?([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/);
+  const registry = cleaned.match(
+    /^(?:[^/]+\/)?([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)$/,
+  );
   if (registry) return registry[2];
   const seg = cleaned.split(/[/]/).filter(Boolean).pop() ?? source;
   return seg.replace(/[^A-Za-z0-9_-]/g, "_");
@@ -226,6 +228,7 @@ export function parseModuleBlocks(hcl: string): ModuleBlock[] {
   const out: ModuleBlock[] = [];
   const re = /module\s+"([^"]+)"\s*\{/g;
   let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
   while ((m = re.exec(hcl)) !== null) {
     const name = m[1];
     const braceStart = re.lastIndex - 1;
@@ -435,7 +438,10 @@ export function dependencyOrderedModuleDirs(graph: ModuleGraph): string[] {
 
 /** true when `file` sits under one of the graph's local module dirs — i.e. a
  * concern there should be fixed at the module SOURCE (it propagates to callers). */
-export function isInLocalModule(file: string, graph: ModuleGraph): { dir: string; callers: string[] } | null {
+export function isInLocalModule(
+  file: string,
+  graph: ModuleGraph,
+): { dir: string; callers: string[] } | null {
   const f = file.replace(/\\/g, "/").replace(/^\.\//, "");
   for (const entry of graph.localModuleDirs) {
     if (f === entry.dir || f.startsWith(`${entry.dir}/`)) return entry;
@@ -482,6 +488,7 @@ function blockBody(hcl: string, kw: string): { name: string; body: string; end: 
   const out: { name: string; body: string; end: number }[] = [];
   const re = new RegExp(`${kw}\\s+"([^"]+)"\\s*\\{`, "g");
   let m: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic regex-exec iteration
   while ((m = re.exec(hcl)) !== null) {
     const name = m[1];
     const braceStart = re.lastIndex - 1;
@@ -587,7 +594,7 @@ export function ListModulesTool(ctx: ToolContext) {
         exists: moduleDirExists(cwd, d.dir),
       }));
       log.info(
-        `» list_modules: ${entries.length} catalogue module(s), ${discovered.length} discovered house module(s)`
+        `» list_modules: ${entries.length} catalogue module(s), ${discovered.length} discovered house module(s)`,
       );
       return toolOk({
         configured: entries.length > 0,
@@ -609,7 +616,7 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
     name: "terraform_module_graph",
     description:
       "Build the repo's module call-graph (§4.14) so a fix lands in the right place. Parses every " +
-      "`module \"x\" { source = … }` block and classifies each source as local / registry / git / remote. " +
+      '`module "x" { source = … }` block and classifies each source as local / registry / git / remote. ' +
       "Returns `local_module_dirs` (each with the caller files that use it) — a concern INSIDE one of these " +
       "dirs should be fixed ONCE at the module source (the fix propagates to every caller), not patched at " +
       "each call site. A concern whose fix would require editing a registry/git/remote module is NOT " +
@@ -620,7 +627,7 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
       const graph = collectModuleGraph(cwd);
       log.info(
         `» terraform_module_graph: ${graph.modules.length} module block(s), ` +
-          `${graph.localModuleDirs.length} local dir(s), ${graph.externalCount} external`
+          `${graph.localModuleDirs.length} local dir(s), ${graph.externalCount} external`,
       );
       return toolOk({
         modules: graph.modules.map((m) => ({
@@ -644,7 +651,7 @@ export function TerraformModuleGraphTool(ctx: ToolContext) {
 
 export const TerraformModuleInterfaceParams = type({
   module_dir: type.string.describe(
-    "the module's repo-relative dir (e.g. 'modules/cloudwatch_logs' or a discovered house module's path)."
+    "the module's repo-relative dir (e.g. 'modules/cloudwatch_logs' or a discovered house module's path).",
   ),
 });
 
@@ -661,7 +668,7 @@ export function TerraformModuleInterfaceTool(ctx: ToolContext) {
       const cwd = ctx.payload.cwd ?? process.cwd();
       const iface = collectModuleInterface(cwd, module_dir);
       log.info(
-        `» terraform_module_interface(${module_dir}): ${iface.variables.length} var(s), ${iface.outputs.length} output(s)`
+        `» terraform_module_interface(${module_dir}): ${iface.variables.length} var(s), ${iface.outputs.length} output(s)`,
       );
       return {
         ok: true,

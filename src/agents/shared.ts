@@ -201,7 +201,7 @@ export function formatCostUsd(costUsd: number): string {
  */
 export function mergeAgentUsage(
   a: AgentUsage | undefined,
-  b: AgentUsage | undefined
+  b: AgentUsage | undefined,
 ): AgentUsage | undefined {
   // always return a fresh object — callers treat AgentUsage as immutable, and
   // returning `a` / `b` directly would leak that invariant to future callers

@@ -39,7 +39,7 @@ Call set_output with a JSON object containing:
     shell: "restricted",
     timeout: "5m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {

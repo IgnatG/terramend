@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { resolveBodyAssets } from "#app/utils/body";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { resolveBodyAssets } from "#app/utils/body";
 
 export const IssueInfo = type({
   issue_number: type.number.describe("The issue number to fetch"),
@@ -39,7 +39,7 @@ export function IssueInfoTool(ctx: ToolContext) {
         hints.push("use get_issue_comments to retrieve all comments for this issue");
       }
       hints.push(
-        "use get_issue_events to retrieve cross-references and commit references (relationships not reflected in current state)"
+        "use get_issue_events to retrieve cross-references and commit references (relationships not reflected in current state)",
       );
 
       return {

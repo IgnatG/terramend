@@ -16,16 +16,26 @@ export default defineConfig({
     globalSetup: ["./vitest.global-setup.ts"],
     setupFiles: ["./vitest.setup.ts"],
     // Coverage is opt-in (only collected with `--coverage`, i.e. `pnpm
-    // test:coverage`) so the default PR run stays fast. Requires the provider:
-    // `pnpm add -D @vitest/coverage-v8`.
+    // test:coverage`) so the default `pnpm test` run stays fast.
     coverage: {
       provider: "v8",
-      reporter: ["text", "html"],
+      reporter: ["text-summary", "html"],
       include: ["src/**/*.ts"],
       exclude: ["src/**/*.test.ts", "src/**/__fixtures__/**", "src/skills/**"],
-      // After a first `pnpm test:coverage` baseline, set thresholds here to
-      // prevent backsliding, e.g.:
-      // thresholds: { lines: 40, functions: 40, branches: 40, statements: 40 },
+      // Still emit the report when some tests fail (e.g. the OS-specific suites
+      // that only pass on Linux CI) so the threshold gate is always evaluated.
+      reportOnFailure: true,
+      // Floor set just below the current baseline (stmts ~33%, branches ~28%,
+      // funcs ~35%, lines ~33%) so coverage can't silently backslide. Raise as
+      // coverage improves. NOTE: the bulk of agent-run behavior is exercised by
+      // the integration suites in test/ (currently not wired into CI), so this
+      // unit-test floor is deliberately conservative.
+      thresholds: {
+        statements: 30,
+        branches: 25,
+        functions: 32,
+        lines: 30,
+      },
     },
   },
 });

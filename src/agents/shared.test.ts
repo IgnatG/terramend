@@ -26,7 +26,7 @@ describe("mergeAgentUsage", () => {
   it("sums inputTokens and outputTokens unconditionally", () => {
     const merged = mergeAgentUsage(
       entry({ inputTokens: 10, outputTokens: 5 }),
-      entry({ inputTokens: 20, outputTokens: 7 })
+      entry({ inputTokens: 20, outputTokens: 7 }),
     );
     expect(merged?.inputTokens).toBe(30);
     expect(merged?.outputTokens).toBe(12);
@@ -43,7 +43,7 @@ describe("mergeAgentUsage", () => {
   it("sums cache and cost fields when either side reports them", () => {
     const merged = mergeAgentUsage(
       entry({ inputTokens: 10, cacheReadTokens: 100, costUsd: 0.01 }),
-      entry({ inputTokens: 20, cacheWriteTokens: 50, costUsd: 0.02 })
+      entry({ inputTokens: 20, cacheWriteTokens: 50, costUsd: 0.02 }),
     );
     expect(merged?.cacheReadTokens).toBe(100);
     expect(merged?.cacheWriteTokens).toBe(50);
@@ -55,7 +55,7 @@ describe("mergeAgentUsage", () => {
     // is a fixed property of the harness, not something that can flip mid-run
     const merged = mergeAgentUsage(
       entry({ agent: "claude", inputTokens: 10 }),
-      entry({ agent: "something-else", inputTokens: 20 })
+      entry({ agent: "something-else", inputTokens: 20 }),
     );
     expect(merged?.agent).toBe("claude");
   });

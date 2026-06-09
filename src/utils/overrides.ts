@@ -47,7 +47,7 @@ export function parseOverrides(raw: string): Record<string, string> {
     parsed = JSON.parse(trimmed);
   } catch (err) {
     throw new Error(
-      `invalid UNSAFE_OVERRIDES: not valid JSON (${err instanceof Error ? err.message : String(err)})`
+      `invalid UNSAFE_OVERRIDES: not valid JSON (${err instanceof Error ? err.message : String(err)})`,
     );
   }
 
@@ -59,7 +59,7 @@ export function parseOverrides(raw: string): Record<string, string> {
   for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
     if (typeof value !== "string") {
       throw new Error(
-        `invalid UNSAFE_OVERRIDES: key "${key}" must have a string value (got ${typeof value})`
+        `invalid UNSAFE_OVERRIDES: key "${key}" must have a string value (got ${typeof value})`,
       );
     }
     out[key] = value;

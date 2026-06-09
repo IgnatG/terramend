@@ -60,7 +60,7 @@ describe("models.dev validity", async () => {
       const model = providerData.models[parsed.modelId];
       expect(
         model,
-        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`
+        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
       ).toBeDefined();
     });
 
@@ -89,7 +89,7 @@ describe("openRouterResolve models.dev validity", async () => {
       const model = providerData.models[parsed.modelId];
       expect(
         model,
-        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`
+        `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
       ).toBeDefined();
     });
   }
@@ -105,7 +105,7 @@ describe("DEFAULT_PROXY_MODEL models.dev validity", async () => {
     const model = providerData.models[parsed.modelId];
     expect(
       model,
-      `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`
+      `model "${parsed.modelId}" not found under ${parsed.provider} on models.dev`,
     ).toBeDefined();
   });
 
@@ -113,7 +113,7 @@ describe("DEFAULT_PROXY_MODEL models.dev validity", async () => {
     const model = data[parsed.provider]?.models[parsed.modelId];
     if (!model) return;
     expect(model.status, `${DEFAULT_PROXY_MODEL} is deprecated on models.dev`).not.toBe(
-      "deprecated"
+      "deprecated",
     );
   });
 });
@@ -122,7 +122,7 @@ type OpenRouterModel = { id: string };
 type OpenRouterModelsResponse = { data: OpenRouterModel[] };
 
 const openRouterApi = fetch("https://openrouter.ai/api/v1/models").then(
-  (r) => r.json() as Promise<OpenRouterModelsResponse>
+  (r) => r.json() as Promise<OpenRouterModelsResponse>,
 );
 
 describe("openRouterResolve OpenRouter API validity", async () => {
@@ -139,7 +139,7 @@ describe("openRouterResolve OpenRouter API validity", async () => {
     it(`${orModelId} exists on OpenRouter`, () => {
       expect(
         orModelIds.has(orModelId),
-        `model "${orModelId}" not found in OpenRouter API (/api/v1/models)`
+        `model "${orModelId}" not found in OpenRouter API (/api/v1/models)`,
       ).toBe(true);
     });
   }
@@ -165,7 +165,7 @@ type ZenModel = { id: string };
 type ZenModelsResponse = { data: ZenModel[] };
 
 const zenApi = fetch("https://opencode.ai/zen/v1/models").then(
-  (r) => r.json() as Promise<ZenModelsResponse>
+  (r) => r.json() as Promise<ZenModelsResponse>,
 );
 
 describe("opencode Zen served list", async () => {
@@ -184,7 +184,7 @@ describe("opencode Zen served list", async () => {
     it(`${alias.slug} terminal resolve ${terminal.resolve} is served by Zen`, () => {
       expect(
         zenIds.has(parsed.modelId),
-        `terminal resolve "${terminal.resolve}" for alias "${alias.slug}" is not in https://opencode.ai/zen/v1/models — Zen no longer serves it. either point a fallback at a Zen-served alias or remove the entry.`
+        `terminal resolve "${terminal.resolve}" for alias "${alias.slug}" is not in https://opencode.ai/zen/v1/models — Zen no longer serves it. either point a fallback at a Zen-served alias or remove the entry.`,
       ).toBe(true);
     });
   }
@@ -206,7 +206,7 @@ describe("isFree models.dev cost", async () => {
       expect(model, `terminal resolve "${terminal.resolve}" missing on models.dev`).toBeDefined();
       expect(
         model?.cost?.input,
-        `isFree alias "${alias.slug}" walks to "${terminal.resolve}" which reports cost.input=${model?.cost?.input} on models.dev — either repoint the fallback or drop \`isFree\``
+        `isFree alias "${alias.slug}" walks to "${terminal.resolve}" which reports cost.input=${model?.cost?.input} on models.dev — either repoint the fallback or drop \`isFree\``,
       ).toBe(0);
     });
   }

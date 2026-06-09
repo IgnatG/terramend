@@ -9,12 +9,12 @@ describe("isActivityNoise", () => {
 
   it("flags pure mcp-proxy reconnect chatter as noise", () => {
     expect(
-      isActivityNoise("[mcp-proxy] establishing new SSE stream for session ID abc-123\n")
+      isActivityNoise("[mcp-proxy] establishing new SSE stream for session ID abc-123\n"),
     ).toBe(true);
     expect(
       isActivityNoise(
-        "[mcp-proxy] establishing new SSE stream for session ID a\n[mcp-proxy] received delete request\n"
-      )
+        "[mcp-proxy] establishing new SSE stream for session ID a\n[mcp-proxy] received delete request\n",
+      ),
     ).toBe(true);
   });
 
@@ -54,10 +54,10 @@ describe("isActivityNoise", () => {
 
   it("flags debug-timestamp-prefixed noise lines", () => {
     expect(
-      isActivityNoise("[2026-04-18T17:00:00.000Z] [mcp-proxy] establishing new SSE stream\n")
+      isActivityNoise("[2026-04-18T17:00:00.000Z] [mcp-proxy] establishing new SSE stream\n"),
     ).toBe(true);
     expect(
-      isActivityNoise("[2026-04-18T17:00:00.000Z] » provider error detected (rate_limit)\n")
+      isActivityNoise("[2026-04-18T17:00:00.000Z] » provider error detected (rate_limit)\n"),
     ).toBe(true);
   });
 
@@ -67,24 +67,24 @@ describe("isActivityNoise", () => {
     // the agent-hang detection (#12) silently fails in debug-enabled runs.
     expect(
       isActivityNoise(
-        "[2026-04-18T17:00:00.000Z] [DEBUG] spawn activity check: pid=123 idle=5000ms / 300000ms\n"
-      )
+        "[2026-04-18T17:00:00.000Z] [DEBUG] spawn activity check: pid=123 idle=5000ms / 300000ms\n",
+      ),
     ).toBe(true);
     expect(
       isActivityNoise(
-        "[2026-04-18T17:00:00.000Z] [DEBUG] spawn activity timer: pid=123 cmd=claude timeout=300000ms\n"
-      )
+        "[2026-04-18T17:00:00.000Z] [DEBUG] spawn activity timer: pid=123 cmd=claude timeout=300000ms\n",
+      ),
     ).toBe(true);
     expect(
       isActivityNoise(
-        "[2026-04-18T17:00:00.000Z] [DEBUG] process activity check: idle=120ms / 300000ms\n"
-      )
+        "[2026-04-18T17:00:00.000Z] [DEBUG] process activity check: idle=120ms / 300000ms\n",
+      ),
     ).toBe(true);
   });
 
   it("flags our own monitor debug output (GH-runner-debug ::debug:: format)", () => {
     expect(isActivityNoise("::debug::spawn activity check: pid=123 idle=5000ms / 300000ms\n")).toBe(
-      true
+      true,
     );
     expect(isActivityNoise("::debug::process activity check: idle=120ms / 300000ms\n")).toBe(true);
   });
@@ -93,7 +93,7 @@ describe("isActivityNoise", () => {
     // the filter is scoped to our own monitor diagnostics so genuine agent
     // output that coincidentally starts with [DEBUG] still counts as activity.
     expect(isActivityNoise("[2026-04-18T17:00:00.000Z] [DEBUG] git auth server listening\n")).toBe(
-      false
+      false,
     );
     expect(isActivityNoise("::debug::agent stream chunk\n")).toBe(false);
   });
@@ -165,7 +165,7 @@ describe("createProcessOutputActivityTimeout forceReject / stop disarming", () =
     const winner = await Promise.race([
       timeout.promise.then(
         () => "resolved",
-        () => "rejected"
+        () => "rejected",
       ),
       new Promise((resolve) => setTimeout(() => resolve(sentinel), 50)),
     ]);

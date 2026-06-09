@@ -149,19 +149,19 @@ describe("DEFAULT_PROXY_MODEL", () => {
 describe("resolveOpenRouterModel", () => {
   it("returns the openrouter specifier for a non-deprecated alias", () => {
     expect(resolveOpenRouterModel("anthropic/claude-opus")).toBe(
-      "openrouter/anthropic/claude-opus-4.8"
+      "openrouter/anthropic/claude-opus-4.8",
     );
   });
 
   it("walks fallback chain for deprecated deepseek aliases", () => {
     expect(resolveOpenRouterModel("deepseek/deepseek-reasoner")).toBe(
-      "openrouter/deepseek/deepseek-v4-pro"
+      "openrouter/deepseek/deepseek-v4-pro",
     );
     expect(resolveOpenRouterModel("deepseek/deepseek-chat")).toBe(
-      "openrouter/deepseek/deepseek-v4-flash"
+      "openrouter/deepseek/deepseek-v4-flash",
     );
     expect(resolveOpenRouterModel("openrouter/deepseek-chat")).toBe(
-      "openrouter/deepseek/deepseek-v4-flash"
+      "openrouter/deepseek/deepseek-v4-flash",
     );
   });
 
@@ -251,8 +251,8 @@ describe("isBedrockAnthropicId", () => {
     // includes("anthropic") even though the backing model is unknown.
     expect(
       isBedrockAnthropicId(
-        "arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/my-anthropicish-profile"
-      )
+        "arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/my-anthropicish-profile",
+      ),
     ).toBe(false);
   });
 
@@ -261,8 +261,8 @@ describe("isBedrockAnthropicId", () => {
     // operator chose to surface the backing model in the name.
     expect(
       isBedrockAnthropicId(
-        "arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/anthropic.claude-opus-4-7"
-      )
+        "arn:aws:bedrock:eu-west-2:123456789012:application-inference-profile/anthropic.claude-opus-4-7",
+      ),
     ).toBe(true);
   });
 

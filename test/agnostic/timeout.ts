@@ -13,7 +13,7 @@ const fixture = defineFixture(
 Finally call set_output with "TIMEOUT TEST COMPLETED".`,
     timeout: "5s",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {

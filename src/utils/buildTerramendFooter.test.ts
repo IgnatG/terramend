@@ -8,7 +8,7 @@ describe("buildTerramendFooter — fallbackFrom annotation", () => {
       fallbackFrom: "anthropic/claude-opus",
     });
     expect(footer).toContain(
-      "Using `Big Pickle` (free) (credentials for Anthropic not configured)"
+      "Using `Big Pickle` (free) (credentials for Anthropic not configured)",
     );
   });
 

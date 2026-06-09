@@ -24,13 +24,13 @@ export function sanitizeSecret(key: string, value: string): string | null {
   const trimmed = value.trim();
   if (trimmed.length === 0) {
     log.warning(
-      `» ${key} is whitespace-only — leaving env var unchanged. check your secret value.`
+      `» ${key} is whitespace-only — leaving env var unchanged. check your secret value.`,
     );
     return null;
   }
   if (trimmed !== value) {
     log.warning(
-      `» stripped whitespace from ${key} (whitespace in secret values breaks GitHub Actions log masking)`
+      `» stripped whitespace from ${key} (whitespace in secret values breaks GitHub Actions log masking)`,
     );
   }
   core.setSecret(trimmed);
@@ -77,7 +77,7 @@ export function normalizeEnv(): void {
     if (uniqueValues.size > 1) {
       // conflict: different values for different capitalizations
       log.warning(
-        `env var conflict: ${keys.join(", ")} have different values. using uppercase ${upperKey}.`
+        `env var conflict: ${keys.join(", ")} have different values. using uppercase ${upperKey}.`,
       );
     }
 

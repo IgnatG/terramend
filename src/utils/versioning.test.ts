@@ -28,7 +28,7 @@ describe("validateCompatibility", () => {
     ["1.0.0", "2.0.0"], // action had breaking changes
   ])("should reject incompatible payload %#", (payloadVersion, actionVersion) => {
     expect(() => validateCompatibility(payloadVersion, actionVersion)).toThrow(
-      /is incompatible with action version/
+      /is incompatible with action version/,
     );
   });
 });

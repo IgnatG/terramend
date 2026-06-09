@@ -161,7 +161,7 @@ function requireExecutable(params: {
   if (!resolved) {
     throw new Error(
       `could not find ${params.command} on PATH (needed to ${params.purpose}); ` +
-        `runtime PATH was: ${params.context.env.PATH ?? "<empty>"}`
+        `runtime PATH was: ${params.context.env.PATH ?? "<empty>"}`,
     );
   }
   return resolved;
@@ -183,7 +183,7 @@ function runPackageCli(context: RuntimeContext, packageSpec: string, cliArgs: st
 
   throw new Error(
     `could not find npx or corepack on PATH to run ${packageSpec}; ` +
-      `runtime PATH was: ${context.env.PATH ?? "<empty>"}`
+      `runtime PATH was: ${context.env.PATH ?? "<empty>"}`,
   );
 }
 
@@ -200,14 +200,14 @@ function ensureActionDependencies(context: RuntimeContext): void {
   });
   const adjacentCorepack = join(
     context.nodeBinDir,
-    process.platform === "win32" ? "corepack.cmd" : "corepack"
+    process.platform === "win32" ? "corepack.cmd" : "corepack",
   );
   if (corepackPath !== adjacentCorepack) {
     // bad-runner case: GitHub's externals/node24/bin/ is missing the corepack
     // sibling, so we resolved via PATH instead. logging this lets us correlate
     // bootstrap path to runner pool when validating the fix.
     console.warn(
-      `» nodeBinDir corepack missing (${adjacentCorepack}); using PATH-resolved ${corepackPath}`
+      `» nodeBinDir corepack missing (${adjacentCorepack}); using PATH-resolved ${corepackPath}`,
     );
   }
   execFileSync(corepackPath, ["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"], {

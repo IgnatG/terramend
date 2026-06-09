@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import { log } from "#app/utils/cli";
 import { walkTfFiles } from "#app/mcp/modules";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { log } from "#app/utils/cli";
 
 /**
  * Multi-root awareness. A repo can hold SEVERAL Terraform root modules — the
@@ -190,7 +190,7 @@ export function TerraformRootsTool(ctx: ToolContext) {
       const twins = detectEnvironmentTwins(roots.map((r) => r.dir).filter(Boolean));
       log.info(
         `» terraform_roots: ${roots.length} root(s) [${roots.map((r) => r.dir || ".").join(", ")}]` +
-          (twins.length ? `, ${twins.length} env-twin group(s)` : "")
+          (twins.length ? `, ${twins.length} env-twin group(s)` : ""),
       );
       return {
         ok: true,

@@ -1,9 +1,9 @@
 import * as core from "@actions/core";
 import type { Octokit } from "@octokit/rest";
-import packageJson from "#package.json" with { type: "json" };
 import { log } from "#app/utils/cli";
 import { type OctokitWithPlugins, parseRepoContext } from "#app/utils/github";
 import { type AccountPlan, fetchRunContext, type RepoSettings } from "#app/utils/runContext";
+import packageJson from "#package.json" with { type: "json" };
 
 export interface RunContextData {
   repo: {
@@ -26,7 +26,7 @@ interface ResolveRunContextDataParams {
  * initialize run context data: parse context, fetch repo info and settings
  */
 export async function resolveRunContextData(
-  params: ResolveRunContextDataParams
+  params: ResolveRunContextDataParams,
 ): Promise<RunContextData> {
   log.info(`» running Terramend v${packageJson.version}...`);
 

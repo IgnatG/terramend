@@ -1,21 +1,21 @@
 import { type } from "arktype";
+import { assertUnderPrCap, recordRemediationPrOpened } from "#app/mcp/guardrails";
+import type { ToolContext } from "#app/mcp/server";
+import { execute, tool } from "#app/mcp/shared";
 import { buildTerramendFooter, stripExistingFooter } from "#app/utils/buildTerramendFooter";
 import { log } from "#app/utils/cli";
 import { fixDoubleEscapedString } from "#app/utils/fixDoubleEscapedString";
 import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
 import { $ } from "#app/utils/shell";
-import { assertUnderPrCap, recordRemediationPrOpened } from "#app/mcp/guardrails";
-import type { ToolContext } from "#app/mcp/server";
-import { execute, tool } from "#app/mcp/shared";
 
 export const PullRequest = type({
   title: type.string.describe("the title of the pull request"),
   body: type.string.describe("the body content of the pull request"),
   "base?": type.string.describe(
-    "the base branch to merge into (e.g. 'main'). Omit to use the run's resolved base branch: the `base_branch` input, else the repository's default branch (main, or master)."
+    "the base branch to merge into (e.g. 'main'). Omit to use the run's resolved base branch: the `base_branch` input, else the repository's default branch (main, or master).",
   ),
   "draft?": type.boolean.describe(
-    "if true, create the pull request as a draft. use when the user explicitly asks for a draft PR."
+    "if true, create the pull request as a draft. use when the user explicitly asks for a draft PR.",
   ),
 });
 

@@ -34,12 +34,16 @@ describe("parseTimeString", () => {
 });
 
 describe("isValidTimeString", () => {
-  it.each(["10m", "1h", "30s", "1h30m", "10m12s", "1h30m45s"])(
-    "returns true for valid '%s'",
-    (input) => {
-      expect(isValidTimeString(input)).toBe(true);
-    }
-  );
+  it.each([
+    "10m",
+    "1h",
+    "30s",
+    "1h30m",
+    "10m12s",
+    "1h30m45s",
+  ])("returns true for valid '%s'", (input) => {
+    expect(isValidTimeString(input)).toBe(true);
+  });
 
   it.each(["", "abc", "10", "10x", "-10m", "10.5m"])("returns false for invalid '%s'", (input) => {
     expect(isValidTimeString(input)).toBe(false);
@@ -59,22 +63,28 @@ describe("resolveTimeoutMs", () => {
     expect(resolveTimeoutMs(undefined)).toBeNull();
   });
 
-  it.each([["0m"], ["0s"], ["0h"], ["0h0m0s"]])(
-    "returns null for zero-value '%s' so the caller doesn't insta-timeout",
-    (input) => {
-      // 0ms setTimeout fires in the same tick — without this guard, a user
-      // typo like "0m" rejected the run as "timed out after 0m" the instant
-      // it started. see also the matching payload.timeout handling in main.ts.
-      expect(resolveTimeoutMs(input)).toBeNull();
-    }
-  );
+  it.each([
+    ["0m"],
+    ["0s"],
+    ["0h"],
+    ["0h0m0s"],
+  ])("returns null for zero-value '%s' so the caller doesn't insta-timeout", (input) => {
+    // 0ms setTimeout fires in the same tick — without this guard, a user
+    // typo like "0m" rejected the run as "timed out after 0m" the instant
+    // it started. see also the matching payload.timeout handling in main.ts.
+    expect(resolveTimeoutMs(input)).toBeNull();
+  });
 
-  it.each([["abc"], ["10"], ["10x"], ["-10m"], ["10.5m"], [""]])(
-    "returns null for unparseable input '%s'",
-    (input) => {
-      expect(resolveTimeoutMs(input)).toBeNull();
-    }
-  );
+  it.each([
+    ["abc"],
+    ["10"],
+    ["10x"],
+    ["-10m"],
+    ["10.5m"],
+    [""],
+  ])("returns null for unparseable input '%s'", (input) => {
+    expect(resolveTimeoutMs(input)).toBeNull();
+  });
 
   it("returns null for values past node's setTimeout ceiling (~24.8 days)", () => {
     // 2^31 - 1 ms = 2147483647 ms = 596h31m23s647ms. node silently clamps any

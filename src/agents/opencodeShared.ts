@@ -3,13 +3,13 @@
 // Kept as a separate module so this config surface stays unit-testable in
 // isolation (see `./opencodeShared.test.ts`).
 
+import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
+import { deriveSubagentModels } from "#app/agents/subagentModels";
 import { modelAliases } from "#app/models";
 import { log } from "#app/utils/cli";
 import { installFromNpmTarball } from "#app/utils/install";
 import { getAuthorizedModels } from "#app/utils/openCodeModels";
 import { getDevDependencyVersion } from "#app/utils/version";
-import { REVIEWER_AGENT_NAME, REVIEWER_SYSTEM_PROMPT } from "#app/agents/reviewer";
-import { deriveSubagentModels } from "#app/agents/subagentModels";
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ export function geminiHighThinkingOverrides(): Record<string, { options: object 
       .map((a) => [
         a.resolve.replace(/^google\//, ""),
         { options: { thinkingConfig: { thinkingLevel: "high" } } },
-      ])
+      ]),
   );
 }
 
@@ -50,7 +50,7 @@ export function geminiHighThinkingOverrides(): Record<string, { options: object 
  * gemini-pro → gemini-flash. Other providers inherit (no override).
  */
 export function buildReviewerAgentConfig(
-  orchestratorModel: string | undefined
+  orchestratorModel: string | undefined,
 ): Record<string, unknown> {
   const overrides = deriveSubagentModels(orchestratorModel);
   return {
@@ -106,13 +106,13 @@ export function autoSelectModel(): string | undefined {
       modelAliases.find((a) => !a.hidden && authorized.has(a.resolve));
     if (match) {
       log.info(
-        `» model: ${match.resolve} (auto-selected${match.preferred ? " — preferred" : ""} curated match)`
+        `» model: ${match.resolve} (auto-selected${match.preferred ? " — preferred" : ""} curated match)`,
       );
       log.warning(`» model auto-selected. ${AUTO_SELECT_WARNING}`);
       return match.resolve;
     }
     log.info(
-      `» opencode has ${authorized.size} models but none match curated aliases — letting OpenCode auto-select`
+      `» opencode has ${authorized.size} models but none match curated aliases — letting OpenCode auto-select`,
     );
   }
 

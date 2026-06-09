@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { modelAliases } from "#app/models";
 import { geminiHighThinkingOverrides } from "#app/agents/opencodeShared";
+import { modelAliases } from "#app/models";
 
 describe("geminiHighThinkingOverrides", () => {
   // Expected truth pulled the same way the helper does — both must derive from

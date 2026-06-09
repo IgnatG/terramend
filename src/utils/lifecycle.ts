@@ -76,7 +76,7 @@ export interface LifecycleHookResult {
  * timeouts are flagged as non-retryable in the warning text.
  */
 export async function executeLifecycleHook(
-  params: ExecuteLifecycleHookParams
+  params: ExecuteLifecycleHookParams,
 ): Promise<LifecycleHookResult> {
   if (!params.script) return {};
 
@@ -173,7 +173,7 @@ async function normalizeWorkingTreeAfterHook(params: {
   if (params.preHookTrackedCount > 0) {
     log.warning(
       `» working tree had ${params.preHookTrackedCount} pre-existing tracked changes before ${params.event} hook; ` +
-        `skipping post-hook normalization to avoid clobbering pre-existing work`
+        `skipping post-hook normalization to avoid clobbering pre-existing work`,
     );
     return;
   }
@@ -187,7 +187,7 @@ async function runGit(args: string[]): Promise<string> {
   const result = await spawn({ cmd: "git", args, env: process.env, activityTimeout: 0 });
   if (result.exitCode !== 0) {
     throw new Error(
-      `git ${args.join(" ")} failed (exit ${result.exitCode}): ${result.stderr.trim() || "(no stderr)"}`
+      `git ${args.join(" ")} failed (exit ${result.exitCode}): ${result.stderr.trim() || "(no stderr)"}`,
     );
   }
   return result.stdout;

@@ -180,7 +180,7 @@ export async function runAgentStreaming(options: RunStreamingOptions): Promise<A
     const chunks: Buffer[] = [];
     const prefix = getPrefix({ test: options.test, agent: options.agent });
     function canLog(): boolean {
-      return !options.isCanceled || !options.isCanceled();
+      return !options.isCanceled?.();
     }
 
     // apply default timeout if not specified in fixture
@@ -287,7 +287,7 @@ export type ValidateResultOptions = {
 export function validateResult(
   result: AgentResult,
   validator: ValidatorFn,
-  options: ValidateResultOptions
+  options: ValidateResultOptions,
 ): ValidationResult {
   const checks = validator(result);
   const allPassed = checks.every((c) => c.passed);
@@ -350,7 +350,7 @@ export function printSingleValidation(validation: ValidationResult): void {
   const canceledNote = validation.canceled ? " (canceled)" : "";
   const skippedNote = validation.skipped ? ` (skipped: ${validation.skipReason ?? ""})` : "";
   console.log(
-    `\n${color}[${validation.test}][${validation.agent}]${RESET} ${checksStr}${canceledNote}${skippedNote}`
+    `\n${color}[${validation.test}][${validation.agent}]${RESET} ${checksStr}${canceledNote}${skippedNote}`,
   );
 }
 
@@ -373,7 +373,7 @@ export function printResults(validations: ValidationResult[]): void {
       ? `(skipped: ${v.skipReason ?? ""})`
       : v.checks.map((c) => `${c.name}=${c.passed ? "✓" : "✗"}`).join(" ");
     console.log(
-      `${status}  ${v.test.padEnd(12)}  ${color}${v.agent.padEnd(10)}${RESET}  ${checkCols}`
+      `${status}  ${v.test.padEnd(12)}  ${color}${v.agent.padEnd(10)}${RESET}  ${checkCols}`,
     );
   }
   console.log("-".repeat(70));

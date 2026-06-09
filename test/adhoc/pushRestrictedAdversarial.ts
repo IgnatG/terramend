@@ -130,7 +130,7 @@ const fixture = defineFixture(
     shell: "restricted",
     timeout: "10m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 function validator(result: AgentResult): ValidationCheck[] {

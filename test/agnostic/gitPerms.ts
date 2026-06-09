@@ -44,7 +44,7 @@ Call set_output with a JSON object containing:
     shell: "restricted",
     timeout: "5m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 // generate a unique test token that should NOT leak

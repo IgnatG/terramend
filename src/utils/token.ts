@@ -7,8 +7,10 @@ import { acquireNewToken } from "#app/utils/github";
 import { isGitHubActions } from "#app/utils/globals";
 
 // re-export for `terramend gha token` subcommand
-export { acquireNewToken as acquireInstallationToken };
-export { revokeGitHubInstallationToken as revokeInstallationToken };
+export {
+  acquireNewToken as acquireInstallationToken,
+  revokeGitHubInstallationToken as revokeInstallationToken,
+};
 
 // store MCP token in memory for getGitHubInstallationToken()
 let mcpTokenValue: string | undefined;
@@ -97,7 +99,7 @@ export async function resolveTokens(params: ResolveTokensParams): Promise<TokenR
   log.info(
     `» acquired git token (${Object.entries(gitPermissions)
       .map((e) => e.join(":"))
-      .join(", ")})`
+      .join(", ")})`,
   );
 
   // MCP token scoped to only what MCP tools actually need.
@@ -117,7 +119,7 @@ export async function resolveTokens(params: ResolveTokensParams): Promise<TokenR
   log.info(
     `» acquired scoped MCP token (${Object.entries(mcpPermissions)
       .map((e) => e.join(":"))
-      .join(", ")})`
+      .join(", ")})`,
   );
 
   mcpTokenValue = mcpToken;
@@ -178,7 +180,7 @@ export async function revokeGitHubInstallationToken(token: string): Promise<void
     log.debug("» installation token revoked");
   } catch (error) {
     log.info(
-      `Failed to revoke installation token: ${error instanceof Error ? error.message : String(error)}`
+      `Failed to revoke installation token: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

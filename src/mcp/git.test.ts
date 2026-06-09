@@ -92,26 +92,26 @@ describe("classifyPushError", () => {
     it("matches RPC failed with HTTP 502", () => {
       expect(
         classifyPushError(
-          "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 502"
-        )
+          "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 502",
+        ),
       ).toBe("transient");
     });
 
     it("matches early EOF mid-pack", () => {
       expect(
-        classifyPushError("fatal: the remote end hung up unexpectedly\nfatal: early EOF")
+        classifyPushError("fatal: the remote end hung up unexpectedly\nfatal: early EOF"),
       ).toBe("transient");
     });
 
     it("matches RPC failed", () => {
       expect(
-        classifyPushError("fatal: RPC failed; curl 56 OpenSSL SSL_read: Connection reset by peer")
+        classifyPushError("fatal: RPC failed; curl 56 OpenSSL SSL_read: Connection reset by peer"),
       ).toBe("transient");
     });
 
     it("matches HTTP/2 stream not closed cleanly", () => {
       expect(
-        classifyPushError("fatal: HTTP/2 stream 7 was not closed cleanly: PROTOCOL_ERROR (err 1)")
+        classifyPushError("fatal: HTTP/2 stream 7 was not closed cleanly: PROTOCOL_ERROR (err 1)"),
       ).toBe("transient");
     });
 
@@ -121,7 +121,7 @@ describe("classifyPushError", () => {
 
     it("matches unexpected disconnect during sideband read", () => {
       expect(classifyPushError("fatal: unexpected disconnect while reading sideband packet")).toBe(
-        "transient"
+        "transient",
       );
     });
 
@@ -130,8 +130,8 @@ describe("classifyPushError", () => {
       // GitHub's abuse detection occasionally surfaces it on git push.
       expect(
         classifyPushError(
-          "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 429"
-        )
+          "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 429",
+        ),
       ).toBe("transient");
       expect(classifyPushError("remote: HTTP 429: too many requests")).toBe("transient");
     });
@@ -144,24 +144,24 @@ describe("classifyPushError", () => {
       expect(
         classifyPushError(
           "remote: Permission to o/r.git denied to bot.\n" +
-            "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403"
-        )
+            "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403",
+        ),
       ).toBe("unknown");
     });
 
     it("does NOT classify protected-branch rejection as concurrent-push", () => {
       expect(
         classifyPushError(
-          " ! [remote rejected] main -> main (push declined due to repository rule violations)"
-        )
+          " ! [remote rejected] main -> main (push declined due to repository rule violations)",
+        ),
       ).toBe("unknown");
     });
 
     it("does NOT classify 404 as transient", () => {
       expect(
         classifyPushError(
-          "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 404"
-        )
+          "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 404",
+        ),
       ).toBe("unknown");
     });
 

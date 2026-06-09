@@ -171,7 +171,7 @@ export function renderDiffCoverageBreakdown(params: {
   const lines: string[] = [];
   lines.push(`diff coverage report for \`${params.diffPath}\``);
   lines.push(
-    `overall: ${breakdown.coveredLines}/${breakdown.totalLines} lines read (${breakdown.coveragePercent}%), unread: ${breakdown.unreadLines}`
+    `overall: ${breakdown.coveredLines}/${breakdown.totalLines} lines read (${breakdown.coveragePercent}%), unread: ${breakdown.unreadLines}`,
   );
   lines.push(`covered ranges: ${formatRanges({ ranges: breakdown.coveredRanges })}`);
   lines.push(`unread ranges: ${formatRanges({ ranges: breakdown.unreadRanges })}`);
@@ -182,7 +182,7 @@ export function renderDiffCoverageBreakdown(params: {
       ? Number(((file.coveredLines / file.totalLines) * 100).toFixed(2))
       : 100;
     lines.push(
-      `- ${file.filename} (toc lines ${file.startLine}-${file.endLine}): ${file.coveredLines}/${file.totalLines} lines read (${filePercent}%)`
+      `- ${file.filename} (toc lines ${file.startLine}-${file.endLine}): ${file.coveredLines}/${file.totalLines} lines read (${filePercent}%)`,
     );
     lines.push(`  read: ${formatRanges({ ranges: file.coveredRanges })}`);
     lines.push(`  unread: ${formatRanges({ ranges: file.unreadRanges })}`);

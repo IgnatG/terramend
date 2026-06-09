@@ -1,12 +1,12 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { encode as toonEncode } from "@toon-format/toon";
 import type { FastMCP, Tool } from "fastmcp";
-import { formatJsonValue, log } from "#app/utils/cli";
 import { isGeminiRouted, sanitizeToolForGemini } from "#app/mcp/geminiSanitizer";
 import type { ToolContext } from "#app/mcp/server";
+import { formatJsonValue, log } from "#app/utils/cli";
 
 export const tool = <const params>(
-  toolDef: Tool<any, StandardSchemaV1<params>>
+  toolDef: Tool<any, StandardSchemaV1<params>>,
 ): Tool<any, StandardSchemaV1<params>> => toolDef;
 
 export interface ToolResult {
@@ -35,12 +35,15 @@ export interface ToolResult {
 export type ToolOk<T extends Record<string, any>> = T & { ok: true };
 
 /** wrap a success payload with `ok: true`. */
-export const toolOk = <T extends Record<string, any>>(data: T): ToolOk<T> => ({ ok: true, ...data });
+export const toolOk = <T extends Record<string, any>>(data: T): ToolOk<T> => ({
+  ok: true,
+  ...data,
+});
 
 /** the structured skip/unavailable envelope: `{ ok: false, code, detail }`. */
 export const toolSkip = (
   code: string,
-  detail: string
+  detail: string,
 ): { ok: false; code: string; detail: string } => ({ ok: false, code, detail });
 
 export const handleToolSuccess = (data: Record<string, any> | string): ToolResult => {
@@ -71,7 +74,7 @@ export const handleToolError = (error: unknown): ToolResult => {
  */
 export const execute = <T, R extends Record<string, any> | string>(
   fn: (params: T) => Promise<R>,
-  toolName?: string
+  toolName?: string,
 ) => {
   const _fn = async (params: T): Promise<ToolResult> => {
     try {

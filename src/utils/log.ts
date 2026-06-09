@@ -106,7 +106,7 @@ function boxString(
     maxWidth?: number;
     indent?: string;
     padding?: number;
-  }
+  },
 ): string {
   const { title, maxWidth = 80, indent = "", padding = 1 } = options || {};
 
@@ -183,7 +183,7 @@ function box(
   options?: {
     title?: string;
     maxWidth?: number;
-  }
+  },
 ): void {
   const boxContent = boxString(text, options);
   core.info(prefixLines(boxContent));
@@ -216,7 +216,7 @@ function printTable(
   rows: Array<Array<{ data: string; header?: boolean } | string>>,
   options?: {
     title?: string;
-  }
+  },
 ): void {
   const { title } = options || {};
 
@@ -227,7 +227,7 @@ function printTable(
         return cell;
       }
       return cell.data;
-    })
+    }),
   );
 
   const formatted = table(tableData);
@@ -363,7 +363,7 @@ export function formatUsageSummary(entries: AgentUsage[]): string {
 
   const rows = entries.map(
     (e) =>
-      `| ${e.agent} | ${fmt(nonCachedInput(e))} | ${fmt(e.cacheReadTokens ?? 0)} | ${fmt(e.cacheWriteTokens ?? 0)} | ${fmt(e.outputTokens)} | ${fmt(totalFor(e))} | ${costCell(e)} |`
+      `| ${e.agent} | ${fmt(nonCachedInput(e))} | ${fmt(e.cacheReadTokens ?? 0)} | ${fmt(e.cacheWriteTokens ?? 0)} | ${fmt(e.outputTokens)} | ${fmt(totalFor(e))} | ${costCell(e)} |`,
   );
 
   const totalsRows: string[] = [];
@@ -376,7 +376,7 @@ export function formatUsageSummary(entries: AgentUsage[]): string {
     const totalCostUsd = entries.reduce((sum, e) => sum + (e.costUsd ?? 0), 0);
     const totalCostCell = totalCostUsd > 0 ? `**${formatCostUsd(totalCostUsd)}**` : "—";
     totalsRows.push(
-      `| **Total** | **${fmt(totalInput)}** | **${fmt(totalCacheRead)}** | **${fmt(totalCacheWrite)}** | **${fmt(totalOutput)}** | **${fmt(grandTotal)}** | ${totalCostCell} |`
+      `| **Total** | **${fmt(totalInput)}** | **${fmt(totalCacheRead)}** | **${fmt(totalCacheWrite)}** | **${fmt(totalOutput)}** | **${fmt(grandTotal)}** | ${totalCostCell} |`,
     );
   }
 

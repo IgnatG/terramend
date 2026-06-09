@@ -63,7 +63,7 @@ interface RepositoriesResponse {
 function isOIDCAvailable(): boolean {
   // OIDC requires both env vars to be set (only in real GitHub Actions with id-token permission)
   return Boolean(
-    process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN
+    process.env.ACTIONS_ID_TOKEN_REQUEST_URL && process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
   );
 }
 
@@ -158,7 +158,7 @@ async function acquireTokenViaOIDC(opts?: AcquireTokenOptions): Promise<string> 
       throw new TokenExchangeError(
         tokenResponse.status,
         serverMessage ??
-          `Token exchange failed: ${tokenResponse.status} ${tokenResponse.statusText}`
+          `Token exchange failed: ${tokenResponse.status} ${tokenResponse.statusText}`,
       );
     }
 
@@ -215,7 +215,7 @@ const githubRequest = async <T>(
     method?: string;
     headers?: Record<string, string>;
     body?: string;
-  } = {}
+  } = {},
 ): Promise<T> => {
   const { method = "GET", headers = {}, body } = options;
 
@@ -235,7 +235,7 @@ const githubRequest = async <T>(
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(
-      `GitHub API request failed: ${response.status} ${response.statusText}\n${errorText}`
+      `GitHub API request failed: ${response.status} ${response.statusText}\n${errorText}`,
     );
   }
 
@@ -245,7 +245,7 @@ const githubRequest = async <T>(
 const checkRepositoryAccess = async (
   token: string,
   repoOwner: string,
-  repoName: string
+  repoName: string,
 ): Promise<boolean> => {
   try {
     const response = await githubRequest<RepositoriesResponse>("/installation/repositories", {
@@ -256,7 +256,7 @@ const checkRepositoryAccess = async (
     const nameLower = repoName.toLowerCase();
     return response.repositories.some(
       (repo) =>
-        repo.owner.login.toLowerCase() === ownerLower && repo.name.toLowerCase() === nameLower
+        repo.owner.login.toLowerCase() === ownerLower && repo.name.toLowerCase() === nameLower,
     );
   } catch {
     return false;
@@ -266,7 +266,7 @@ const checkRepositoryAccess = async (
 const createInstallationToken = async (
   jwt: string,
   installationId: number,
-  permissions?: GitHubAppPermissions
+  permissions?: GitHubAppPermissions,
 ): Promise<string> => {
   const requestOpts: { method: string; headers: Record<string, string>; body?: string } = {
     method: "POST",
@@ -277,7 +277,7 @@ const createInstallationToken = async (
   }
   const response = await githubRequest<InstallationTokenResponse>(
     `/app/installations/${installationId}/access_tokens`,
-    requestOpts
+    requestOpts,
   );
 
   return response.token;
@@ -286,7 +286,7 @@ const createInstallationToken = async (
 const findInstallationId = async (
   jwt: string,
   repoOwner: string,
-  repoName: string
+  repoName: string,
 ): Promise<number> => {
   const installations = await githubRequest<Installation[]>("/app/installations", {
     headers: { Authorization: `Bearer ${jwt}` },
@@ -305,7 +305,7 @@ const findInstallationId = async (
 
   throw new Error(
     `No installation found with access to ${repoOwner}/${repoName}. ` +
-      "Ensure the GitHub App is installed on the target repository."
+      "Ensure the GitHub App is installed on the target repository.",
   );
 };
 
@@ -313,7 +313,7 @@ const findInstallationId = async (
 async function acquireTokenViaGitHubApp(opts?: AcquireTokenOptions): Promise<string> {
   if (!process.env.GITHUB_APP_ID || !process.env.GITHUB_PRIVATE_KEY) {
     throw new Error(
-      "cannot acquire token via GitHub App: GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set"
+      "cannot acquire token via GitHub App: GITHUB_APP_ID and GITHUB_PRIVATE_KEY must be set",
     );
   }
 
@@ -398,7 +398,7 @@ export async function acquireNewToken(opts?: AcquireTokenOptions): Promise<strin
         "        id-token: write   # mint Terramend installation tokens via OIDC\n" +
         "        contents: read    # for actions/checkout\n" +
         "\n" +
-        "see https://docs.terramend.com/headless-action#required-permissions for the full template."
+        "see https://docs.terramend.com/headless-action#required-permissions for the full template.",
     );
   }
   // local development via GitHub App

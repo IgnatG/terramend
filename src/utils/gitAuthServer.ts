@@ -54,7 +54,7 @@ function revokeGitHubToken(token: string): void {
     },
   }).then(
     (r) => log.info(`token revocation response: ${r.status}`),
-    () => log.warning("token revocation request failed")
+    () => log.warning("token revocation request failed"),
   );
 }
 

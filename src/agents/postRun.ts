@@ -1,14 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { LIFECYCLE_HOOK_TIMEOUT_MS } from "#app/lifecycle";
-import { NON_COMMITTING_MODES } from "#app/modes";
-import type { ToolState } from "#app/toolState";
-import { log } from "#app/utils/cli";
-import {
-  SPAWN_ACTIVITY_TIMEOUT_CODE,
-  SPAWN_TIMEOUT_CODE,
-  SpawnTimeoutError,
-  spawn,
-} from "#app/utils/subprocess";
 import {
   type AgentResult,
   type AgentRunContext,
@@ -21,6 +11,16 @@ import {
   type PostRunIssues,
   type StopHookFailure,
 } from "#app/agents/shared";
+import { LIFECYCLE_HOOK_TIMEOUT_MS } from "#app/lifecycle";
+import { NON_COMMITTING_MODES } from "#app/modes";
+import type { ToolState } from "#app/toolState";
+import { log } from "#app/utils/cli";
+import {
+  SPAWN_ACTIVITY_TIMEOUT_CODE,
+  SPAWN_TIMEOUT_CODE,
+  SpawnTimeoutError,
+  spawn,
+} from "#app/utils/subprocess";
 
 /**
  * derive "agent picked a review mode but never produced visible output" from
@@ -109,7 +109,7 @@ export async function executeStopHook(script: string): Promise<StopHookFailure |
       (err.code === SPAWN_TIMEOUT_CODE || err.code === SPAWN_ACTIVITY_TIMEOUT_CODE);
     const msg = err instanceof Error ? err.message : String(err);
     log.warning(
-      `stop hook ${isTimeout ? "timed out" : "failed to spawn"}: ${msg} — skipping retry`
+      `stop hook ${isTimeout ? "timed out" : "failed to spawn"}: ${msg} — skipping retry`,
     );
     return null;
   }
@@ -188,7 +188,7 @@ export function buildUnsubmittedReviewPrompt(mode: "Review" | "IncrementalReview
  */
 export async function collectPostRunIssues(
   ctx: AgentRunContext,
-  options: { skipSummaryStale?: boolean } = {}
+  options: { skipSummaryStale?: boolean } = {},
 ): Promise<PostRunIssues> {
   const issues: PostRunIssues = {};
   // stop hook is disabled — production audit (May 2026) showed 8/9 configured
@@ -430,7 +430,7 @@ export async function runPostRunRetryLoop<R extends AgentResult>(params: {
         // (which would risk a flaky false-positive hook failure right after
         // it just passed).
         log.warning(
-          `» reflection turn failed (${reflectionResult.error ?? "unknown error"}), preserving prior successful result`
+          `» reflection turn failed (${reflectionResult.error ?? "unknown error"}), preserving prior successful result`,
         );
         result = preReflection;
         break;
@@ -475,7 +475,7 @@ export async function runPostRunRetryLoop<R extends AgentResult>(params: {
     aggregatedUsage = mergeAgentUsage(aggregatedUsage, result.usage);
     if (!result.success && onlySummaryStale) {
       log.warning(
-        `» summary-stale resume turn failed (${result.error ?? "unknown error"}), preserving prior successful result`
+        `» summary-stale resume turn failed (${result.error ?? "unknown error"}), preserving prior successful result`,
       );
       result = preResume;
       break;

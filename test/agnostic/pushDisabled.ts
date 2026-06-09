@@ -24,7 +24,7 @@ Call set_output with a JSON object:
     shell: "enabled",
     timeout: "5m",
   },
-  { localOnly: true }
+  { localOnly: true },
 );
 
 const { agentEnv } = generateAgentUuids(["PUSH_TEST_MARKER"]);

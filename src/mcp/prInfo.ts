@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { resolveBodyAssets } from "#app/utils/body";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { resolveBodyAssets } from "#app/utils/body";
 
 const CLOSING_ISSUES_QUERY = `
 query($owner: String!, $repo: String!, $number: Int!) {

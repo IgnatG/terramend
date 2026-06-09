@@ -53,7 +53,7 @@ export function computeIncrementalDiff(params: ComputeIncrementalDiffParams): st
         params.baseBranch,
         params.headSha,
       ],
-      { log: false }
+      { log: false },
     );
 
     return postProcessRangeDiff(raw);
@@ -100,7 +100,7 @@ export function postProcessRangeDiff(raw: string, contextLines = 3): string | nu
   let hasChanges = false;
 
   function emit(line: Line) {
-    if (lastEmittedSeq >= 0 && line.seq > lastEmittedSeq + 1) out += (out ? "\n" : "") + "...";
+    if (lastEmittedSeq >= 0 && line.seq > lastEmittedSeq + 1) out += `${out ? "\n" : ""}...`;
     out += (out ? "\n" : "") + line.prefix + raw.slice(line.from, line.to);
     lastEmittedSeq = line.seq;
     if (lastFileHdr?.seq === line.seq) fileHdrEmitted = true;

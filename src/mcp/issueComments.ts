@@ -1,7 +1,7 @@
 import { type } from "arktype";
-import { resolveBodyAssets } from "#app/utils/body";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
+import { resolveBodyAssets } from "#app/utils/body";
 
 export const GetIssueComments = type({
   issue_number: type.number.describe("The issue number to get comments for"),
@@ -35,7 +35,7 @@ export function GetIssueCommentsTool(ctx: ToolContext) {
             githubToken: ctx.githubInstallationToken,
           }),
           user: comment.user?.login,
-        }))
+        })),
       );
 
       return {

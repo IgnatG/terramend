@@ -25,19 +25,19 @@ export {
   modelAliases,
   parseModel,
   providers,
-  terramendMcpName,
   resolveCliModel,
   resolveDisplayAlias,
   resolveModelSlug,
   resolveOpenRouterModel,
+  terramendMcpName,
 } from "#app/external";
 export type { Mode } from "#app/modes";
 export { modes } from "#app/modes";
 export type { BuildTerramendFooterParams } from "#app/utils/buildTerramendFooter";
 export {
   buildTerramendFooter,
-  TERRAMEND_DIVIDER,
   stripExistingFooter,
+  TERRAMEND_DIVIDER,
 } from "#app/utils/buildTerramendFooter";
 export type { CodexAuthBody } from "#app/utils/codexOAuth";
 export {

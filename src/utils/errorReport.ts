@@ -34,7 +34,7 @@ export async function reportErrorToComment(ctx: ReportErrorParams): Promise<void
   if (runId) {
     const apiUrl = getApiUrl();
     customParts.push(
-      `[Rerun failed job ➔](${apiUrl}/trigger/${repoContext.owner}/${repoContext.name}/${runId}?action=rerun)`
+      `[Rerun failed job ➔](${apiUrl}/trigger/${repoContext.owner}/${repoContext.name}/${runId}?action=rerun)`,
     );
   }
 
@@ -52,7 +52,7 @@ export async function reportErrorToComment(ctx: ReportErrorParams): Promise<void
     await updateProgressComment(
       { octokit, owner: repoContext.owner, repo: repoContext.name },
       comment,
-      body
+      body,
     );
     ctx.toolState.wasUpdated = true;
     return;
@@ -77,7 +77,7 @@ export async function reportErrorToComment(ctx: ReportErrorParams): Promise<void
     ctx.toolState.wasUpdated = true;
   } catch (error) {
     log.warning(
-      `[errorReport] fallback comment create failed: ${error instanceof Error ? error.message : String(error)}`
+      `[errorReport] fallback comment create failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }

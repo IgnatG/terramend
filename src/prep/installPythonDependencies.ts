@@ -1,13 +1,13 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { log } from "#app/utils/cli";
-import { spawn } from "#app/utils/subprocess";
 import type {
   PrepDefinition,
   PrepOptions,
   PythonPackageManager,
   PythonPrepResult,
 } from "#app/prep/types";
+import { log } from "#app/utils/cli";
+import { spawn } from "#app/utils/subprocess";
 
 interface PythonConfig {
   file: string;
@@ -131,7 +131,7 @@ export const installPythonDependencies: PrepDefinition = {
     // there is no equivalent of npm's --ignore-scripts for pip.
     if (options.ignoreScripts) {
       log.info(
-        `» skipping python install (shell disabled, python packages can execute arbitrary code)`
+        `» skipping python install (shell disabled, python packages can execute arbitrary code)`,
       );
       return {
         language: "python",
