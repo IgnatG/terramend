@@ -7,7 +7,7 @@ import { defineFixture, getAgentOutput } from "../utils.ts";
  * terramend-managed on-disk secrets, blocks env injection into subsequent
  * workflow steps, and makes git's code-execution config read-only.
  *
- * the FS_MOUNTS block in action/mcp/shell.ts runs as root inside the sandbox
+ * the FS_MOUNTS block in src/mcp/shell.ts runs as root inside the sandbox
  * (before su -p drops to runner). this test exercises each of its three
  * protections from the agent's perspective:
  *
@@ -26,7 +26,7 @@ import { defineFixture, getAgentOutput } from "../utils.ts";
  * to bootstrap /var/lib/terramend + place the sentinel; CI has passwordless
  * sudo.
  *
- * see wiki/security.md "Filesystem Sandbox" and action/mcp/shell.ts FS_MOUNTS.
+ * see wiki/security.md "Filesystem Sandbox" and src/mcp/shell.ts FS_MOUNTS.
  */
 
 // module-level UUID interpolated into both the host-stage (repoSetup) and the
@@ -151,7 +151,7 @@ export const test: TestRunnerOptions = {
   repoSetup,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   tags: ["security"],
-  coverage: ["action/mcp/shell.ts", "action/agents/{claude,opencode,opencode_v2}.ts"],
+  coverage: ["src/mcp/shell.ts", "src/agents/{claude,opencode}.ts"],
   // sandbox is no-op when CI != "true" (detectSandboxMethod returns "none"),
   // so the test would red-fail for the wrong reason. skip cleanly instead.
   skipIf: () =>

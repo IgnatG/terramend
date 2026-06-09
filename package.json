@@ -55,10 +55,14 @@
     "check:entrypoints": "node scripts/check-entrypoint-imports.ts",
     "dev:run": "node dev-run.ts",
     "docker": "node docker.ts",
+    "format": "biome format --write .",
+    "lint": "biome lint .",
+    "lint:fix": "biome check --write .",
     "lock": "pnpm install --no-frozen-lockfile",
     "runtest": "node test/run.ts",
     "test": "vitest",
     "test:catalog": "vitest run --config vitest.main.config.ts",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "upDeps": "pnpm up --latest"
   },
@@ -95,7 +99,7 @@
     "skills": "1.5.10",
     "table": "^6.9.0",
     "turndown": "^7.2.4",
-    "typescript": "^6.0.3",
+    "typescript": "6.0.3",
     "undici": "^8.4.1",
     "vitest": "^4.1.8",
     "yaml": "^2.9.0"

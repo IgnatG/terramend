@@ -45,8 +45,7 @@ export const test: TestRunnerOptions = {
     TERRAMEND_MODEL: "anthropic/claude-sonnet-4-6",
   },
   coverage: [
-    "action/agents/opencode.ts",
-    "action/agents/opencode_v2.ts",
-    "action/agents/opencodePlugin.ts",
+    "src/agents/opencode.ts",
+    "src/agents/opencodePlugin.ts",
   ],
 };

@@ -1103,7 +1103,7 @@ export const claude = agent({
     // carries it through and we don't disturb it.
     const repoDir = process.cwd();
 
-    // PWD must match the spawn cwd (see opencode_v2.ts for the analogous fix).
+    // PWD must match the spawn cwd (see opencode.ts for the analogous fix).
     // claude-code 2.1.x reads `process.env.PWD` and registers it as a "session"
     // additional-working-directory when it differs from `process.cwd()` (per
     // the bundled cli.js — `let H=process.env.PWD; if(H && H !== Y7() && ...)

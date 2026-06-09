@@ -34,5 +34,5 @@ export const test: TestRunnerOptions = {
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   // canary: any agent harness change runs the smoke. shared MCP set_output
   // surface is also captured.
-  coverage: ["action/agents/{claude,opencode,opencode_v2}.ts", "action/mcp/output.ts"],
+  coverage: ["src/agents/{claude,opencode}.ts", "src/mcp/output.ts"],
 };

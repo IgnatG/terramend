@@ -44,5 +44,5 @@ export const test: TestRunnerOptions = {
     TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1",
     TERRAMEND_MODEL: "anthropic/claude-sonnet-4-6",
   },
-  coverage: ["action/agents/claude.ts"],
+  coverage: ["src/agents/claude.ts"],
 };

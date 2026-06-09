@@ -31,9 +31,9 @@ export const test: TestRunnerOptions = {
     VERTEX_LOCATION: "global",
   },
   coverage: [
-    "action/models.ts",
-    "action/main.ts",
-    "action/agents/opencode.ts",
-    "action/utils/{agent,apiKeys,vertex}.ts",
+    "src/models.ts",
+    "src/main.ts",
+    "src/agents/opencode.ts",
+    "src/utils/{agent,apiKeys,vertex}.ts",
   ],
 };

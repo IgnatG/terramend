@@ -25,10 +25,53 @@ export function isSensitiveEnvName(key: string): boolean {
 
 // --- subprocess env filtering ---
 
-// prefixes whose vars are safe to pass through (runner metadata, workflow context).
-// GITHUB_TOKEN/GH_TOKEN match the GITHUB_ prefix but are still filtered by default because
-// isSensitiveEnvName() catches the _TOKEN suffix; users can opt in explicitly via the allowlist.
-const SAFE_ENV_PREFIXES = ["GITHUB_", "RUNNER_", "JAVA_HOME_", "GOROOT_"];
+// prefixes whose vars are safe to pass through (runner metadata, toolchain).
+const SAFE_ENV_PREFIXES = ["RUNNER_", "JAVA_HOME_", "GOROOT_"];
+
+// GITHUB_* is an EXACT allowlist rather than a prefix: the set of context vars
+// the runner injects is well-known and closed, so listing them explicitly fails
+// closed on any unknown/future GITHUB_* var (e.g. a sensitive one that doesn't
+// end in _TOKEN/_KEY/_SECRET and would otherwise slip through the prefix).
+// GITHUB_TOKEN/GH_TOKEN are intentionally absent; isSensitiveEnvName() also
+// catches them via the _TOKEN suffix. Users can opt any var in via the allowlist.
+const SAFE_GITHUB_ENV_NAMES = new Set([
+  "GITHUB_ACTION",
+  "GITHUB_ACTION_PATH",
+  "GITHUB_ACTION_REPOSITORY",
+  "GITHUB_ACTIONS",
+  "GITHUB_ACTOR",
+  "GITHUB_ACTOR_ID",
+  "GITHUB_API_URL",
+  "GITHUB_BASE_REF",
+  "GITHUB_ENV",
+  "GITHUB_EVENT_NAME",
+  "GITHUB_EVENT_PATH",
+  "GITHUB_GRAPHQL_URL",
+  "GITHUB_HEAD_REF",
+  "GITHUB_JOB",
+  "GITHUB_OUTPUT",
+  "GITHUB_PATH",
+  "GITHUB_REF",
+  "GITHUB_REF_NAME",
+  "GITHUB_REF_PROTECTED",
+  "GITHUB_REF_TYPE",
+  "GITHUB_REPOSITORY",
+  "GITHUB_REPOSITORY_ID",
+  "GITHUB_REPOSITORY_OWNER",
+  "GITHUB_REPOSITORY_OWNER_ID",
+  "GITHUB_RETENTION_DAYS",
+  "GITHUB_RUN_ATTEMPT",
+  "GITHUB_RUN_ID",
+  "GITHUB_RUN_NUMBER",
+  "GITHUB_SERVER_URL",
+  "GITHUB_SHA",
+  "GITHUB_STEP_SUMMARY",
+  "GITHUB_TRIGGERING_ACTOR",
+  "GITHUB_WORKFLOW",
+  "GITHUB_WORKFLOW_REF",
+  "GITHUB_WORKFLOW_SHA",
+  "GITHUB_WORKSPACE",
+]);
 
 // exact var names safe to pass through (system + runner image toolchain)
 const SAFE_ENV_NAMES = new Set([
@@ -96,6 +139,7 @@ export function setEnvAllowlist(raw: string): void {
 
 function isSafeEnvVar(key: string): boolean {
   if (SAFE_ENV_NAMES.has(key)) return true;
+  if (SAFE_GITHUB_ENV_NAMES.has(key)) return true;
   return SAFE_ENV_PREFIXES.some((p) => key.startsWith(p));
 }
 

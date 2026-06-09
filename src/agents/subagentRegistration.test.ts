@@ -7,8 +7,8 @@ const opencodeSharedSource = readFileSync(
   join(__dirname, "opencodeShared.ts"),
   "utf-8",
 );
-const opencodeV2Source = readFileSync(
-  join(__dirname, "opencode_v2.ts"),
+const opencodeSource = readFileSync(
+  join(__dirname, "opencode.ts"),
   "utf-8",
 );
 
@@ -43,7 +43,7 @@ describe("subagent registration source asserts", () => {
       expect(opencodeSharedSource).toMatch(/overrides\.reviewer/);
     });
     it("v2 runner passes orchestrator model to buildReviewerAgentConfig", () => {
-      expect(opencodeV2Source).toMatch(/buildReviewerAgentConfig\(model\)/);
+      expect(opencodeSource).toMatch(/buildReviewerAgentConfig\(model\)/);
     });
   });
 });

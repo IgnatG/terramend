@@ -75,11 +75,11 @@ export const test: TestRunnerOptions = {
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   tags: ["agnostic"],
   coverage: [
-    "action/utils/gitAuth.ts",
-    "action/utils/gitAuthServer.ts",
-    "action/utils/lifecycle.ts",
-    "action/toolState.ts",
-    "action/mcp/git.ts",
-    "action/mcp/checkout.ts",
+    "src/utils/gitAuth.ts",
+    "src/utils/gitAuthServer.ts",
+    "src/utils/lifecycle.ts",
+    "src/toolState.ts",
+    "src/mcp/git.ts",
+    "src/mcp/checkout.ts",
   ],
 };

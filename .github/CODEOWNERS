@@ -1,0 +1,23 @@
+# Code owners for Terramend. Owners are requested for review automatically on
+# any PR that touches matching paths, and (with branch protection) their
+# approval can be required before merge.
+#
+# Replace @terramend/maintainers below with the actual maintainer handle or team
+# (e.g. a personal @handle or an org team) — the default assumes a `maintainers`
+# team under the terramend org.
+
+# Default owners for everything in the repo.
+*                       @terramend/maintainers
+
+# Security-sensitive surfaces — keep an extra pair of eyes on the sandbox,
+# guardrails, token handling, and agent tool gating.
+/src/mcp/guardrails.ts  @terramend/maintainers
+/src/mcp/policy.ts      @terramend/maintainers
+/src/mcp/shell.ts       @terramend/maintainers
+/src/mcp/git.ts         @terramend/maintainers
+/src/agents/*Gate*.ts   @terramend/maintainers
+/src/agents/nativeFsDenies.ts @terramend/maintainers
+/src/utils/secrets.ts   @terramend/maintainers
+/src/utils/gitAuth*.ts  @terramend/maintainers
+/.github/workflows/     @terramend/maintainers
+/action.yml             @terramend/maintainers

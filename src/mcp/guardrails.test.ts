@@ -37,6 +37,52 @@ describe("globToRegex", () => {
   });
 });
 
+// Adversarial coverage for the hand-rolled glob compiler — it backs the path
+// allow-list and the protected-paths deny-list, so a regex-injection or a
+// segment-crossing bypass here would defeat those guardrails.
+describe("globToRegex (adversarial / injection)", () => {
+  it("escapes regex metacharacters in the glob (no injection from the pattern)", () => {
+    // `.` is a literal dot, not 'any char'
+    expect(globToRegex("a.tf").test("axtf")).toBe(false);
+    expect(globToRegex("a.tf").test("a.tf")).toBe(true);
+    // anchors/alternation/group chars from the pattern are treated literally
+    const re = globToRegex("a(b|c)$.tf");
+    expect(re.test("a(b|c)$.tf")).toBe(true);
+    expect(re.test("ab.tf")).toBe(false);
+    // `+` is a literal plus, not a regex quantifier
+    expect(globToRegex("a+.tf").test("a+.tf")).toBe(true);
+    expect(globToRegex("a+.tf").test("aaaa.tf")).toBe(false);
+  });
+
+  it("is fully anchored — no partial-match bypass", () => {
+    const re = globToRegex("*.tf");
+    expect(re.test("main.tf.bak")).toBe(false);
+    expect(re.test("evil/main.tf")).toBe(false);
+    // a separator anywhere defeats a single-segment glob, so a slash-bearing
+    // suffix can't be smuggled past the anchored pattern
+    expect(re.test("main.tf/../etc/passwd")).toBe(false);
+    expect(re.test("main.tf\n/etc/passwd")).toBe(false);
+  });
+
+  it("`*`/`?` never cross a path separator, blocking `../` traversal", () => {
+    // single-segment globs reject any path containing a separator…
+    expect(isPathAllowed("../secret.tf", ["*.tf"])).toBe(false);
+    expect(isPathAllowed("..\\secret.tf", ["*.tf"])).toBe(false); // windows sep normalized then rejected
+    expect(isPathAllowed("a/b.tf", ["*.tf"])).toBe(false);
+    expect(globToRegex("?.tf").test("/.tf")).toBe(false);
+  });
+
+  it("`**` deliberately spans separators (documented power of the deny-list)", () => {
+    // protected-paths rely on this: `prod/**` must catch nested files. The
+    // safety of the allow-list against `..` does NOT come from `**` globs — it
+    // comes from changed-file paths being git-relative (no `..`), which is
+    // enforced upstream in changedFilesSinceRunStart.
+    expect(isPathAllowed("prod/db/main.tf", ["prod/**"])).toBe(true);
+    expect(isPathAllowed("prod/a/b/c/secret", ["prod/**"])).toBe(true);
+    expect(isPathAllowed("staging/main.tf", ["prod/**"])).toBe(false);
+  });
+});
+
 describe("isPathAllowed (default Terraform allow-list)", () => {
   const globs = [...DEFAULT_ALLOWED_PATHS];
 

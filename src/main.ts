@@ -131,11 +131,11 @@ export async function main(): Promise<MainResult> {
   const runContext = await resolveRunContextData({ octokit: initialOctokit, token: jobToken });
   timer.checkpoint("runContextData");
 
-  // tmpdir hoisted out of the try block: `installFromNpmTarball` reads
-  // TERRAMEND_TEMP_DIR (set as a side effect of createTempDirectory) when
-  // the opencode CLI install runs below for BYOK introspection. agent +
-  // mcp server setup further down also consume the same tmpdir.
-  const tmpdir = createTempDirectory();
+  // Called for its side effect: `createTempDirectory()` sets TERRAMEND_TEMP_DIR,
+  // which `installFromNpmTarball` reads when the opencode CLI install runs below
+  // for BYOK introspection, and which agent + mcp server setup further down also
+  // consume. The returned path isn't needed directly here.
+  createTempDirectory();
 
   // install OpenCode + capture the BASELINE model set BEFORE Codex auth.json
   // is in scope. this is the set of models OpenCode can route from the runner's

@@ -28,6 +28,7 @@ function findSystemChromePath(): string | undefined {
   // and to avoid repeated lookups
   systemChromePath = "";
   log.info(`no system chrome found (checked: ${CHROME_PATHS.join(", ")})`);
+  return undefined;
 }
 
 function buildEnv(): Record<string, string> {
@@ -110,6 +111,7 @@ export function ensureBrowserDaemon(toolState: ToolState): string | undefined {
 
   toolState.browserDaemon = { binDir };
   log.info("browser daemon ready");
+  return undefined;
 }
 
 export function closeBrowserDaemon(toolState: ToolState): void {

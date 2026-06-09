@@ -32,11 +32,11 @@
  * The subagent gate (the `tool.execute.before` hook that hard-blocks
  * state-mutating MCP tool calls from a subagent session) lives in a SEPARATE
  * plugin — `TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE` below — because it's the
- * load-bearing security fence and must ship into both opencode harnesses,
- * whereas this events re-emitter is only needed by the legacy `opencode.ts`
- * CLI-parsing path (the active `opencode_v2.ts` reads subagent events directly
- * off the SDK event stream, so it installs ONLY the gate plugin). Deny-list
- * source of truth: `action/agents/subagentToolGates.ts`.
+ * load-bearing security fence and must ship into the opencode harness,
+ * whereas this events re-emitter was only needed by the legacy CLI-parsing
+ * path (the active `opencode.ts` reads subagent events directly off the SDK
+ * event stream, so it installs ONLY the gate plugin). Deny-list source of
+ * truth: `src/agents/subagentToolGates.ts`.
  *
  * Dumb plugin / smart parent split: the events plugin emits every part for
  * every session. the parent dedupes against the orchestrator's own session id
@@ -153,9 +153,9 @@ export default async function terramendEventsPlugin() {
 /**
  * Standalone subagent gate plugin written to
  * `<XDG_CONFIG_HOME>/opencode/plugin/terramend-subagent-gate.ts`. Installed by
- * BOTH opencode harnesses (the legacy `opencode.ts` and the active in-process
- * `opencode_v2.ts`) — the gate is the load-bearing security fence, so it ships
- * independently of the events re-emitter above (which v2 doesn't need).
+ * the in-process `opencode.ts` harness — the gate is the load-bearing security
+ * fence, so it ships independently of the events re-emitter above (which the
+ * in-process harness doesn't need).
  *
  * Hard-blocks state-mutating MCP tool calls originating from a subagent
  * session via `tool.execute.before`, complementing the runtime backstops from

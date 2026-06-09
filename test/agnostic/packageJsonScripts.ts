@@ -92,5 +92,5 @@ export const test: TestRunnerOptions = {
   validator,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   tags: ["agnostic", "security"],
-  coverage: ["action/mcp/dependencies.ts", "action/utils/install.ts"],
+  coverage: ["src/mcp/dependencies.ts", "src/utils/install.ts"],
 };

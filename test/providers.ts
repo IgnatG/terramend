@@ -10,7 +10,7 @@
  * per-alias CLI smoke can't see.
  *
  * `coverage` lists the source files that, when changed, should rerun this
- * provider's flagship + every alias of this provider. `action/models.ts` is
+ * provider's flagship + every alias of this provider. `src/models.ts` is
  * included on every entry — touching the resolution table reruns all model
  * tests (simple model; matches the per-PR-precision answer from planning).
  *
@@ -31,10 +31,9 @@ export type ProviderEntry = {
 };
 
 const SHARED_OPENCODE_COVERAGE = [
-  "action/models.ts",
-  "action/agents/opencode.ts",
-  "action/agents/opencode_v2.ts",
-  "action/agents/opencodePlugin.ts",
+  "src/models.ts",
+  "src/agents/opencode.ts",
+  "src/agents/opencodePlugin.ts",
 ];
 
 export const providers: ProviderEntry[] = [
@@ -42,7 +41,7 @@ export const providers: ProviderEntry[] = [
     name: "anthropic",
     flagship: "anthropic/claude-sonnet",
     agent: "claude",
-    coverage: ["action/models.ts", "action/agents/claude.ts"],
+    coverage: ["src/models.ts", "src/agents/claude.ts"],
   },
   {
     name: "openai",
@@ -54,7 +53,7 @@ export const providers: ProviderEntry[] = [
     name: "google",
     flagship: "google/gemini-pro",
     agent: "opencode",
-    coverage: [...SHARED_OPENCODE_COVERAGE, "action/mcp/geminiSanitizer.ts"],
+    coverage: [...SHARED_OPENCODE_COVERAGE, "src/mcp/geminiSanitizer.ts"],
   },
   {
     name: "xai",

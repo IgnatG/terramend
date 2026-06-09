@@ -1,10 +1,7 @@
-// Shared helpers for the OpenCode agent harnesses (`./opencode.ts` v1 and
-// `./opencode_v2.ts` v2). Pure config / model-registry / install glue —
-// nothing here touches the NDJSON event loop, which differs between v1 and v2.
-//
-// Once v1 is deleted post-burn-in this module collapses back into v2; until
-// then it keeps both runners synchronized so a config drift can't make v1 a
-// silently-broken fallback.
+// Shared helpers for the OpenCode agent harness (`./opencode.ts`). Pure config
+// / model-registry / install glue — nothing here touches the SDK event loop.
+// Kept as a separate module so this config surface stays unit-testable in
+// isolation (see `./opencodeShared.test.ts`).
 
 import { modelAliases } from "#app/models";
 import { log } from "#app/utils/cli";

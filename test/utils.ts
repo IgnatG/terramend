@@ -332,7 +332,7 @@ export interface TestRunnerOptions {
   tags?: TestTag[];
   // repo-relative globs of source files that, when changed in a PR, should
   // trigger this test in CI. omit to opt out of filtering (test always runs
-  // — the defensive default). see action/test/coverage.ts.
+  // — the defensive default). see test/coverage.ts.
   coverage?: string[];
   /** evaluated at test-runtime (after `pnpm install`, before agent spawn).
    * return a non-empty reason string to skip the test entirely — the runner

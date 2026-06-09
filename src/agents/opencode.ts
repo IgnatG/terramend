@@ -1,47 +1,79 @@
 /**
- * OpenCode agent — secure harness around OpenCode CLI.
+ * OpenCode agent — in-process harness (opencode-ai >=1.14.x SDK-v2 / Effect-ts
+ * CLI rewrite).
  *
- * transparently wraps OpenCode with a security layer:
- * - bash: "deny" via OPENCODE_CONFIG_CONTENT (agent cannot shell out)
- * - OPENCODE_PERMISSION: filesystem sandbox — deny all external paths except /tmp
- * - MCP ShellTool provides restricted shell (filtered env, no secrets)
- * - MCP server injected alongside project config (not replacing)
- * - ASKPASS handles git auth separately (token never in subprocess env)
+ * Architecture, post v2-in-process migration:
  *
- * the agent process itself gets full env (needs LLM API keys, PATH, etc.).
- * security is enforced at the tool layer, not the process layer.
+ *   1. Spawn ONE `opencode serve --port <p>` subprocess per Terramend run via
+ *      `node:child_process.spawn` directly (NOT our `spawn()` wrapper — see
+ *      `bootOpencodeServer` for why: long-lived stdio streaming, manual
+ *      activity gating against the SDK event loop, killGroup teardown).
+ *   2. Talk to it over loopback HTTP via the typed `@opencode-ai/sdk/v2`
+ *      `createOpencodeClient({ baseUrl })` — no `Server.Default()` embed,
+ *      no `createOpencode()` SDK lifecycle (would re-wrap our subprocess).
+ *   3. Create ONE session up front (`client.session.create`).
+ *   4. Subscribe to events once (`client.event.subscribe`) and pump them
+ *      through a single per-run handler set for live logging + activity
+ *      tracking + subagent labeling.
+ *   5. Run the initial prompt via `client.session.prompt({ sessionID, parts })`.
+ *      Every post-run gate retry AND the reflection turn re-enter the same
+ *      session via another `client.session.prompt()` call. Warm MCP, warm
+ *      plugins, warm provider connections, same context window — no
+ *      `--continue` subprocess respawn.
+ *   6. Close the server in a finally.
+ *
+ * What that replaces (vs the pre-migration v2 harness):
+ *   - The per-run `opencode run --format json --print-logs --thinking` CLI
+ *     subprocess that emitted NDJSON envelopes.
+ *   - The `runOpenCode(... args: [...baseArgs, "--continue", c.prompt] ...)`
+ *     resume callback that booted a SECOND opencode process (fresh MCP,
+ *     fresh plugins, cold cache) for each gate retry / reflection turn.
+ *   - The `opencodePlugin.ts` bus-event re-emitter — we subscribe to the
+ *     global event stream now, so subagent events arrive naturally without
+ *     a stdout sentinel envelope.
+ *
+ * What stays identical:
+ *   - bash: "deny" via OPENCODE_CONFIG_CONTENT
+ *   - OPENCODE_PERMISSION filesystem sandbox — deny-all + allow /tmp
+ *   - MCP Terramend server injected via `mcp.<name> = { type: "remote", url }`
+ *   - ASKPASS for git auth
+ *   - codex auth materialization + post-hook writeback
+ *   - reviewfrog subagent config / model derivation
+ *   - bedrock model prefix routing
+ *   - skills install
+ *   - todo tracker / onToolUse forwarding
  */
+import { type ChildProcess, spawn as nodeSpawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import * as core from "@actions/core";
+import {
+  type AssistantMessage,
+  createOpencodeClient,
+  type EventSubscribeResponse,
+  type OpencodeClient,
+  type Part,
+  type TextPartInput,
+} from "@opencode-ai/sdk/v2";
+import { Agent, fetch as undiciFetch } from "undici";
 import { terramendMcpName } from "#app/external";
 import { BEDROCK_MODEL_ID_ENV } from "#app/models";
 import type { ToolState } from "#app/toolState";
-import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "#app/utils/activity";
-import { type AgentDiagnostic, formatAgentHangBody } from "#app/utils/agentHangReport";
+import { AGENT_ACTIVITY_TIMEOUT_MS, markActivity } from "#app/utils/activity";
+import type { AgentDiagnostic } from "#app/utils/agentHangReport";
 import { formatJsonValue, log } from "#app/utils/cli";
 import { installCodexAuth } from "#app/utils/codexHome";
 import { findProviderErrorMatch } from "#app/utils/providerErrors";
 import { addSkill, installBundledSkills } from "#app/utils/skills";
-import {
-  DEFAULT_MAX_RETAINED_BYTES,
-  SPAWN_ACTIVITY_TIMEOUT_CODE,
-  SpawnTimeoutError,
-  spawn,
-  TailBuffer,
-} from "#app/utils/subprocess";
-import { ThinkingTimer } from "#app/utils/timer";
+import { trackChild, untrackChild } from "#app/utils/subprocess";
 import type { TodoTracker } from "#app/utils/todoTracking";
 import { getDevDependencyVersion } from "#app/utils/version";
 import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
 import { GIT_NATIVE_READ_DENY_OPENCODE, GIT_NATIVE_WRITE_DENY_OPENCODE } from "#app/agents/nativeFsDenies";
 import {
-  TERRAMEND_BUS_EVENT_TYPE,
   TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME,
   TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE,
-  TERRAMEND_OPENCODE_PLUGIN_FILENAME,
-  TERRAMEND_OPENCODE_PLUGIN_SOURCE,
 } from "#app/agents/opencodePlugin";
 import {
   autoSelectModel,
@@ -66,32 +98,9 @@ import {
   MAX_STDERR_LINES,
 } from "#app/agents/shared";
 
-// re-export for the existing test (`./opencode.test.ts`) — once v1 is
-// retired this module collapses and the test imports from opencodeShared.
-export { geminiHighThinkingOverrides } from "#app/agents/opencodeShared";
+const installCli = () => installOpencodeCli({ binPath: "bin/opencode.exe" });
 
-// v1.4-era npm package shipped a per-platform binary directly at this path.
-const installCli = () => installOpencodeCli({ binPath: "bin/opencode" });
-
-// NOTE: OpenCode's per-call `max_tokens` defaults to 32_000. We previously
-// overrode this via `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX = 5000` in #616
-// to lower OpenRouter's per-call upfront budget reservation — back when the
-// `ROUTER_PER_RUN_LIMIT_USD = 25` per-run key cap meant that reservation was
-// a hard gate that could lock low-balance accounts out of starting a run.
-//
-// That gate is gone (see `app/api/proxy-token/route.ts` ~line 422 — "Per-run
-// key budget … is decoupled from wallet balance"); the router now mints
-// keys with `keyLimitCents = balance + buffer` ($50 / $5 / $0). The override
-// no longer materially helps, and as a hard per-call output truncation it
-// actively hurt: a single `create_pull_request_review` tool_use with many
-// inline comments would truncate mid-stream past 5K output tokens, the JSON
-// was unparseable, and the tool never invoked. We hit this on PR #710's
-// verify-downshift PR. Removed in #710 — using OpenCode's 32K default.
-//
-// If you need to re-cap output for some reason, set
-// `OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX` in the action env. OpenCode's
-// top-level `limit.output` config field has no read site (silently dropped
-// on merge in session/llm.ts), so the env var is the only working knob.
+// ── config ─────────────────────────────────────────────────────────────────────
 
 function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): string {
   const config: OpenCodeConfig = {
@@ -118,19 +127,6 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
       log.info(`» subagent models: reviewfrog=${reviewerModel}`);
       return cfg;
     })(),
-    // NOTE: `experimental.batch_tool` was enabled in #719 to bundle 1-25
-    // independent tool calls into one round trip, but the batch tool rejects
-    // MCP/"external" tools with `"Tool '<name>' not in registry. External
-    // tools (MCP, environment) cannot be batched - call them directly."`
-    // (anomalyco/opencode PR #2983 design). when a model emits parallel
-    // tool_use blocks containing `terramend_*` calls, opencode internally
-    // routes them through batch — they all fail, the model misreads the
-    // error as "the tool doesn't exist", and gives up. caught in CI by
-    // `restricted-opencode` after a `lens:` subagent dispatched parallel
-    // `terramend_shell` calls and concluded shell was unavailable.
-    // native parallel tool_use (multiple tool_use blocks per assistant
-    // message) still works without batch_tool for both built-in and MCP
-    // tools, so we lose only the batch wrapper, not parallelism.
     // gemini-3 thinking pinned to high for review depth; gpt and anthropic
     // effort set elsewhere (gpt: upstream default, anthropic: --effort flag in claude.ts).
     provider: { google: { models: geminiHighThinkingOverrides() } },
@@ -138,955 +134,842 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
 
   if (model) {
     config.model = model;
-
     const slashIndex = model.indexOf("/");
     if (slashIndex > 0) {
       config.enabled_providers = [model.slice(0, slashIndex).toLowerCase()];
+      // moonshotai/kimi stalls on the @openrouter/ai-sdk-provider 2.8.1 stream
+      // parser opencode 1.15.13 bundles: duplicate tool-call emission on
+      // kimi-k2.6 makes the turn produce zero further part.updated events until
+      // the inner watchdog aborts (47% of kimi proxy runs vs 0% for claude).
+      // upstream fixed it in 2.9.0 (openrouter/ai-sdk-provider PR #489). opencode
+      // only loads a non-bundled provider version when a model is redeclared
+      // under provider.<id>.models with a versioned npm spec — a bare
+      // provider.npm is a no-op for catalog models, which keep the bundled import
+      // (provider.ts BUNDLED_PROVIDERS is keyed by the unversioned name). so pin
+      // 2.9.0 for the redeclared kimi model; opencode installs it on demand via
+      // Npm.add. the empty model body inherits catalog cost/limits; provider id +
+      // model id stay openrouter/kimi so slug/cost/billing are unchanged. scoped
+      // to the moonshot route so other openrouter models keep the bundled parser.
+      if (model.startsWith("openrouter/moonshotai/")) {
+        const modelID = model.slice(slashIndex + 1);
+        config.provider = {
+          ...config.provider,
+          openrouter: {
+            npm: "@openrouter/ai-sdk-provider@2.9.0",
+            options: {
+              baseURL: "https://openrouter.ai/api/v1",
+              apiKey: "{env:OPENROUTER_API_KEY}",
+            },
+            models: { [modelID]: {} },
+          },
+        };
+      }
     }
   }
 
   return JSON.stringify(config);
 }
 
-// ── NDJSON event types ─────────────────────────────────────────────────────────
-
-interface OpenCodeInitEvent {
-  type: "init";
-  timestamp?: string;
-  session_id?: string;
-  model?: string;
-  [key: string]: unknown;
+/** split `<providerID>/<modelID>` into the SDK's prompt model shape. */
+function parseModel(
+  value: string | undefined
+): { providerID: string; modelID: string } | undefined {
+  if (!value) return undefined;
+  const slash = value.indexOf("/");
+  if (slash <= 0) return undefined;
+  return { providerID: value.slice(0, slash), modelID: value.slice(slash + 1) };
 }
 
-interface OpenCodeMessageEvent {
-  type: "message";
-  timestamp?: string;
-  role?: "user" | "assistant";
-  content?: string;
-  delta?: boolean;
-  [key: string]: unknown;
-}
+// ── server boot ────────────────────────────────────────────────────────────────
 
-interface OpenCodeTextEvent {
-  type: "text";
-  timestamp?: string;
-  sessionID?: string;
-  part?: { id?: string; type?: string; text?: string; [key: string]: unknown };
-  [key: string]: unknown;
-}
-
-interface OpenCodeStepStartEvent {
-  type: "step_start";
-  timestamp?: string;
-  sessionID?: string;
-  part?: { id?: string; type?: string; [key: string]: unknown };
-  [key: string]: unknown;
-}
-
-interface OpenCodeStepFinishEvent {
-  type: "step_finish";
-  timestamp?: string;
-  sessionID?: string;
-  part?: {
-    id?: string;
-    type?: string;
-    reason?: string;
-    cost?: number;
-    tokens?: {
-      input?: number;
-      output?: number;
-      reasoning?: number;
-      cache?: { read?: number; write?: number };
-    };
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
+interface ServerHandle {
+  baseUrl: string;
+  proc: ChildProcess;
+  /** kill the server; idempotent. */
+  close: () => Promise<void>;
+  /** rolling tail of server stderr for diagnostics. */
+  recentStderr: string[];
 }
 
 /**
- * tool-part state, mirroring opencode's `ToolState` (anomalyco/opencode
- * `session/message-v2.ts`). error parts carry the reason on `error`,
- * completed parts on `output` — reading the wrong field is what caused
- * the silent `(no error message)` log in #662.
+ * Spawn `<cliPath> serve --port 0 --hostname 127.0.0.1` and wait for the
+ * "opencode server listening on http://..." stdout line.
  *
- * Named `ToolPartState` locally (not `ToolState`) so it doesn't shadow the
- * action-wide `ToolState` imported above.
+ * Direct node:child_process.spawn instead of our `spawn()` wrapper because
+ * the wrapper's contract is "Promise<SpawnResult> that resolves on exit" —
+ * we need a handle that stays alive across many session.prompt() calls.
+ * We still register with `trackChild()` so Ctrl-C kills the server alongside
+ * everything else.
  */
-type ToolPartState =
-  | { status: "pending" | "running"; input?: unknown }
-  | { status: "completed"; input?: unknown; output: string }
-  | { status: "error"; input?: unknown; error: string };
-
-interface OpenCodeToolUseEvent {
-  type: "tool_use";
-  timestamp?: number;
-  sessionID?: string;
-  part?: {
-    id?: string;
-    callID?: string;
-    tool?: string;
-    state?: ToolPartState;
-  };
-  [key: string]: unknown;
-}
-
-interface OpenCodeToolResultEvent {
-  type: "tool_result";
-  timestamp?: number;
-  sessionID?: string;
-  part?: { callID?: string; state?: ToolPartState };
-  tool_id?: string;
-  status?: "success" | "error";
-  output?: string;
-  [key: string]: unknown;
-}
-
-interface OpenCodeResultEvent {
-  type: "result";
-  timestamp?: string;
-  status?: "success" | "error";
-  stats?: {
-    total_tokens?: number;
-    input_tokens?: number;
-    output_tokens?: number;
-    duration_ms?: number;
-    tool_calls?: number;
-  };
-  [key: string]: unknown;
-}
-
-interface OpenCodeErrorEvent {
-  type: "error";
-  timestamp?: string;
-  sessionID?: string;
-  // opencode emits the error message under `error.data.message`, not at the
-  // top level. see anomalyco/opencode packages/opencode/src/cli/cmd/run.ts.
-  error?: {
-    name?: string;
-    data?: { message?: string; [key: string]: unknown };
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-/**
- * Envelope event emitted by our `.opencode/plugin/terramend-events.ts` (the
- * source lives in `opencodePlugin.ts`). The plugin subscribes to opencode's
- * bus via `bus.subscribeAll()` and re-emits non-orchestrator
- * `message.part.updated` events on stdout so subagent activity surfaces here.
- *
- * `bus_event.properties.part` matches the same `Part` shape that opencode's
- * `cli/cmd/run.ts` uses to drive its own emit() calls, so we can route the
- * inner part through the existing `tool_use` / `step_start` / `step_finish`
- * / `text` handlers by synthesizing the equivalent OpenCode-style event.
- */
-interface OpenCodeBusEnvelopeEvent {
-  type: "terramend_bus_event";
-  bus_event?: {
-    type?: string;
-    properties?: {
-      part?: {
-        sessionID?: string;
-        type?: string;
-        time?: { end?: number | string };
-        state?: { status?: string };
-        [key: string]: unknown;
-      };
-      [key: string]: unknown;
-    };
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-type OpenCodeEvent =
-  | OpenCodeInitEvent
-  | OpenCodeMessageEvent
-  | OpenCodeTextEvent
-  | OpenCodeStepStartEvent
-  | OpenCodeStepFinishEvent
-  | OpenCodeToolUseEvent
-  | OpenCodeToolResultEvent
-  | OpenCodeResultEvent
-  | OpenCodeErrorEvent
-  | OpenCodeBusEnvelopeEvent;
-
-// ── runner ──────────────────────────────────────────────────────────────────────
-
-type RunParams = {
-  label: string;
+function bootOpencodeServer(params: {
   cliPath: string;
-  args: string[];
+  env: NodeJS.ProcessEnv;
   cwd: string;
-  env: Record<string, string | undefined>;
+}): Promise<ServerHandle> {
+  const proc = nodeSpawn(params.cliPath, ["serve", "--port", "0", "--hostname", "127.0.0.1"], {
+    cwd: params.cwd,
+    env: params.env,
+    stdio: ["ignore", "pipe", "pipe"],
+    // detached + killGroup so SIGKILL nukes the whole tree: node_modules/
+    // opencode-ai/bin/opencode is a Node shim that spawnSync's the native
+    // binary; without process-group kill the native binary is reparented
+    // to PID 1 and never dies. mirrors the same fix in runOpenCode's
+    // original spawn().
+    detached: true,
+  });
+  trackChild({ child: proc, killGroup: true });
+
+  const recentStderr: string[] = [];
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    const text = chunk.toString().trim();
+    if (!text) return;
+    recentStderr.push(text);
+    if (recentStderr.length > MAX_STDERR_LINES) recentStderr.shift();
+    log.debug(`[opencode serve] ${text}`);
+  });
+
+  let closed = false;
+  const close = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    untrackChild(proc);
+    if (proc.pid && !proc.killed) {
+      try {
+        process.kill(-proc.pid, "SIGTERM");
+      } catch {
+        proc.kill("SIGTERM");
+      }
+      // give the server 2s to exit cleanly, then SIGKILL the group.
+      await new Promise<void>((resolve) => {
+        const escalator = setTimeout(() => {
+          if (!proc.killed) {
+            try {
+              process.kill(-proc.pid!, "SIGKILL");
+            } catch {
+              proc.kill("SIGKILL");
+            }
+          }
+        }, 2000);
+        proc.once("close", () => {
+          clearTimeout(escalator);
+          resolve();
+        });
+      });
+    }
+  };
+
+  return new Promise<ServerHandle>((resolve, reject) => {
+    // serve.ts logs `opencode server listening on http://<host>:<port>` once
+    // bound. parse it out, then resolve. drain remaining stdout to debug.
+    let buffer = "";
+    let resolved = false;
+    const onStdout = (chunk: Buffer) => {
+      const text = chunk.toString();
+      buffer += text;
+      if (!resolved) {
+        const match = buffer.match(/opencode server listening on (https?:\/\/[^\s]+)/);
+        if (match?.[1]) {
+          resolved = true;
+          log.info(`» opencode server up: ${match[1]}`);
+          resolve({ baseUrl: match[1], proc, close, recentStderr });
+          // keep draining for debug visibility after handover.
+        }
+      }
+      // log any stdout line that's not the listening sentinel at debug level
+      // so a noisy serve startup is visible without polluting info logs.
+      const lines = text.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed && !trimmed.includes("opencode server listening")) {
+          log.debug(`[opencode serve] ${trimmed}`);
+        }
+      }
+    };
+    proc.stdout?.on("data", onStdout);
+
+    proc.once("error", (err) => {
+      if (!resolved) {
+        reject(new Error(`failed to spawn opencode serve: ${err.message}`));
+      }
+    });
+    proc.once("close", (code, signal) => {
+      if (!resolved) {
+        const tail = recentStderr.slice(-5).join("\n");
+        reject(
+          new Error(
+            `opencode serve exited before ready (code=${code} signal=${signal})${tail ? `\n${tail}` : ""}`
+          )
+        );
+      }
+    });
+
+    // safety: if the listening line never arrives, bail after 30s.
+    const bootTimeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        const tail = recentStderr.slice(-5).join("\n");
+        void close();
+        reject(
+          new Error(
+            `timed out after 30s waiting for opencode serve to bind${tail ? `\n${tail}` : ""}`
+          )
+        );
+      }
+    }, 30_000);
+    bootTimeout.unref?.();
+  });
+}
+
+// ── per-turn state ─────────────────────────────────────────────────────────────
+
+/**
+ * What we collect during a single session.prompt() turn so we can render a
+ * unified AgentResult at the end. Per-turn snapshot is reset between turns
+ * inside the event loop via `beginTurn()` / `endTurn()`.
+ */
+interface TurnAccumulator {
+  finalText: string;
+  /**
+   * Aggregate token totals from step-finish parts across the orchestrator AND
+   * any subagent sessions dispatched during the turn (e.g. reviewfrog).
+   * Mirrors v1's `accumulatedTokens` semantics so production billing/audit
+   * numbers stay apples-to-apples across the migration.
+   */
+  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  costUsd: number;
+  sessionError: string | null;
+  /** populated when a tool_use part on the orchestrator session reports error. */
+  lastToolError: string | null;
+}
+
+function newTurn(): TurnAccumulator {
+  return {
+    finalText: "",
+    tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    costUsd: 0,
+    sessionError: null,
+    lastToolError: null,
+  };
+}
+
+// ── runner ─────────────────────────────────────────────────────────────────────
+
+interface RunnerContext {
+  client: OpencodeClient;
+  sessionID: string;
+  label: string;
+  orchestratorSessionID: string;
+  labeler: SessionLabeler;
   toolState: ToolState;
   todoTracker?: TodoTracker | undefined;
   onActivityTimeout?: (() => void) | undefined;
   onToolUse?: ((event: { toolName: string; input: unknown }) => void) | undefined;
-};
+  /** current per-turn aggregator; nullable between turns. */
+  currentTurn: TurnAccumulator | null;
+  /** monotonic event count for diagnostics. */
+  eventCount: number;
+  /** last activity timestamp (event-stream silence detector). */
+  lastEventAt: number;
+  /** active task dispatch metadata keyed by callID (for subagent timing). */
+  taskDispatchByCallID: Map<string, { label: string; startedAt: number }>;
+  /**
+   * orchestrator tool callIDs already surfaced via `log.info(» ${tool}(...))`,
+   * tracked so the end-of-turn fallback can re-emit only the calls the live
+   * event stream missed. closes the SSE-connect race against the first
+   * `session.prompt()` (the SDK opens the SSE lazily on first iteration; by
+   * then the server may already have emitted the turn's tool part-updated
+   * events). without the fallback those calls never appear in stdout, which
+   * breaks every validator that greps for tool-call shape.
+   */
+  loggedToolCallIDs: Set<string>;
+  /** rolling stderr tail from the server process (for diagnostics). */
+  recentStderr: string[];
+  diagnostic: AgentDiagnostic;
+}
 
-async function runOpenCode(params: RunParams): Promise<AgentResult> {
-  const startTime = performance.now();
-  let eventCount = 0;
-
-  let finalOutput = "";
-  let accumulatedTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-  // per-step `part.cost` sums across the whole session. sourced from models.dev
-  // inside opencode — present for every supported provider (Anthropic, OpenAI,
-  // Google, xAI, DeepSeek, Moonshot, OpenRouter sub-providers, etc.).
-  let accumulatedCostUsd = 0;
-  let tokensLogged = false;
-  const toolCallTimings = new Map<string, number>();
-  let currentStepId: string | null = null;
-  let currentStepType: string | null = null;
-  let stepHistory: Array<{ stepId: string; stepType: string; toolCalls: string[] }> = [];
-
-  // per-session labeler so parallel subagent log lines can be differentiated.
-  // the orchestrator's task tool_use events seed the labeler; the next
-  // previously-unseen sessionID consumes the head of the pending-label queue.
-  // upstream opencode's `cli/cmd/run.ts` filters subagent events out of its
-  // NDJSON stream (`part.sessionID !== sessionID`), so we ship a per-run
-  // plugin (`action/agents/opencodePlugin.ts`, written into the tmpdir at
-  // setup) that re-emits non-orchestrator `message.part.updated` events. those
-  // arrive here as `terramend_bus_event` envelopes and feed the labeler with
-  // real data per subagent session.
-  const labeler = new SessionLabeler();
-  function eventLabel(event: Record<string, unknown>): string {
-    const sid = event.sessionID ?? event.session_id;
-    return labeler.labelFor(typeof sid === "string" ? sid : null);
-  }
-  function withLabel(label: string, message: string): string {
-    return label === ORCHESTRATOR_LABEL ? message : formatWithLabel(label, message);
-  }
-
-  // one ThinkingTimer per session — sharing a single timer across sessions
-  // conflated cross-session interleaving (parent thinks → child tool_call,
-  // or child returns → parent dispatches next) as parent thinking time. each
-  // timer formats its log lines through the session label so the "thought
-  // for X" attribution is visible in the merged stream.
-  const thinkingTimers = new Map<string, ThinkingTimer>();
-  function timerFor(label: string): ThinkingTimer {
-    let t = thinkingTimers.get(label);
-    if (!t) {
-      const formatLine = (line: string) =>
-        label === ORCHESTRATOR_LABEL ? line : formatWithLabel(label, line);
-      t = new ThinkingTimer(formatLine);
-      thinkingTimers.set(label, t);
-    }
-    return t;
-  }
-
-  // tracks per-task dispatch metadata so the matching tool_result can log a
-  // labeled "» subagent finished: lens=X duration=Ys" line. this is the most
-  // useful per-lens observability available given that subagent-internal
-  // events aren't streamed.
-  //
-  // matching strategy is hybrid because opencode does NOT reliably emit a
-  // tool_result with a callID equal to the originating tool_use.callID for
-  // the `task` tool (verified empirically in T3 — 5 task dispatches recorded
-  // here, 0 finish lines fired, yet aggregation succeeded so results did
-  // arrive on the stream). we keep an exact-match Map for the fast path, and
-  // also a FIFO queue for the fallback path where the callID mismatches.
-  // the queue + map share entries by reference so popping one removes both.
-  interface TaskDispatch {
-    label: string;
-    startedAt: number;
-    toolUseCallID: string;
-  }
-  const taskDispatchByCallID = new Map<string, TaskDispatch>();
-  const pendingTaskDispatches: TaskDispatch[] = [];
-  // every non-task tool_use callID we've observed. lets us tell, on a
-  // tool_result, whether its callID belongs to a known non-task tool (in
-  // which case we never fall back to FIFO) or is unrecognised (in which case
-  // a long-output result is a strong "this is probably a task result with a
-  // mismatched callID" signal).
-  const knownNonTaskCallIDs = new Set<string>();
-
-  function emitSubagentFinished(
-    dispatch: TaskDispatch,
-    status: string,
-    output: unknown,
-    matchKind: "exact" | "fifo"
-  ) {
-    const subagentDuration = performance.now() - dispatch.startedAt;
-    const outputStr = typeof output === "string" ? output : "";
-    const outputPreview = outputStr.length > 120 ? `${outputStr.slice(0, 120)}…` : outputStr;
-    const matchSuffix = matchKind === "fifo" ? " [fifo-matched]" : "";
-    log.info(
-      `» subagent finished: ${dispatch.label} (${(subagentDuration / 1000).toFixed(1)}s, status=${status})${matchSuffix}` +
-        (outputPreview ? ` — ${outputPreview.replace(/\n/g, " ")}` : "")
-    );
-    taskDispatchByCallID.delete(dispatch.toolUseCallID);
-    const idx = pendingTaskDispatches.indexOf(dispatch);
-    if (idx >= 0) pendingTaskDispatches.splice(idx, 1);
-  }
-
-  function buildUsage(): AgentUsage | undefined {
-    const totalInput =
-      accumulatedTokens.input + accumulatedTokens.cacheRead + accumulatedTokens.cacheWrite;
-    return totalInput > 0 || accumulatedTokens.output > 0
-      ? {
-          agent: "terramend",
-          inputTokens: totalInput,
-          outputTokens: accumulatedTokens.output,
-          cacheReadTokens: accumulatedTokens.cacheRead || undefined,
-          cacheWriteTokens: accumulatedTokens.cacheWrite || undefined,
-          costUsd: accumulatedCostUsd > 0 ? accumulatedCostUsd : undefined,
-        }
-      : undefined;
-  }
-
-  const handlers = {
-    init: (event: OpenCodeInitEvent) => {
-      // bind this sessionID to a label so subsequent events (tool_use,
-      // tool_result, text, message) route to the right prefix. for the
-      // first session this is "orchestrator"; for subagents it pops from
-      // the pending-dispatch queue.
-      const label = labeler.labelFor(event.session_id ?? null);
+/**
+ * orchestrate the event stream consumer for the entire server lifetime.
+ *
+ * NB: the SDK subscribe is lazy — the SSE fetch only opens on the first
+ * iteration. so the first turn's tool part-updated events can race the
+ * connect and be missed. live-stream logging is best-effort; see the
+ * end-of-turn `logUnseenToolCalls` fallback for the guarantee.
+ */
+async function consumeEvents(ctx: RunnerContext, signal: AbortSignal): Promise<void> {
+  // wire the abort signal into the SSE request itself. without it the
+  // generated client falls back to an internal never-aborting signal
+  // (serverSentEvents.gen.js: `options.signal ?? new AbortController().signal`),
+  // so `reader.read()` parks forever once the session goes idle and the stream
+  // falls silent. the teardown `await eventLoopPromise` in the run() finally
+  // then blocks — `abortController.abort()` can't interrupt a `for await` that
+  // never advances — until the outer process-output watchdog kills the
+  // already-succeeded run once the flat idle budget elapses and reports a false
+  // "stalled" (PR #876).
+  const result = await ctx.client.event.subscribe({}, { signal });
+  for await (const event of result.stream as AsyncGenerator<EventSubscribeResponse>) {
+    if (signal.aborted) break;
+    ctx.eventCount += 1;
+    ctx.diagnostic.eventCount = ctx.eventCount;
+    // NB: `lastEventAt` (the inner-watchdog clock) is intentionally NOT bumped
+    // here — opencode's keepalive/lifecycle/idle events would otherwise mask a
+    // provider stall (the model going silent mid-turn looks like steady event
+    // flow). it is refreshed only on meaningful progress in `dispatchEvent`.
+    markActivity();
+    try {
+      await dispatchEvent(ctx, event);
+    } catch (err) {
       log.debug(
-        withLabel(
-          label,
-          `» ${params.label} init: session_id=${event.session_id || "unknown"}, model=${event.model || "unknown"}`
-        )
+        `» event dispatch threw for type=${(event as { type?: string }).type ?? "?"}: ${err instanceof Error ? err.message : String(err)}`
       );
-      log.debug(withLabel(label, `» ${params.label} init event (full): ${JSON.stringify(event)}`));
-      // only reset run-wide state on the orchestrator's init — child sessions
-      // emit their own init events and we don't want them to clobber the
-      // parent's accumulated counters.
-      if (label === ORCHESTRATOR_LABEL) {
-        finalOutput = "";
-        accumulatedTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
-        accumulatedCostUsd = 0;
-        tokensLogged = false;
-      } else {
-        log.info(`» ${params.label} subagent init: ${label} (session ${event.session_id || "?"})`);
-      }
-    },
-    message: (event: OpenCodeMessageEvent) => {
-      const label = eventLabel(event);
-      if (event.role === "assistant" && event.content?.trim()) {
-        const message = event.content.trim();
-        if (event.delta) {
-          log.debug(
-            withLabel(
-              label,
-              `» ${params.label} thinking: ${message.substring(0, 300)}${message.length > 300 ? "..." : ""}`
-            )
-          );
-        } else {
-          log.debug(
-            withLabel(
-              label,
-              `» ${params.label} message (${event.role}): ${message.substring(0, 100)}${message.length > 100 ? "..." : ""}`
-            )
-          );
-          // same reasoning as `text` handler — only orchestrator's non-delta
-          // assistant message is the run output; subagent reports stay scoped
-          // to the box / debug log.
-          if (label === ORCHESTRATOR_LABEL) {
-            finalOutput = message;
-          }
-        }
-      } else if (event.role === "user") {
-        log.debug(
-          withLabel(
-            label,
-            `» ${params.label} message (${event.role}): ${event.content?.substring(0, 100) || ""}${event.content && event.content.length > 100 ? "..." : ""}`
-          )
-        );
-      }
-    },
-    text: (event: OpenCodeTextEvent) => {
-      if (event.part?.text?.trim()) {
-        const message = event.part.text.trim();
-        const label = eventLabel(event);
-        const boxTitle = label === ORCHESTRATOR_LABEL ? params.label : `${params.label} [${label}]`;
-        log.box(message, { title: boxTitle });
-        // only the orchestrator's final text is the run's "output" — children
-        // emit their own text on report-back, which would clobber the parent's
-        // final answer if we accepted any text into finalOutput.
-        if (label === ORCHESTRATOR_LABEL) {
-          finalOutput = message;
-        }
-      }
-    },
-    step_start: (event: OpenCodeStepStartEvent) => {
-      const stepType = event.part?.type || "unknown";
-      const stepId = event.part?.id || "unknown";
-      currentStepId = stepId;
-      currentStepType = stepType;
-      stepHistory.push({ stepId, stepType, toolCalls: [] });
-    },
-    step_finish: async (event: OpenCodeStepFinishEvent) => {
-      const stepId = event.part?.id || "unknown";
-      const eventTokens = event.part?.tokens;
-      if (eventTokens) {
-        accumulatedTokens.input += eventTokens.input || 0;
-        accumulatedTokens.output += eventTokens.output || 0;
-        accumulatedTokens.cacheRead += eventTokens.cache?.read || 0;
-        accumulatedTokens.cacheWrite += eventTokens.cache?.write || 0;
-      }
-      // step_finish.part.cost is a per-step delta (not a running total) —
-      // OpenCode emits varying per-event values that sum to the session cost.
-      // verified empirically across Anthropic, OpenAI, Gemini, xAI, DeepSeek,
-      // Moonshot, and OpenRouter (see terramend-baseline/opencode-*.log).
-      // guard against NaN/Infinity — a single poison value would make the
-      // running total un-recoverable for the rest of the session.
-      if (typeof event.part?.cost === "number" && Number.isFinite(event.part.cost)) {
-        accumulatedCostUsd += event.part.cost;
-      }
-      if (currentStepId === stepId) {
-        currentStepId = null;
-        currentStepType = null;
-      }
-    },
-    tool_use: (event: OpenCodeToolUseEvent) => {
-      const toolName = event.part?.tool;
-      const toolId = event.part?.callID;
-      if (!toolName || !toolId) {
-        log.info(
-          `» tool_use event missing toolName or toolId: ${JSON.stringify(event).substring(0, 500)}`
-        );
-        return;
-      }
-
-      // when the orchestrator dispatches a subagent via the `task` tool, push
-      // a label for the upcoming child session so its events are attributable.
-      // record BEFORE label lookup: this event's session is the parent (whose
-      // label is already bound); the dispatch label is for the next new
-      // sessionID that appears.
-      if (toolName === "task") {
-        // may have been pre-registered via the plugin's early task-dispatch
-        // announcement (`terramend_bus_event` handler). dedupe on callID so
-        // we don't record the same dispatch twice (which would corrupt the
-        // FIFO label queue).
-        if (!taskDispatchByCallID.has(toolId)) {
-          const taskInput = (event.part?.state?.input ?? {}) as {
-            description?: string;
-            subagent_type?: string;
-            prompt?: string;
-          };
-          const dispatchedLabel = labeler.recordTaskDispatch(taskInput);
-          // dual-index by callID (fast path) AND in a FIFO queue (fallback path
-          // for when opencode's task tool_result carries a different callID).
-          const dispatch: TaskDispatch = {
-            label: dispatchedLabel,
-            startedAt: performance.now(),
-            toolUseCallID: toolId,
-          };
-          taskDispatchByCallID.set(toolId, dispatch);
-          pendingTaskDispatches.push(dispatch);
-          log.info(
-            `» dispatching subagent: ${dispatchedLabel}` +
-              (taskInput.subagent_type ? ` (subagent_type=${taskInput.subagent_type})` : "")
-          );
-        }
-      } else {
-        // remember non-task callIDs so a later tool_result with that callID
-        // is correctly identified as not-a-task (and we don't FIFO-pop a
-        // pending task by mistake).
-        knownNonTaskCallIDs.add(toolId);
-      }
-
-      const label = eventLabel(event);
-
-      if (stepHistory.length > 0) {
-        stepHistory[stepHistory.length - 1]!.toolCalls.push(toolName);
-      }
-
-      if (params.onToolUse) {
-        params.onToolUse({
-          toolName,
-          input: event.part?.state?.input,
-        });
-      }
-
-      timerFor(label).markToolCall();
-      const inputFormatted = formatJsonValue(event.part?.state?.input || {});
-      const toolCallLine =
-        inputFormatted !== "{}" ? `» ${toolName}(${inputFormatted})` : `» ${toolName}()`;
-      log.info(withLabel(label, toolCallLine));
-
-      if (event.part?.state?.status === "completed" && event.part.state.output) {
-        log.debug(withLabel(label, `  output: ${event.part.state.output}`));
-      }
-      // surface tool errors at info level. opencode emits tool parts at
-      // status="error" through the same `tool_use` event the CLI's run-loop
-      // (and our injected plugin for subagent parts) emits — without this
-      // branch the only signal in the user's logs is `» <tool>(...)` with
-      // no indication the call failed.
-      if (event.part?.state?.status === "error") {
-        log.info(withLabel(label, `» tool call failed: ${event.part.state.error}`));
-      }
-
-      // agent's explicit MCP report_progress takes priority over todo tracking
-      if (toolName.includes("report_progress") && params.todoTracker) {
-        log.debug("» report_progress detected, disabling todo tracking");
-        params.todoTracker.cancel();
-      }
-
-      // parse todowrite events for live progress tracking
-      if (toolName === "todowrite" && params.todoTracker?.enabled) {
-        params.todoTracker.update(event.part?.state?.input);
-      }
-    },
-    tool_result: (event: OpenCodeToolResultEvent) => {
-      const toolId = event.part?.callID || event.tool_id;
-      const state = event.part?.state;
-      const status = state?.status ?? event.status ?? "unknown";
-      const payload =
-        state?.status === "completed"
-          ? state.output
-          : state?.status === "error"
-            ? state.error
-            : event.output;
-      const label = eventLabel(event);
-
-      timerFor(label).markToolResult();
-
-      // surface subagent completion at info level — opencode otherwise hides
-      // per-task timing in debug-only logs, so a parallel multi-lens fan-out
-      // looks like N dispatches followed by a long quiet gap then a single
-      // assistant turn. with this line you can see each lens finishing.
-      //
-      // matching is hybrid: exact callID first; FIFO fallback when the
-      // tool_result's callID is unrecognised. opencode does not consistently
-      // surface matching callIDs for the `task` tool, so the FIFO path is the
-      // one that fires in practice. we only fall through to FIFO when the
-      // callID is brand-new (not in `knownNonTaskCallIDs`) so genuinely
-      // non-task tool_results never accidentally pop a pending task.
-      if (taskDispatchByCallID.size > 0 || pendingTaskDispatches.length > 0) {
-        if (toolId && taskDispatchByCallID.has(toolId)) {
-          const dispatch = taskDispatchByCallID.get(toolId);
-          if (dispatch) emitSubagentFinished(dispatch, status, payload, "exact");
-        } else {
-          const callIDIsKnownNonTask = toolId ? knownNonTaskCallIDs.has(toolId) : false;
-          if (!callIDIsKnownNonTask && pendingTaskDispatches.length > 0) {
-            const dispatch = pendingTaskDispatches[0]!;
-            emitSubagentFinished(dispatch, status, payload, "fifo");
-          }
-        }
-      }
-
-      if (toolId) {
-        const toolStartTime = toolCallTimings.get(toolId);
-        if (toolStartTime) {
-          const toolDuration = performance.now() - toolStartTime;
-          toolCallTimings.delete(toolId);
-          const stepContext = currentStepId ? ` (step=${currentStepType || "unknown"})` : "";
-          log.debug(
-            withLabel(
-              label,
-              `» ${params.label} tool_result${stepContext}: id=${toolId}, status=${status}, duration=${Math.round(toolDuration)}ms`
-            )
-          );
-          if (payload) {
-            log.debug(withLabel(label, `  output: ${payload}`));
-          }
-          if (toolDuration > 5000) {
-            log.info(
-              withLabel(
-                label,
-                `» tool call took ${(toolDuration / 1000).toFixed(1)}s - may indicate network latency`
-              )
-            );
-          }
-        }
-      }
-      if (status === "error") {
-        log.info(withLabel(label, `» tool call failed: ${payload ?? "(no error message)"}`));
-      } else if (payload) {
-        log.debug(withLabel(label, `tool output: ${payload}`));
-      }
-    },
-    error: (event: OpenCodeErrorEvent) => {
-      // opencode emits a `type=error` event when a provider call fails (e.g.
-      // 401 Invalid authentication credentials). the underlying CLI still
-      // exits 0 because the error was returned cleanly by the LLM SDK, so
-      // unless we capture this event the run is reported as success.
-      agentErrorEvent = event;
-      const errorName = event.error?.name || "unknown";
-      const errorMessage = event.error?.data?.message || event.error?.name || JSON.stringify(event);
-      log.info(`» ${params.label} error event: ${errorName}: ${errorMessage}`);
-    },
-    result: async (event: OpenCodeResultEvent) => {
-      const status = event.status || "unknown";
-      const duration = event.stats?.duration_ms || 0;
-      const toolCalls = event.stats?.tool_calls || 0;
-      log.info(
-        `» ${params.label} result: status=${status}, duration=${duration}ms, tool_calls=${toolCalls}`
-      );
-
-      if (event.status === "error") {
-        log.info(`» ${params.label} failed: ${JSON.stringify(event)}`);
-      } else {
-        // the final `result` event only carries input_tokens/output_tokens and
-        // no cache breakdown — accumulatedTokens (summed across step_finish
-        // events) is strictly more accurate, so we prefer it unconditionally.
-        log.info(`» run complete: tool_calls=${toolCalls}, duration=${duration}ms`);
-
-        if (
-          (accumulatedTokens.input > 0 ||
-            accumulatedTokens.output > 0 ||
-            accumulatedTokens.cacheRead > 0 ||
-            accumulatedTokens.cacheWrite > 0) &&
-          !tokensLogged
-        ) {
-          logTokenTable({ ...accumulatedTokens, costUsd: accumulatedCostUsd });
-          tokensLogged = true;
-        }
-      }
-    },
-    [TERRAMEND_BUS_EVENT_TYPE]: async (event: OpenCodeBusEnvelopeEvent) => {
-      // surface subagent activity that opencode's CLI run-loop discards (it
-      // filters `part.sessionID !== sessionID`). our injected plugin
-      // (action/agents/opencodePlugin.ts) re-emits non-orchestrator
-      // `message.part.updated` bus events; here we synthesize the equivalent
-      // CLI-style event for each known part type and dispatch through the
-      // existing handlers so labeling, attribution, and logging all reuse the
-      // same code path as the orchestrator's events. mirrors the dispatch
-      // logic in opencode-ai's `cli/cmd/run.ts` `loop()` function.
-      const busEvent = event.bus_event;
-      if (!busEvent || busEvent.type !== "message.part.updated") return;
-      const part = busEvent.properties?.part;
-      if (!part || typeof part.sessionID !== "string") return;
-      const sessionID = part.sessionID;
-      const partType = part.type;
-
-      // early task dispatch: the orchestrator's task tool fires bus events at
-      // status=running BEFORE the subagent's first message.part.updated, but
-      // the CLI's run-loop only emits the matching tool_use NDJSON event at
-      // status=completed (after the subagent finishes). without
-      // pre-registering the dispatch label here, the labeler binds the
-      // subagent's sessionID to a generic `subagent#N` fallback before the
-      // CLI's tool_use ever fires recordTaskDispatch. dedupe against
-      // taskDispatchByCallID so the late tool_use handler doesn't double-add.
-      if (partType === "tool") {
-        const status = part.state?.status;
-        const partWithToolFields = part as {
-          tool?: string;
-          callID?: string;
-          state?: { status?: string; input?: unknown };
-        };
-        // only running (not pending) — at pending state.input is still {}.
-        // by running, the LLM has filled in description/subagent_type/prompt.
-        // mirrors the same check in the plugin source.
-        const isOrchestratorTaskDispatch =
-          partWithToolFields.tool === "task" && status === "running";
-        if (isOrchestratorTaskDispatch) {
-          const callID = partWithToolFields.callID;
-          if (typeof callID === "string" && !taskDispatchByCallID.has(callID)) {
-            const taskInput = (partWithToolFields.state?.input ?? {}) as {
-              description?: string;
-              subagent_type?: string;
-              prompt?: string;
-            };
-            const dispatchedLabel = labeler.recordTaskDispatch(taskInput);
-            const dispatch: TaskDispatch = {
-              label: dispatchedLabel,
-              startedAt: performance.now(),
-              toolUseCallID: callID,
-            };
-            taskDispatchByCallID.set(callID, dispatch);
-            pendingTaskDispatches.push(dispatch);
-            log.info(
-              `» dispatching subagent: ${dispatchedLabel}` +
-                (taskInput.subagent_type ? ` (subagent_type=${taskInput.subagent_type})` : "")
-            );
-          }
-          return;
-        }
-        if (status !== "completed" && status !== "error") return;
-        await handlers.tool_use({
-          type: "tool_use",
-          sessionID,
-          part,
-        } as OpenCodeToolUseEvent);
-        return;
-      }
-      // intentionally NOT routing subagent step_start / step_finish through
-      // the orchestrator's handlers:
-      //   - step_finish carries `tokens` and `cost` and the handler folds
-      //     them into the run-wide accumulators. surfacing subagent steps
-      //     here would inflate the orchestrator's usage telemetry — and
-      //     either double-count (if opencode also bills child tokens back
-      //     up to the parent session) or just over-report. the existing
-      //     init/message/text handlers all gate on ORCHESTRATOR_LABEL for
-      //     the same reason.
-      //   - step_start mutates `currentStepId` / `currentStepType` /
-      //     `stepHistory`, which are orchestrator-scoped — using them to
-      //     attribute subagent activity in the orchestrator's tool-use
-      //     timing log would be wrong.
-      // the subagent's tool calls and text still surface (handled below)
-      // — that's the user-visible activity.
-      if (partType === "step-start" || partType === "step-finish") return;
-      if (partType === "text" && part.time?.end !== undefined) {
-        await handlers.text({
-          type: "text",
-          sessionID,
-          part,
-        } as OpenCodeTextEvent);
-        return;
-      }
-    },
-  };
-
-  const recentStderr: string[] = [];
-
-  let lastProviderError: string | null = null;
-  let agentErrorEvent: OpenCodeErrorEvent | null = null;
-
-  // shared with main.ts via toolState. updated in place as events stream and
-  // stderr accumulates so the outer activity-timeout catch sees the same
-  // context the harness's own catch path uses to format `result.error`.
-  // recentStderr is shared by reference; the scalar fields are mirrored on
-  // each update below.
-  const diagnostic: AgentDiagnostic = {
-    label: params.label,
-    recentStderr,
-    lastProviderError: undefined,
-    eventCount: 0,
-  };
-  params.toolState.agentDiagnostic = diagnostic;
-
-  // capped accumulator for the agent's narration. used as a post-run fallback
-  // when `finalOutput` (the orchestrator's final assistant message) is empty.
-  // unbounded `output += text` previously grew to ~1 GiB on multi-lens Reviews
-  // and contributed to the wrapper-level RangeError. retain:"none" on spawn
-  // skips the duplicate buffer there; this TailBuffer caps the agent layer.
-  const output = new TailBuffer(DEFAULT_MAX_RETAINED_BYTES);
-  let stdoutBuffer = "";
-
-  try {
-    const result = await spawn({
-      cmd: params.cliPath,
-      args: params.args,
-      cwd: params.cwd,
-      env: params.env,
-      // flat agent idle budget — long synchronous MCP tool calls (issue #760)
-      // sit well under it, so no per-toolcall suspend bracketing is needed.
-      activityTimeout: AGENT_ACTIVITY_TIMEOUT_MS,
-      onActivityTimeout: params.onActivityTimeout,
-      stdio: ["ignore", "pipe", "pipe"],
-      // node_modules/opencode-ai/bin/opencode is a Node shim that spawnSyncs
-      // the native opencode-<plat>-<arch> binary with stdio:"inherit". without
-      // a process-group kill, SIGKILL hits only the shim, the native binary
-      // is reparented to PID 1, holds our stdout pipe open, and `child.close`
-      // never fires — producing zombie runs. detached + killGroup nukes the
-      // whole tree.
-      killGroup: true,
-      // we already drain every chunk via onStdout/onStderr (NDJSON parsing
-      // + recentStderr ring buffer). retaining a second copy in the spawn
-      // wrapper would grow unbounded for multi-lens Reviews and previously
-      // crashed the wrapper with RangeError at ~1 GiB. see issue #680.
-      retain: "none",
-      onStdout: async (chunk) => {
-        const text = chunk.toString();
-        output.append(text);
-        markActivity();
-
-        stdoutBuffer += text;
-        const lines = stdoutBuffer.split("\n");
-        stdoutBuffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-
-          let event: OpenCodeEvent;
-          try {
-            event = JSON.parse(trimmed) as OpenCodeEvent;
-          } catch {
-            log.debug(`» non-JSON stdout line: ${trimmed.substring(0, 200)}`);
-            continue;
-          }
-
-          eventCount++;
-          diagnostic.eventCount = eventCount;
-          log.debug(JSON.stringify(event, null, 2));
-
-          const timeSinceLastActivity = getIdleMs();
-          if (timeSinceLastActivity > 10000) {
-            const activeToolCalls = toolCallTimings.size;
-            const toolCallInfo =
-              activeToolCalls > 0
-                ? ` (waiting for ${activeToolCalls} tool call${activeToolCalls > 1 ? "s" : ""})`
-                : ` (${params.label} may be processing internally - LLM calls, planning, etc.)`;
-            log.info(
-              `» no activity for ${(timeSinceLastActivity / 1000).toFixed(1)}s${toolCallInfo} (${eventCount} events processed so far)`
-            );
-          }
-          markActivity();
-
-          const handler = handlers[event.type as keyof typeof handlers];
-          if (!handler) {
-            log.info(
-              `» ${params.label} event (unhandled): type=${event.type}, data=${JSON.stringify(event).substring(0, 500)}`
-            );
-            continue;
-          }
-          try {
-            await handler(event as never);
-          } catch (err) {
-            log.info(
-              `» ${params.label} handler for type=${event.type} threw: ${err instanceof Error ? err.message : String(err)}`
-            );
-          }
-        }
-      },
-      onStderr: (chunk) => {
-        const trimmed = chunk.trim();
-        if (!trimmed) return;
-
-        recentStderr.push(trimmed);
-        if (recentStderr.length > MAX_STDERR_LINES) recentStderr.shift();
-
-        const match = findProviderErrorMatch(trimmed);
-        if (match) {
-          lastProviderError = match.label;
-          diagnostic.lastProviderError = match.label;
-          log.info(`» provider error detected (${match.label}): ${match.excerpt}`);
-        } else {
-          log.debug(trimmed);
-        }
-      },
-    });
-
-    if (result.exitCode === 0) {
-      await params.todoTracker?.flush();
-    } else {
-      params.todoTracker?.cancel();
     }
-
-    // any pending task dispatches that never got a matching tool_result are
-    // surfaced here so the gap is visible rather than silently swallowed.
-    // this happens when opencode delivers the subagent's reply through a
-    // path other than tool_result (e.g. inlined into the next assistant
-    // message). flushing here is best-effort attribution — the durations
-    // reported are upper bounds (the subagent could have finished any time
-    // between dispatch and run-end), but the labels and ordering are exact.
-    //
-    // NB: the `result` event handler is dead in opencode (opencode never
-    // emits a `result`-typed event), which is why this flush lives here in
-    // the post-subprocess block instead.
-    if (pendingTaskDispatches.length > 0) {
-      for (const dispatch of [...pendingTaskDispatches]) {
-        const elapsed = performance.now() - dispatch.startedAt;
-        log.info(
-          `» subagent finished (inferred at run-end): ${dispatch.label} (≤${(elapsed / 1000).toFixed(1)}s) — no matching tool_result observed; subagent reply likely arrived via assistant message`
-        );
-      }
-      pendingTaskDispatches.length = 0;
-      taskDispatchByCallID.clear();
-    }
-
-    const duration = performance.now() - startTime;
-    log.info(
-      `» ${params.label} completed in ${Math.round(duration)}ms with exit code ${result.exitCode}`
-    );
-
-    if (eventCount === 0) {
-      const stderrContext = recentStderr.join("\n");
-      const diagnosis = lastProviderError
-        ? `provider error: ${lastProviderError}`
-        : "unknown cause (no stdout events received)";
-      log.info(`» ${params.label} produced 0 events (${diagnosis})`);
-      if (stderrContext) log.info(`» last stderr output:\n${stderrContext}`);
-    }
-
-    if (
-      !tokensLogged &&
-      (accumulatedTokens.input > 0 ||
-        accumulatedTokens.output > 0 ||
-        accumulatedTokens.cacheRead > 0 ||
-        accumulatedTokens.cacheWrite > 0)
-    ) {
-      logTokenTable({ ...accumulatedTokens, costUsd: accumulatedCostUsd });
-      tokensLogged = true;
-    }
-
-    const usage = buildUsage();
-
-    if (result.exitCode !== 0) {
-      const errorContext = lastProviderError ? ` (${lastProviderError})` : "";
-      // result.stdout / result.stderr are empty because we pass retain:"none"
-      // to spawn (see issue #680); use the agent's bounded mirrors instead.
-      const stdoutSnapshot = output.toString();
-      const stderrSnapshot = recentStderr.join("\n");
-      const errorMessage =
-        stderrSnapshot ||
-        stdoutSnapshot ||
-        `unknown error - no output from OpenCode CLI${errorContext}`;
-      log.error(
-        `${params.label} exited with code ${result.exitCode}${errorContext}: ${errorMessage}`
-      );
-      log.debug(`stdout: ${stdoutSnapshot.substring(0, 500)}`);
-      log.debug(`stderr: ${stderrSnapshot.substring(0, 500)}`);
-      return {
-        success: false,
-        output: finalOutput || stdoutSnapshot,
-        error: errorMessage,
-        usage,
-      };
-    }
-
-    if (eventCount === 0 && lastProviderError) {
-      return {
-        success: false,
-        output: finalOutput || output.toString(),
-        error: `provider error: ${lastProviderError}`,
-        usage,
-      };
-    }
-
-    if (agentErrorEvent) {
-      const errorEvent: OpenCodeErrorEvent = agentErrorEvent;
-      const errorName = errorEvent.error?.name || "agent error";
-      const errorMessage =
-        errorEvent.error?.data?.message || errorEvent.error?.name || JSON.stringify(errorEvent);
-      return {
-        success: false,
-        output: finalOutput || output.toString(),
-        error: `${errorName}: ${errorMessage}`,
-        usage,
-      };
-    }
-
-    return { success: true, output: finalOutput || output.toString(), usage };
-  } catch (error) {
-    params.todoTracker?.cancel();
-    const duration = performance.now() - startTime;
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const isActivityTimeout =
-      error instanceof SpawnTimeoutError && error.code === SPAWN_ACTIVITY_TIMEOUT_CODE;
-
-    const stderrContext = recentStderr.slice(-10).join("\n");
-    const diagnosis = lastProviderError
-      ? `likely cause: ${lastProviderError}`
-      : eventCount === 0
-        ? "OpenCode produced 0 stdout events - check if the model provider is reachable"
-        : `${eventCount} events were processed before the hang`;
-
-    log.info(
-      `» ${params.label} ${isActivityTimeout ? "hung" : "failed"} after ${(duration / 1000).toFixed(1)}s: ${errorMessage}`
-    );
-    log.info(`» diagnosis: ${diagnosis}`);
-    if (stderrContext)
-      log.info(
-        `» recent stderr (last ${Math.min(recentStderr.length, 10)} lines):\n${stderrContext}`
-      );
-
-    const body = formatAgentHangBody({ diagnostic, isHang: isActivityTimeout, errorMessage });
-    return {
-      success: false,
-      output: finalOutput || output.toString(),
-      error: body ?? `${errorMessage} [${diagnosis}]`,
-      usage: buildUsage(),
-    };
   }
 }
 
-// ── agent ───────────────────────────────────────────────────────────────────────
+async function dispatchEvent(ctx: RunnerContext, event: EventSubscribeResponse): Promise<void> {
+  // event union covers heartbeats, session lifecycle, message lifecycle, tui,
+  // mcp, etc. we only care about a small subset.
+  if (event.type === "message.part.updated") {
+    // real model/tool progress: token/text/reasoning streaming and tool
+    // part transitions all arrive as part.updated. this is the only event
+    // class that refreshes the inner-watchdog clock.
+    ctx.lastEventAt = performance.now();
+    await onPartUpdated(ctx, event.properties.part);
+    return;
+  }
+  if (event.type === "session.error") {
+    const sessionID = event.properties.sessionID;
+    if (sessionID !== ctx.orchestratorSessionID) return;
+    const err = event.properties.error;
+    const message = err ? extractErrorMessage(err) : "(no error payload)";
+    if (ctx.currentTurn) ctx.currentTurn.sessionError = message;
+    log.info(`» ${ctx.label} session error: ${message}`);
+    return;
+  }
+  // session.idle / session.status are useful breadcrumbs but we don't drive
+  // anything off them — the prompt() POST returns when the assistant message
+  // is committed, which is also when the session goes idle.
+}
+
+function extractErrorMessage(err: {
+  name?: string;
+  data?: { message?: string; [key: string]: unknown };
+}): string {
+  if (err.data?.message) return err.data.message;
+  if (err.name) return err.name;
+  return JSON.stringify(err);
+}
+
+async function onPartUpdated(ctx: RunnerContext, part: Part): Promise<void> {
+  const label = ctx.labeler.labelFor(part.sessionID);
+  const isOrchestrator = part.sessionID === ctx.orchestratorSessionID;
+
+  // text — only orchestrator's final text becomes the run's "output";
+  // subagent text is logged but not folded into finalOutput.
+  if (part.type === "text" && part.time?.end !== undefined) {
+    const text = part.text.trim();
+    if (!text) return;
+    const boxTitle = label === ORCHESTRATOR_LABEL ? ctx.label : `${ctx.label} [${label}]`;
+    log.box(text, { title: boxTitle });
+    if (isOrchestrator && ctx.currentTurn) {
+      ctx.currentTurn.finalText = text;
+    }
+    return;
+  }
+
+  if (part.type === "reasoning" && part.time.end !== undefined) {
+    const text = part.text.trim();
+    if (!text) return;
+    const dur = formatPartDuration(part.time);
+    const preview = text.length > 280 ? `${text.slice(0, 280)}…` : text;
+    log.info(withLabel(label, `» thinking${dur}: ${preview.replace(/\n+/g, " ")}`));
+    if (text.length > 280) log.debug(withLabel(label, `» thinking (full): ${text}`));
+    return;
+  }
+
+  if (part.type === "step-finish") {
+    // aggregate orchestrator AND subagent step-finish events into the same
+    // per-turn accumulator. The legacy CLI harness summed both via opencode's
+    // CLI `--print-logs` output; filtering subagents here would silently
+    // undercount production cost/usage by the reviewfrog subagent's
+    // contribution (often the bulk of a Review-mode turn).
+    if (!ctx.currentTurn) return;
+    const t = part.tokens;
+    if (t) {
+      ctx.currentTurn.tokens.input += t.input || 0;
+      ctx.currentTurn.tokens.output += t.output || 0;
+      ctx.currentTurn.tokens.cacheRead += t.cache?.read || 0;
+      ctx.currentTurn.tokens.cacheWrite += t.cache?.write || 0;
+    }
+    if (typeof part.cost === "number" && Number.isFinite(part.cost)) {
+      ctx.currentTurn.costUsd += part.cost;
+    }
+    return;
+  }
+
+  if (part.type === "tool") {
+    await onToolPart(ctx, part, label, isOrchestrator);
+    return;
+  }
+
+  // step-start / snapshot / patch / agent / retry / compaction / subtask /
+  // file: nothing actionable here.
+}
+
+async function onToolPart(
+  ctx: RunnerContext,
+  part: Extract<Part, { type: "tool" }>,
+  label: string,
+  isOrchestrator: boolean
+): Promise<void> {
+  const status = part.state.status;
+  const toolName = part.tool;
+  const toolId = part.callID;
+
+  // early task-dispatch announce: bind subagent sessionID to a label as soon
+  // as the orchestrator's task tool transitions to "running" (where input is
+  // populated). dedupe against later terminal observations via callID.
+  if (
+    toolName === "task" &&
+    status === "running" &&
+    isOrchestrator &&
+    !ctx.taskDispatchByCallID.has(toolId)
+  ) {
+    const input = (part.state.input ?? {}) as {
+      description?: string;
+      subagent_type?: string;
+      prompt?: string;
+    };
+    const dispatched = ctx.labeler.recordTaskDispatch(input);
+    ctx.taskDispatchByCallID.set(toolId, { label: dispatched, startedAt: performance.now() });
+    log.info(
+      `» dispatching subagent: ${dispatched}` +
+        (input.subagent_type ? ` (subagent_type=${input.subagent_type})` : "")
+    );
+    return;
+  }
+
+  // terminal bookkeeping (log line, side effects) runs once per callID via
+  // `processTerminalToolPart` — see its docstring for the dedup contract
+  // shared with the end-of-turn fallback.
+  processTerminalToolPart(ctx, part, label, isOrchestrator);
+}
+
+/**
+ * shared terminal bookkeeping for a tool part: log line, dedup callID, run
+ * orchestrator-side hooks (`onToolUse` → diff-coverage tracker; `todowrite` /
+ * `report_progress` → todo tracker; tool-error → `lastToolError`), and emit
+ * subagent-finish summary on `task` returns.
+ *
+ * called from both the live SSE path (`onToolPart`) and the end-of-turn
+ * fallback (`logUnseenToolCalls`) — `loggedToolCallIDs` is the dedup guard
+ * so each call's side effects fire exactly once across both paths. critical
+ * for diff-coverage: a first-turn `Read` that races SSE attach would
+ * otherwise be missed by `recordDiffReadFromToolUse`, and the subsequent
+ * `create_pull_request_review` pre-flight would reject the review.
+ */
+function processTerminalToolPart(
+  ctx: RunnerContext,
+  part: Extract<Part, { type: "tool" }>,
+  label: string,
+  isOrchestrator: boolean
+): void {
+  const toolName = part.tool;
+  const toolId = part.callID;
+  const state = part.state;
+  if (state.status !== "completed" && state.status !== "error") return;
+  if (isOrchestrator && ctx.loggedToolCallIDs.has(toolId)) return;
+
+  const input = state.input ?? {};
+  const inputFormatted = formatJsonValue(input);
+  const callLine = inputFormatted !== "{}" ? `» ${toolName}(${inputFormatted})` : `» ${toolName}()`;
+  log.info(withLabel(label, callLine));
+  if (isOrchestrator) ctx.loggedToolCallIDs.add(toolId);
+
+  if (state.status === "completed") {
+    log.debug(withLabel(label, `  output: ${state.output}`));
+  } else {
+    log.info(withLabel(label, `» tool call failed: ${state.error}`));
+    if (isOrchestrator && ctx.currentTurn) {
+      ctx.currentTurn.lastToolError = state.error;
+    }
+  }
+
+  // subagent finish bookkeeping — exact callID match (v1.15 keeps callID
+  // stable across the whole tool-input → tool-call → terminal chain).
+  if (toolName === "task") {
+    const dispatch = ctx.taskDispatchByCallID.get(toolId);
+    if (dispatch) {
+      const dur = ((performance.now() - dispatch.startedAt) / 1000).toFixed(1);
+      const outputStr = state.status === "completed" ? state.output : "";
+      const preview =
+        typeof outputStr === "string" && outputStr.length > 120
+          ? `${outputStr.slice(0, 120)}…`
+          : outputStr;
+      log.info(
+        `» subagent finished: ${dispatch.label} (${dur}s, status=${state.status})` +
+          (preview ? ` — ${String(preview).replace(/\n/g, " ")}` : "")
+      );
+      ctx.taskDispatchByCallID.delete(toolId);
+    }
+  }
+
+  // forward orchestrator tool usage to the harness's hooks. subagent
+  // tool calls don't count toward the parent's diff-coverage tracking —
+  // it's the orchestrator that submits the review.
+  if (isOrchestrator) {
+    ctx.onToolUse?.({ toolName, input });
+  }
+
+  if (toolName.includes("report_progress") && ctx.todoTracker) {
+    log.debug("» report_progress detected, disabling todo tracking");
+    ctx.todoTracker.cancel();
+  }
+  if (toolName === "todowrite" && ctx.todoTracker?.enabled && isOrchestrator) {
+    ctx.todoTracker.update(input);
+  }
+}
+
+/**
+ * end-of-turn safety net for tool-call bookkeeping. queries `session.messages`
+ * for the canonical orchestrator transcript and replays any tool callID the
+ * live event stream hasn't already processed — closes the SSE-connect race
+ * documented on `loggedToolCallIDs`. `session.prompt`'s own `data.parts` is
+ * only the final assistant message's parts (mostly text/reasoning); the tool
+ * calls in earlier steps of the same turn live on prior messages, so we need
+ * the full session-scoped read.
+ *
+ * delegates to `processTerminalToolPart` so the same side effects fire as
+ * on the live SSE path: log line, `onToolUse` (diff-coverage feed),
+ * `todoTracker` updates, `lastToolError`. completed/errored parts only;
+ * pending states are inflight and not yet meaningful.
+ */
+async function logUnseenToolCalls(ctx: RunnerContext): Promise<void> {
+  try {
+    const resp = await ctx.client.session.messages({ sessionID: ctx.orchestratorSessionID });
+    if (resp.error || !resp.data) return;
+    for (const message of resp.data) {
+      for (const part of message.parts) {
+        if (part.type !== "tool") continue;
+        processTerminalToolPart(ctx, part, ORCHESTRATOR_LABEL, true);
+      }
+    }
+  } catch (err) {
+    log.debug(`» logUnseenToolCalls failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function formatPartDuration(time: { start?: number; end?: number } | undefined): string {
+  if (!time || typeof time.start !== "number" || typeof time.end !== "number") return "";
+  if (time.end <= time.start) return "";
+  return ` (${((time.end - time.start) / 1000).toFixed(1)}s)`;
+}
+
+function withLabel(label: string, message: string): string {
+  return label === ORCHESTRATOR_LABEL ? message : formatWithLabel(label, message);
+}
+
+// ── per-turn execution ─────────────────────────────────────────────────────────
+
+/**
+ * Run a single prompt turn against the persistent server. Resets the per-turn
+ * accumulator, calls `client.session.prompt()`, then assembles an AgentResult
+ * from the returned AssistantMessage + accumulated event state.
+ *
+ * Token / cost: `AssistantMessage.tokens` and `.cost` are authoritative for
+ * the turn. The event-stream accumulator is a fallback / sanity-check path
+ * used when the response is missing (e.g. abort, transport error) — and as
+ * the only source of per-step subagent attribution if we ever surface it.
+ */
+async function runPromptTurn(
+  ctx: RunnerContext,
+  params: {
+    text: string;
+    model: { providerID: string; modelID: string } | undefined;
+    signal: AbortSignal;
+  }
+): Promise<AgentResult> {
+  const start = performance.now();
+  // record the turn boundary in milliseconds (matches AssistantMessage.time.created)
+  // so the post-turn aggregator can isolate this turn's messages from the prior
+  // turns' messages on the same persistent orchestrator session.
+  const turnStartMs = Date.now();
+  ctx.currentTurn = newTurn();
+  const turn = ctx.currentTurn;
+
+  const part: TextPartInput = { type: "text", text: params.text };
+
+  let assistant: AssistantMessage | undefined;
+  let returnedParts: Part[] | undefined;
+  let networkError: string | null = null;
+  try {
+    const response = await ctx.client.session.prompt(
+      {
+        sessionID: ctx.sessionID,
+        parts: [part],
+        ...(params.model ? { model: params.model } : {}),
+      },
+      // wire the inner activity watchdog's abort signal into the SDK request
+      // — without this a hung HTTP keeps the run stuck even after the
+      // watchdog fires.
+      { signal: params.signal }
+    );
+    if (response.error) {
+      networkError = formatPromptError(response.error);
+    } else if (response.data) {
+      assistant = response.data.info;
+      returnedParts = response.data.parts;
+    } else {
+      // neither error nor data — malformed/partial SDK response. don't silently
+      // succeed with an empty AgentResult; treat as a failure so the gate loop
+      // surfaces it instead of looping on a "successful" no-op.
+      networkError = "opencode prompt returned neither data nor error";
+    }
+  } catch (err) {
+    networkError = err instanceof Error ? err.message : String(err);
+  }
+  const durationMs = performance.now() - start;
+
+  // authoritative cost/usage: walk every assistant message that landed during
+  // this turn (orchestrator session + any subagent sessions dispatched while
+  // it ran) and sum tokens + cost. The step-finish accumulator and the live
+  // AssistantMessage from session.prompt are both non-authoritative for a
+  // multi-step turn — step-finish events arrive on the SSE stream after
+  // session.prompt has already resolved (at least for the final message),
+  // and AssistantMessage carries only the final message's usage. Mirrors v1's
+  // accumulator-after-the-fact model but driven by the canonical message
+  // store instead of best-effort SSE sniffing.
+  const aggregatedUsage = await aggregateTurnUsage(ctx, turnStartMs);
+  const usage = aggregatedUsage ?? buildUsage(turn, assistant);
+
+  // surface the rendered final text. preference order:
+  //   1. orchestrator text part with time.end set (captured by event loop)
+  //   2. text part on the returned response (when present)
+  //   3. assistant message id as a last-resort placeholder
+  const finalText = turn.finalText || extractTextFromParts(returnedParts) || "";
+
+  await logUnseenToolCalls(ctx);
+
+  log.info(`» ${ctx.label} turn completed in ${Math.round(durationMs)}ms`);
+  if (usage) {
+    logTokenTable({
+      input: usage.inputTokens - (usage.cacheReadTokens ?? 0) - (usage.cacheWriteTokens ?? 0),
+      cacheRead: usage.cacheReadTokens ?? 0,
+      cacheWrite: usage.cacheWriteTokens ?? 0,
+      output: usage.outputTokens,
+      costUsd: usage.costUsd,
+    });
+  }
+
+  // failure modes, in order of authority:
+  //   1. transport / SDK-side error (response.error or thrown)
+  //   2. AssistantMessage.error set by the provider (auth, context overflow, etc.)
+  //   3. session.error event observed during the turn
+  if (networkError) {
+    // a watchdog-fired abort surfaces here as a caught `session.prompt`
+    // rejection (or an aborted `response.error`), not a throw that escapes to
+    // the caller. classify it as an `activity timeout` so `renderRunError`
+    // routes it through the hang renderer; any other transport failure falls
+    // through to the generic humanized renderer.
+    return {
+      success: false,
+      output: finalText,
+      error: params.signal.aborted
+        ? `activity timeout: the model went silent and the turn was aborted by the activity watchdog (${networkError})`
+        : `opencode prompt failed: ${networkError}`,
+      usage,
+    };
+  }
+  if (assistant?.error) {
+    return {
+      success: false,
+      output: finalText,
+      error: `provider error: ${extractErrorMessage(assistant.error)}`,
+      usage,
+    };
+  }
+  if (turn.sessionError) {
+    return {
+      success: false,
+      output: finalText,
+      error: `session error: ${turn.sessionError}`,
+      usage,
+    };
+  }
+
+  return { success: true, output: finalText, usage };
+}
+
+/**
+ * Sum the cost + tokens of every assistant message created during this turn,
+ * across the orchestrator session AND any subagent sessions dispatched while
+ * it ran. Authoritative: the SDK's own cost/tokens fields per message are the
+ * source of truth, identical to what `opencode --print-logs` aggregated in v1.
+ */
+async function aggregateTurnUsage(
+  ctx: RunnerContext,
+  turnStartMs: number
+): Promise<AgentUsage | undefined> {
+  // labeler tracks every sessionID we've observed events from on the
+  // global SSE stream, including any subagent (task tool) child sessions.
+  const sessionIDs = new Set<string>([ctx.orchestratorSessionID]);
+  for (const [sessionID] of ctx.labeler.entries()) {
+    sessionIDs.add(sessionID);
+  }
+
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
+  let costUsd = 0;
+  let counted = 0;
+
+  for (const sessionID of sessionIDs) {
+    try {
+      const resp = await ctx.client.session.messages({ sessionID });
+      if (resp.error || !resp.data) continue;
+      for (const msg of resp.data) {
+        if (msg.info.role !== "assistant") continue;
+        if (msg.info.time.created < turnStartMs) continue;
+        const t = msg.info.tokens;
+        inputTokens += t.input || 0;
+        outputTokens += t.output || 0;
+        cacheReadTokens += t.cache?.read || 0;
+        cacheWriteTokens += t.cache?.write || 0;
+        costUsd += msg.info.cost || 0;
+        counted++;
+      }
+    } catch (err) {
+      log.debug(
+        `» aggregateTurnUsage failed for session ${sessionID}: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  if (counted === 0) return undefined;
+
+  const total = inputTokens + cacheReadTokens + cacheWriteTokens;
+  if (total === 0 && outputTokens === 0 && costUsd === 0) return undefined;
+
+  return {
+    agent: "terramend",
+    inputTokens: total,
+    outputTokens,
+    cacheReadTokens: cacheReadTokens || undefined,
+    cacheWriteTokens: cacheWriteTokens || undefined,
+    costUsd: costUsd > 0 ? costUsd : undefined,
+  };
+}
+
+function buildUsage(
+  turn: TurnAccumulator,
+  assistant: AssistantMessage | undefined
+): AgentUsage | undefined {
+  // Prefer the step-finish accumulator: it sums every LLM call across the
+  // whole turn (orchestrator iterations + any subagent dispatches). The
+  // AssistantMessage at the SDK boundary only carries the *final* assistant
+  // message's tokens/cost — for a multi-step Review-mode turn that's just
+  // the closing acknowledgment, missing the bulk of the work. Fall back to
+  // assistant.tokens only if the accumulator is empty (e.g., the turn
+  // errored before any step-finish events landed).
+  const t = turn.tokens;
+  const accumulatorTotal = t.input + t.cacheRead + t.cacheWrite;
+  if (accumulatorTotal > 0 || t.output > 0 || turn.costUsd > 0) {
+    return {
+      agent: "terramend",
+      inputTokens: accumulatorTotal,
+      outputTokens: t.output,
+      cacheReadTokens: t.cacheRead || undefined,
+      cacheWriteTokens: t.cacheWrite || undefined,
+      costUsd: turn.costUsd > 0 ? turn.costUsd : undefined,
+    };
+  }
+  if (assistant) {
+    const at = assistant.tokens;
+    const total = (at.input || 0) + (at.cache?.read || 0) + (at.cache?.write || 0);
+    if (total === 0 && (at.output || 0) === 0 && (assistant.cost || 0) === 0) return undefined;
+    return {
+      agent: "terramend",
+      inputTokens: total,
+      outputTokens: at.output || 0,
+      cacheReadTokens: at.cache?.read || undefined,
+      cacheWriteTokens: at.cache?.write || undefined,
+      costUsd: assistant.cost > 0 ? assistant.cost : undefined,
+    };
+  }
+  return undefined;
+}
+
+function extractTextFromParts(parts: Part[] | undefined): string | undefined {
+  if (!parts) return undefined;
+  const texts: string[] = [];
+  for (const p of parts) {
+    if (p.type === "text" && p.text) texts.push(p.text);
+  }
+  const joined = texts.join("\n").trim();
+  return joined || undefined;
+}
+
+function formatPromptError(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const obj = error as { message?: string; error?: { message?: string }; data?: unknown };
+    if (obj.message) return obj.message;
+    if (obj.error?.message) return obj.error.message;
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
+// ── inner activity timer ───────────────────────────────────────────────────────
+
+/**
+ * Start an event-silence watchdog. The outer process-level activity timer
+ * (main.ts `createProcessOutputActivityTimeout`) watches `process.stdout.write`
+ * which our harness log lines drive — but it doesn't see SSE event silence
+ * when the harness is itself quiet. This inner timer specifically watches
+ * `ctx.lastEventAt` and fires `onActivityTimeout` so main.ts can tear down
+ * the MCP server early, mirroring the per-spawn watchdog in `subprocess.ts`.
+ *
+ * `ctx.lastEventAt` is refreshed only on meaningful progress (token/tool
+ * part.updated), so any prolonged gap with no progress advances the clock —
+ * including a long in-flight tool call. the budget is the same flat idle
+ * timeout as the outer watchdog, sized to exceed the worst-case legitimate
+ * silent tool window (#760), so a real tool can't trip it; a genuinely stalled
+ * provider or a hung tool does, at the flat budget.
+ */
+function startInnerActivityWatchdog(params: {
+  ctx: RunnerContext;
+  timeoutMs: number;
+  abortController: AbortController;
+}): { stop: () => void } {
+  let fired = false;
+  const id = setInterval(() => {
+    if (fired) return;
+    const idleMs = performance.now() - params.ctx.lastEventAt;
+    if (idleMs <= params.timeoutMs) return;
+    fired = true;
+    const idleSec = Math.round(idleMs / 1000);
+    log.info(
+      `» no opencode events for ${idleSec}s — aborting in-flight prompt and notifying harness`
+    );
+    params.abortController.abort();
+    try {
+      params.ctx.onActivityTimeout?.();
+    } catch (err) {
+      log.debug(
+        `inner activity callback threw: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }, 5_000);
+  id.unref?.();
+  return { stop: () => clearInterval(id) };
+}
+
+// ── agent entrypoint ───────────────────────────────────────────────────────────
 
 export const opencode = agent({
   name: "opencode",
@@ -1097,51 +980,25 @@ export const opencode = agent({
     const rawModel = ctx.resolvedModel ?? autoSelectModel();
 
     // bedrock route: opencode's `amazon-bedrock` provider expects the model
-    // string in `amazon-bedrock/<bedrock-id>` form. the bare AWS model ID
-    // (what the user puts in `BEDROCK_MODEL_ID`) needs the prefix added.
-    // detect via env-var sentinel — same pattern as claude.ts.
-    //
-    // we deliberately do NOT gate on `!isBedrockAnthropicId(rawModel)` here:
-    // Anthropic-on-Bedrock normally routes to claude-code (per `resolveAgent`),
-    // but `TERRAMEND_AGENT=opencode` is the documented escape hatch for forcing
-    // opencode regardless. when that override fires, opencode still needs the
-    // `amazon-bedrock/` prefix or the provider lookup fails with
-    // "Model not found: <modelId>/.". the Anthropic-vs-other discriminant
-    // only belongs in `resolveAgent`.
+    // in `amazon-bedrock/<bedrock-id>` form. detect via env-var sentinel
+    // (same pattern as claude.ts). do not gate on Anthropic-vs-other — that
+    // discriminant lives in resolveAgent.
     const bedrockModelId = process.env[BEDROCK_MODEL_ID_ENV]?.trim();
     const isBedrockRoute =
       rawModel !== undefined && bedrockModelId !== undefined && bedrockModelId === rawModel;
-    let model = rawModel;
-    if (isBedrockRoute) {
-      model = `amazon-bedrock/${rawModel}`;
-    }
     const vertexModel = resolveVertexOpenCodeModel(rawModel);
-    if (vertexModel) {
-      model = vertexModel;
-    }
+    const model = vertexModel ?? (isBedrockRoute ? `amazon-bedrock/${rawModel}` : rawModel);
 
     const homeEnv = {
       HOME: ctx.tmpdir,
       XDG_CONFIG_HOME: join(ctx.tmpdir, ".config"),
     };
-
-    mkdirSync(join(homeEnv.XDG_CONFIG_HOME, "opencode"), { recursive: true });
-
-    // drop our bus-event surfacing plugin into opencode's global config dir
-    // (which we've redirected to the per-run tmpdir via XDG_CONFIG_HOME).
-    // opencode auto-discovers plugins from `<Global.Path.config>/{plugin,plugins}/*.{ts,js}`
-    // (see `packages/opencode/src/config/config.ts:633` calling
-    // `ConfigPlugin.load(dir)`), so this lands in the loader without any
-    // config wiring. critically: this MUST be inside the tmpdir, never the
-    // user's repo working tree — see AGENTS.md.
+    // install the subagent gate into opencode's auto-discovered plugin dir
+    // (under the tmpdir-redirected XDG_CONFIG_HOME). v2 installs ONLY the gate,
+    // not the events re-emitter — it reads subagent events off the SDK stream,
+    // so the re-emitter would be dead weight. see action/agents/opencodePlugin.ts.
     const opencodePluginDir = join(homeEnv.XDG_CONFIG_HOME, "opencode", "plugin");
     mkdirSync(opencodePluginDir, { recursive: true });
-    writeFileSync(
-      join(opencodePluginDir, TERRAMEND_OPENCODE_PLUGIN_FILENAME),
-      TERRAMEND_OPENCODE_PLUGIN_SOURCE
-    );
-    // the subagent gate ships as a separate plugin so the active v2 harness
-    // can install it without the events re-emitter (see opencodePlugin.ts).
     writeFileSync(
       join(opencodePluginDir, TERRAMEND_OPENCODE_GATE_PLUGIN_FILENAME),
       TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE
@@ -1154,65 +1011,53 @@ export const opencode = agent({
       env: homeEnv,
       agent: "opencode",
     });
-
     installBundledSkills({ home: homeEnv.HOME });
 
-    // materialize CODEX_AUTH_JSON (Terramend-stored Codex subscription
-    // credential) into the runner's REAL $HOME/.local/share/opencode/auth.json
-    // so OpenCode's CodexAuthPlugin picks it up and routes openai requests
-    // through the ChatGPT subscription instead of needing OPENAI_API_KEY.
-    // see action/utils/codexHome.ts and wiki/codex-auth.md.
+    // materialize CODEX_AUTH_JSON into the runner's real $HOME/.local/share/
+    // opencode/auth.json so OpenCode's CodexAuthPlugin picks it up. see
+    // action/utils/codexHome.ts and wiki/codex-auth.md.
     const codexAuth = installCodexAuth();
-
-    // base args shared between initial run and continue runs
-    const baseArgs = ["run", "--format", "json", "--print-logs"];
 
     // OPENCODE_PERMISSION has absolute highest precedence (merged after managed/MDM configs).
     // external_directory gates ALL native filesystem tools (Read, Write, Edit, Glob, Grep, etc.)
     // for paths outside the project root. last-match-wins: deny everything, then allow /tmp.
-    // codex auth lives at /var/lib/terramend/opencode/auth.json (see codexHome.ts),
+    // codex auth lives at /var/lib/terramend/opencode/auth.json in CI (see codexHome.ts),
     // which is outside /tmp/* — deny-default protects it from native FS tools.
     //
-    // read + edit rules deny git surfaces INSIDE the project root (so
-    // external_directory doesn't gate them); the per-tool `read`/`edit`
-    // permissions support last-match-wins Wildcard.match against worktree-
-    // relative paths (see /tmp/opencode/packages/core/src/permission.ts).
-    // edit denies ALL of .git (blanket write — nothing legit writes .git via
-    // native tools; real commits go through MCP git tools in the action
-    // process, outside this gate; `*` is recursive in opencode's Wildcard) and
-    // covers edit/write/apply_patch via EDIT_TOOLS normalization. read denies
+    // read + edit rules deny git surfaces INSIDE the project root, where
+    // external_directory short-circuits (Instance.containsPath). edit denies
+    // ALL of .git (blanket write — nothing legit writes .git via native tools;
+    // MCP git tools run in the action process, outside this gate); read denies
     // only .git/config (narrow — broad .git read-blocks break orientation reads
-    // like .git/HEAD, and ASKPASS keeps live tokens out of .git/config).
-    // grep/glob match the search pattern not a filepath, so they can't be
-    // path-denied. mirrors the FS_MOUNTS read-only protection in
-    // action/mcp/shell.ts. canonical surfaces: action/agents/nativeFsDenies.ts.
+    // like .git/HEAD, and ASKPASS keeps live tokens out of .git/config). `*` is
+    // recursive in opencode's Wildcard dialect. grep/glob match the search
+    // pattern not a filepath, so they can't be path-denied (documented in
+    // wiki/security.md). canonical surfaces: action/agents/nativeFsDenies.ts.
     const permissionOverride = JSON.stringify({
       external_directory: { "*": "deny", "/tmp/*": "allow" },
       read: { "*": "allow", ...GIT_NATIVE_READ_DENY_OPENCODE },
       edit: { "*": "allow", ...GIT_NATIVE_WRITE_DENY_OPENCODE },
     });
 
-    const env: Record<string, string | undefined> = {
+    const repoDir = process.cwd();
+
+    // opencode-ai >=1.14 resolves the session's `directory` from process.env.PWD
+    // first (cli/cmd/run.ts:282 → Filesystem.resolve(PWD ?? cwd)). The server
+    // does the same per-request via the x-opencode-directory header, but we
+    // also pass PWD on the spawn env so any in-server tool that re-resolves
+    // cwd locally lands in repoDir.
+    const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...homeEnv,
+      PWD: repoDir,
       OPENCODE_CONFIG_CONTENT: buildSecurityConfig(ctx, model),
       OPENCODE_PERMISSION: permissionOverride,
       GOOGLE_GENERATIVE_AI_API_KEY:
         process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
     };
-
     if (codexAuth) {
-      // point OpenCode at the real-home XDG dir so it reads auth.json from
-      // where we wrote it (not the tmpdir-redirected default).
       env.XDG_DATA_HOME = codexAuth.xdgDataHome;
-      // remove OPENAI_API_KEY so OpenCode's provider merge unambiguously
-      // picks the OAuth path. with both set, the merge order in opencode
-      // makes the effective key ambiguous.
       delete env.OPENAI_API_KEY;
-      // hand the post-hook everything it needs to detect + persist refresh.
-      // post-hook runs in a fresh node process, so we have to ferry apiToken
-      // explicitly — env is preserved across main/post but our run-context
-      // JWT is computed at runtime and not put in env. see action/entryPost.ts.
       core.saveState(
         "codex_writeback",
         JSON.stringify({
@@ -1223,45 +1068,212 @@ export const opencode = agent({
       );
     }
 
-    const repoDir = process.cwd();
-
-    log.debug(`» starting Terramend (OpenCode): ${cliPath} ${baseArgs.join(" ")}`);
+    log.debug(`» starting Terramend (OpenCode, in-process SDK): ${cliPath}`);
     log.debug(`» working directory: ${repoDir}`);
 
-    const runParams = {
-      label: "Terramend",
-      cliPath,
-      cwd: repoDir,
-      env,
-      toolState: ctx.toolState,
-      todoTracker: ctx.todoTracker,
-      onActivityTimeout: ctx.onActivityTimeout,
-      onToolUse: ctx.onToolUse,
+    // ── boot server + create session ─────────────────────────────────────────
+    const server = await bootOpencodeServer({ cliPath, env, cwd: repoDir });
+    // the SDK's bundled fetch tries to disable per-request timeouts via the
+    // bun-only `req.timeout = false` no-op, which does nothing under node/undici
+    // — so undici's default 300s headers/body timeout aborts any turn that
+    // streams for >5min as `TypeError: fetch failed`. wire an unbounded undici
+    // dispatcher through a custom fetch (createOpencodeClient's `fetch` override
+    // bypasses the SDK's own fetch) so a long turn isn't capped client-side.
+    // the inner activity watchdog below — not undici — is what bounds true stalls.
+    const dispatcher = new Agent({ headersTimeout: 0, bodyTimeout: 0, connectTimeout: 0 });
+    // forward the request through undici's own dispatcher-aware fetch (Agent and
+    // fetch from the same package, so `dispatcher` typechecks with no cast). the
+    // SDK hands our override a global `Request`, which the esbuild-bundled undici
+    // realm can't consume directly ("Failed to parse URL from [object Request]"),
+    // so we re-state its fields explicitly. `duplex: "half"` is required by the
+    // fetch spec whenever a stream body is sent.
+    const fetchWithoutTimeout: typeof fetch = (input, init) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      return undiciFetch(request.url, {
+        method: request.method,
+        headers: [...request.headers],
+        body: request.body,
+        duplex: "half",
+        signal: request.signal,
+        dispatcher,
+      });
     };
+    try {
+      const client = createOpencodeClient({
+        baseUrl: server.baseUrl,
+        directory: repoDir,
+        fetch: fetchWithoutTimeout,
+      });
 
-    const result = await runOpenCode({
-      ...runParams,
-      args: [...baseArgs, ctx.instructions.full],
-    });
+      const sessionResp = await client.session.create({ title: "Terramend" });
+      if (sessionResp.error || !sessionResp.data) {
+        const msg = sessionResp.error
+          ? formatPromptError(sessionResp.error)
+          : "session.create returned no data";
+        return {
+          success: false,
+          output: "",
+          error: `opencode session.create failed: ${msg}`,
+        };
+      }
+      const sessionID = sessionResp.data.id;
+      log.info(`» opencode session: ${sessionID}`);
 
-    // post-run retry loop aggregates usage across the initial run + every
-    // resume, so the caller sees the whole session — not just the final
-    // slice. opencode always accepts `--continue`, so no canResume guard.
-    // the reflection prompt fires once after gates go clean, as a dedicated
-    // turn that nudges the agent to persist learnings.
-    return runPostRunRetryLoop({
-      ctx,
-      initialResult: result,
-      initialUsage: result.usage,
-      reflectionPrompt:
-        ctx.toolState.learningsFilePath && shouldRunReflection(ctx.toolState.selectedMode)
-          ? buildLearningsReflectionPrompt(ctx.toolState.learningsFilePath)
-          : undefined,
-      resume: async (c) =>
-        runOpenCode({
-          ...runParams,
-          args: [...baseArgs, "--continue", c.prompt],
-        }),
-    });
+      // bind the orchestrator label up front. without this, the first
+      // foreign sessionID we see (a subagent) would consume the ORCHESTRATOR
+      // slot in the labeler's FIFO and every label downstream would shift.
+      const labeler = new SessionLabeler();
+      labeler.labelFor(sessionID);
+
+      const runnerCtx: RunnerContext = {
+        client,
+        sessionID,
+        label: "Terramend",
+        orchestratorSessionID: sessionID,
+        labeler,
+        toolState: ctx.toolState,
+        todoTracker: ctx.todoTracker,
+        onActivityTimeout: ctx.onActivityTimeout,
+        onToolUse: ctx.onToolUse,
+        currentTurn: null,
+        eventCount: 0,
+        lastEventAt: performance.now(),
+        taskDispatchByCallID: new Map(),
+        loggedToolCallIDs: new Set(),
+        recentStderr: server.recentStderr,
+        diagnostic: {
+          label: "Terramend",
+          recentStderr: server.recentStderr,
+          lastProviderError: undefined,
+          eventCount: 0,
+        },
+      };
+      ctx.toolState.agentDiagnostic = runnerCtx.diagnostic;
+
+      // server stderr → provider-error attribution (same pattern as the
+      // old CLI subprocess harness's onStderr handler).
+      server.proc.stderr?.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        for (const line of text.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          const match = findProviderErrorMatch(trimmed);
+          if (match) {
+            runnerCtx.diagnostic.lastProviderError = match.label;
+            log.info(`» provider error detected (${match.label}): ${match.excerpt}`);
+          }
+        }
+      });
+
+      const abortController = new AbortController();
+      const eventLoopPromise = consumeEvents(runnerCtx, abortController.signal).catch((err) => {
+        // SSE stream breakage during cleanup is expected; only surface during
+        // active operation.
+        if (!abortController.signal.aborted) {
+          log.warning(
+            `» opencode event subscription ended: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      });
+
+      const watchdog = startInnerActivityWatchdog({
+        ctx: runnerCtx,
+        // model-stall budget: how long the orchestrator may stream NO progress
+        // (no token/tool part.updated) before we tear the turn down. opencode's
+        // keepalive/lifecycle events keep the outer process-output monitor
+        // alive even while the model is silent, so this inner timer is the only
+        // stall detector for the v2 SSE path. it shares the flat idle budget so
+        // a long synchronous tool call (no part.updated while it runs) can't
+        // false-positive it.
+        timeoutMs: AGENT_ACTIVITY_TIMEOUT_MS,
+        abortController,
+      });
+
+      const sdkModel = parseModel(model);
+
+      try {
+        // initial run
+        const initial = await runTurnGuarded(runnerCtx, () =>
+          runPromptTurn(runnerCtx, {
+            text: ctx.instructions.full,
+            model: sdkModel,
+            signal: abortController.signal,
+          })
+        );
+
+        // post-run gate retry loop — every resume is another session.prompt()
+        // against the same sessionID, so MCP, plugins, provider sockets stay
+        // warm and the session's prompt cache survives.
+        const result = await runPostRunRetryLoop({
+          ctx,
+          initialResult: initial,
+          initialUsage: initial.usage,
+          reflectionPrompt:
+            ctx.toolState.learningsFilePath && shouldRunReflection(ctx.toolState.selectedMode)
+              ? buildLearningsReflectionPrompt(ctx.toolState.learningsFilePath)
+              : undefined,
+          resume: async (c) =>
+            runTurnGuarded(runnerCtx, () =>
+              runPromptTurn(runnerCtx, {
+                text: c.prompt,
+                model: sdkModel,
+                signal: abortController.signal,
+              })
+            ),
+        });
+
+        // gate the todo-tracker flush on the post-run loop's final verdict
+        // (`result.success`), not the initial turn — otherwise a Review that
+        // exhausts the `unsubmittedReview` retry budget flips success to
+        // false but the tracker still flushes "completed" tasks to GitHub.
+        // mirrors the old `if (result.exitCode === 0)` discriminant.
+        if (result.success) {
+          await ctx.todoTracker?.flush();
+        } else {
+          ctx.todoTracker?.cancel();
+        }
+
+        return result;
+      } finally {
+        watchdog.stop();
+        abortController.abort();
+        await eventLoopPromise.catch(() => {});
+      }
+    } finally {
+      await server.close().catch((err) => {
+        log.debug(
+          `opencode server close failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      });
+      await dispatcher.close().catch(() => {});
+    }
   },
 });
+
+/**
+ * Safety net around a single turn: convert any unexpected throw that escapes
+ * `runPromptTurn` into a `success: false` result so the post-run gate loop
+ * (which expects a result, not a rejection) can surface it through the generic
+ * renderer.
+ *
+ * Watchdog-fired aborts do NOT reach here — `runPromptTurn` owns the abort
+ * signal, catches the aborted `session.prompt` rejection internally, and
+ * classifies it as an `activity timeout` error itself. This wrapper must not
+ * re-classify, since a stray post-prompt throw is not a hang.
+ */
+async function runTurnGuarded(
+  ctx: RunnerContext,
+  fn: () => Promise<AgentResult>
+): Promise<AgentResult> {
+  try {
+    return await fn();
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.info(`» ${ctx.label} turn failed: ${errorMessage}`);
+    return {
+      success: false,
+      output: ctx.currentTurn?.finalText ?? "",
+      error: errorMessage,
+    };
+  }
+}

@@ -6,17 +6,13 @@ import { DEFAULT_PROXY_MODEL, modelAliases, resolveDisplayAlias } from "#app/mod
 // these tests fetch models.dev and openrouter.ai to verify that every alias in
 // models.ts still corresponds to a live, non-deprecated upstream model. upstream
 // catalog drift (new model ships, old model deprecated, etc.) causes failures
-// that are unrelated to any code change in a typical PR — so these are gated
-// off for normal PRs and run only on main pushes plus PRs from the
-// `terramend/models-bump` branch (the bot-authored bump PR — this test IS the
-// integrity gate for its edits, so it has to run on the PR itself, not just
-// post-merge).
+// that are unrelated to any code change in a typical PR — so the default vitest
+// config (vitest.config.ts) excludes *.main.test.ts and they never run in PR CI.
 //
-// the registry is kept in sync with upstreams by the `models-bump` cron
-// (`.github/workflows/models-bump.yml`), which scans models.dev every 12h and
-// opens a PR bumping `resolve` / `openRouterResolve` for any alias whose
-// upstream has shipped a newer GA version. these tests are the integrity gate
-// for that PR — they catch typos, removed models, and openrouter mismatches.
+// instead they run via the `Catalog drift` workflow
+// (`.github/workflows/catalog.yml`): on a daily schedule, so drift surfaces as a
+// failing run maintainers can act on, and on demand via workflow_dispatch. They
+// catch typos, removed models, and openrouter mismatches.
 //
 // run locally with `pnpm test:catalog`.
 

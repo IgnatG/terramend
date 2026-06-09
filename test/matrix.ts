@@ -20,9 +20,9 @@
  * tests on test runner / shared.ts churn.
  *
  * usage:
- *   echo '["action/agents/opencode.ts"]' | node action/test/matrix.ts
- *   FULL=1 node action/test/matrix.ts < /dev/null
- *   MATRIX_FILTER=gemini FULL=1 node action/test/matrix.ts < /dev/null
+ *   echo '["src/agents/opencode.ts"]' | node test/matrix.ts
+ *   FULL=1 node test/matrix.ts < /dev/null
+ *   MATRIX_FILTER=gemini FULL=1 node test/matrix.ts < /dev/null
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";

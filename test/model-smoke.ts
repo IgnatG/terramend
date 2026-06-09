@@ -11,8 +11,8 @@
  * provider (one standard-tier model each), which is enough.
  *
  * usage:
- *   node action/test/model-smoke.ts --slug openai/gpt
- *   TERRAMEND_MODEL=openai/gpt node action/test/model-smoke.ts
+ *   node test/model-smoke.ts --slug openai/gpt
+ *   TERRAMEND_MODEL=openai/gpt node test/model-smoke.ts
  */
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
@@ -90,7 +90,7 @@ async function plan(slug: string): Promise<Plan> {
     packageName: "opencode-ai",
     version: getDevDependencyVersion("opencode-ai"),
     // v1.14+: postinstall.mjs renames the platform-specific binary to
-    // `bin/opencode.exe` for every OS — see action/agents/opencode_v2.ts.
+    // `bin/opencode.exe` for every OS — see src/agents/opencode.ts.
     executablePath: "bin/opencode.exe",
     installDependencies: true,
   });

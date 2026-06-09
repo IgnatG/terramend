@@ -18,6 +18,11 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    // TODO: enable "noUncheckedIndexedAccess" — currently ~192 diagnostics
+    // (mostly in the scanner/SARIF parsers); migrate incrementally.
     "forceConsistentCasingInFileNames": true,
     "stripInternal": true,
     "moduleDetection": "force",

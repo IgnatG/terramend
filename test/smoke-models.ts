@@ -1,6 +1,6 @@
 /**
  * smoke test: runs `opencode run` with each resolved model to verify they work.
- * usage: node --env-file=../../.env action/test/smoke-models.ts
+ * usage: node --env-file=../../.env test/smoke-models.ts
  */
 
 import { execFileSync } from "node:child_process";

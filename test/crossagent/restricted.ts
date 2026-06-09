@@ -53,8 +53,8 @@ export const test: TestRunnerOptions = {
   agentEnv,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
   coverage: [
-    "action/utils/normalizeEnv.ts",
-    "action/mcp/shell.ts",
-    "action/agents/{claude,opencode,opencode_v2}.ts",
+    "src/utils/normalizeEnv.ts",
+    "src/mcp/shell.ts",
+    "src/agents/{claude,opencode}.ts",
   ],
 };
