@@ -10,7 +10,10 @@ import { getModelEnvVars, modelAliases, resolveCliModel, resolveDisplayAlias } f
 
 // models that have no OpenRouter equivalent and require BYOK.
 // add a model here ONLY when it genuinely doesn't exist on both models.dev and OpenRouter.
-const BYOK_ONLY_MODELS = new Set(["openai/o3"]);
+// claude-fable: OpenRouter serves anthropic/claude-fable-5, but models.dev's
+// OpenRouter mirror hasn't indexed it yet (shipped 2026-06-09) — the catalog
+// drift gate can't validate an openRouterResolve until it does.
+const BYOK_ONLY_MODELS = new Set(["anthropic/claude-fable"]);
 
 describe("openRouterResolve completeness", () => {
   for (const alias of modelAliases) {

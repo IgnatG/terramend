@@ -213,6 +213,75 @@ describe("validateAgentApiKey — Vertex routing", () => {
   });
 });
 
+describe("validateAgentApiKey — claude auto-select (no model)", () => {
+  it("passes when ANTHROPIC_API_KEY is set", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-test";
+    expect(() =>
+      validateAgentApiKey({ agent: claude, model: undefined, authorized: new Set(), owner, name }),
+    ).not.toThrow();
+  });
+
+  it("passes when CLAUDE_CODE_OAUTH_TOKEN is set", () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-test";
+    expect(() =>
+      validateAgentApiKey({ agent: claude, model: undefined, authorized: new Set(), owner, name }),
+    ).not.toThrow();
+  });
+
+  it("throws when neither Anthropic credential is set", () => {
+    expect(() =>
+      validateAgentApiKey({ agent: claude, model: undefined, authorized: new Set(), owner, name }),
+    ).toThrow("no API key found");
+  });
+});
+
+describe("validateAgentApiKey — Bedrock auth shape edge cases", () => {
+  const params = { agent: opencode, authorized: new Set<string>(), owner, name };
+
+  it("treats an access key without its secret as missing auth", () => {
+    process.env.AWS_ACCESS_KEY_ID = "AKIA-test";
+    process.env.AWS_REGION = "eu-west-2";
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+    expect(() => validateAgentApiKey({ ...params, model: "bedrock/byok" })).toThrow(
+      "AWS_BEARER_TOKEN_BEDROCK (or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY)",
+    );
+  });
+
+  it("lists AWS_REGION when only the region is missing", () => {
+    process.env.AWS_BEARER_TOKEN_BEDROCK = "bedrock-token";
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+    expect(() => validateAgentApiKey({ ...params, model: "bedrock/byok" })).toThrow("AWS_REGION");
+  });
+});
+
+describe("validateAgentApiKey — Vertex project resolution", () => {
+  const params = { agent: opencode, authorized: new Set<string>(), owner, name };
+
+  it("accepts the project id embedded in the service-account JSON", () => {
+    process.env.VERTEX_SERVICE_ACCOUNT_JSON = '{"project_id":"embedded-project"}';
+    process.env.VERTEX_LOCATION = "europe-west2";
+    process.env.VERTEX_MODEL_ID = "claude-opus-4-1@20250805";
+    expect(() => validateAgentApiKey({ ...params, model: "vertex/byok" })).not.toThrow();
+  });
+
+  it("lists VERTEX_LOCATION when only the location is missing", () => {
+    process.env.VERTEX_SERVICE_ACCOUNT_JSON = '{"project_id":"embedded-project"}';
+    process.env.VERTEX_MODEL_ID = "claude-opus-4-1@20250805";
+    expect(() => validateAgentApiKey({ ...params, model: "vertex/byok" })).toThrow(
+      "VERTEX_LOCATION",
+    );
+  });
+
+  it("lists GOOGLE_CLOUD_PROJECT when neither env nor the JSON carries a project id", () => {
+    process.env.VERTEX_SERVICE_ACCOUNT_JSON = '{"client_email":"sa@example.iam"}';
+    process.env.VERTEX_LOCATION = "europe-west2";
+    process.env.VERTEX_MODEL_ID = "claude-opus-4-1@20250805";
+    expect(() => validateAgentApiKey({ ...params, model: "vertex/byok" })).toThrow(
+      "GOOGLE_CLOUD_PROJECT",
+    );
+  });
+});
+
 describe("isApiKeyAuthError", () => {
   it("matches the missing-key marker thrown by validateAgentApiKey", () => {
     expect(isApiKeyAuthError("no API key found. Terramend needs ...")).toBe(true);

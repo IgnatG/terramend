@@ -5,15 +5,32 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   classifyModuleSource,
   collectModuleGraph,
+  collectModuleInterface,
   dependencyOrderedModuleDirs,
   isInLocalModule,
+  ListModulesTool,
   type ModuleGraph,
+  moduleDirExists,
   parseModuleBlocks,
   parseModuleCatalogue,
   parseModuleInterface,
   splitModuleSource,
+  TerraformModuleGraphTool,
+  TerraformModuleInterfaceTool,
   walkTfFiles,
 } from "#app/mcp/modules";
+import type { ToolContext } from "#app/mcp/server";
+
+type ToolResultShape = { content: [{ type: "text"; text: string }]; isError?: boolean };
+
+async function runTool(t: { execute?: unknown }, params: unknown): Promise<ToolResultShape> {
+  const exec = t.execute as (p: unknown, c: unknown) => Promise<ToolResultShape>;
+  return exec(params, {});
+}
+
+function makeCtx(payload: { cwd?: string; moduleCatalogue?: string }): ToolContext {
+  return { payload } as unknown as ToolContext;
+}
 
 // real source strings copied verbatim from the hepcare repo + the UKHSA
 // data-integration-terraform-modules library it consumes — these are the
@@ -389,5 +406,235 @@ describe("dependencyOrderedModuleDirs (§24)", () => {
 
   it("returns an empty list for no local modules", () => {
     expect(dependencyOrderedModuleDirs(graph([], []))).toEqual([]);
+  });
+});
+
+describe("splitModuleSource (query/ref edge cases)", () => {
+  it("decodes a percent-encoded ref", () => {
+    expect(splitModuleSource("git::https://h/r.git?ref=v%201").ref).toBe("v 1");
+  });
+
+  it("keeps a malformed percent-encoded ref verbatim", () => {
+    expect(splitModuleSource("git::https://h/r.git?ref=%E0%A4%A").ref).toBe("%E0%A4%A");
+  });
+
+  it("returns a null ref for a query without ref=", () => {
+    const parsed = splitModuleSource("git::https://h/r.git?depth=1");
+    expect(parsed.ref).toBeNull();
+    expect(parsed.base).toBe("git::https://h/r.git");
+  });
+
+  it("classifies hg:: as git-family and oci: as remote", () => {
+    expect(classifyModuleSource("hg::https://h/r")).toBe("git");
+    expect(classifyModuleSource("oci://registry/example/mod")).toBe("remote");
+  });
+
+  it("classifies a Windows drive path as local", () => {
+    expect(classifyModuleSource("C:\\modules\\vpc")).toBe("local");
+  });
+});
+
+describe("parseModuleCatalogue (name/version edge cases)", () => {
+  it("derives a registry name from a host-prefixed source without a subdir", () => {
+    const [m] = parseModuleCatalogue("registry.example.com/ns/netmod/aws");
+    expect(m).toMatchObject({ name: "netmod", kind: "registry" });
+  });
+
+  it("derives a git name from the repo's last path segment (no subdir)", () => {
+    const [m] = parseModuleCatalogue("git::https://github.com/acme/networking.git");
+    expect(m).toMatchObject({ name: "networking", kind: "git", version: null });
+  });
+
+  it("accepts a >= version constraint after the source", () => {
+    const [m] = parseModuleCatalogue("terraform-aws-modules/vpc/aws >= 1.2");
+    expect(m).toMatchObject({ version: ">= 1.2", kind: "registry" });
+  });
+
+  it("folds non-version trailing words back into the source", () => {
+    const [m] = parseModuleCatalogue("foo bar");
+    expect(m).toMatchObject({ source: "foo bar", version: null, kind: "unknown" });
+  });
+
+  it("does not treat a slashed left-hand side of = as a name", () => {
+    const [m] = parseModuleCatalogue("my/bad=./x");
+    expect(m).toMatchObject({ source: "my/bad=./x", kind: "unknown" });
+  });
+});
+
+describe("parseModuleBlocks (malformed HCL)", () => {
+  it("stops at an unterminated module block", () => {
+    expect(parseModuleBlocks('module "x" {\n  source = "./m"\n')).toEqual([]);
+  });
+
+  it("skips a module block without a source", () => {
+    expect(parseModuleBlocks('module "x" {\n  for_each = local.things\n}')).toEqual([]);
+  });
+});
+
+describe("parseModuleInterface (malformed HCL)", () => {
+  it("stops at an unterminated variable block", () => {
+    expect(parseModuleInterface('variable "x" {\n  type = string\n')).toEqual({
+      variables: [],
+      outputs: [],
+    });
+  });
+});
+
+describe("walkTfFiles (bounds)", () => {
+  let root: string;
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "tf-walk-"));
+    mkdirSync(join(root, "a", "b"), { recursive: true });
+    writeFileSync(join(root, "top.tf"), "");
+    writeFileSync(join(root, "a", "mid.tf"), "");
+    writeFileSync(join(root, "a", "b", "deep.tf"), "");
+    writeFileSync(join(root, "notes.txt"), "");
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("respects maxDepth", () => {
+    expect(walkTfFiles(root, 0)).toEqual(["top.tf"]);
+    const depth1 = walkTfFiles(root, 1).sort();
+    expect(depth1).toEqual(["a/mid.tf", "top.tf"]);
+  });
+
+  it("respects the file cap", () => {
+    expect(walkTfFiles(root, 8, 1)).toHaveLength(1);
+  });
+
+  it("returns nothing for an unreadable directory", () => {
+    expect(walkTfFiles(join(root, "does-not-exist"))).toEqual([]);
+  });
+});
+
+describe("module tools + fs helpers", () => {
+  let root: string;
+  let emptyRoot: string;
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), "tf-modtools-"));
+    emptyRoot = mkdtempSync(join(tmpdir(), "tf-modtools-empty-"));
+    mkdirSync(join(root, "modules", "cloudwatch_logs"), { recursive: true });
+    mkdirSync(join(root, "modules", "extra"), { recursive: true });
+    writeFileSync(join(root, "modules", "extra", "main.tf"), 'resource "aws_sns_topic" "t" {}');
+    writeFileSync(
+      join(root, "main.tf"),
+      `module "logs" { source = "./modules/cloudwatch_logs" }
+module "extra" { source = "./modules/extra" }
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
+}`,
+    );
+    writeFileSync(
+      join(root, "modules", "cloudwatch_logs", "variables.tf"),
+      `variable "name" {
+  type        = string
+  description = "log group name"
+}
+variable "retention" {
+  type    = number
+  default = 30
+}
+output "arn" {
+  description = "log group arn"
+  value       = aws_cloudwatch_log_group.g.arn
+}`,
+    );
+    writeFileSync(join(root, "modules", "cloudwatch_logs", "README.md"), "not terraform");
+    // a directory named like a .tf file — collectModuleInterface must skip it
+    mkdirSync(join(root, "modules", "cloudwatch_logs", "trap.tf"));
+  });
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(emptyRoot, { recursive: true, force: true });
+  });
+
+  describe("moduleDirExists", () => {
+    it("is true for an existing directory and false otherwise", () => {
+      expect(moduleDirExists(root, "modules/cloudwatch_logs")).toBe(true);
+      expect(moduleDirExists(root, "modules/nope")).toBe(false);
+      expect(moduleDirExists(root, "main.tf")).toBe(false); // a file, not a dir
+    });
+  });
+
+  describe("collectModuleInterface", () => {
+    it("parses the interface from a module dir, skipping unreadable .tf entries", () => {
+      const iface = collectModuleInterface(root, "modules/cloudwatch_logs");
+      expect(iface.variables.map((v) => v.name)).toEqual(["name", "retention"]);
+      expect(iface.outputs).toEqual([{ name: "arn", description: "log group arn" }]);
+    });
+
+    it("returns an empty interface for a missing dir", () => {
+      expect(collectModuleInterface(root, "modules/nope")).toEqual({
+        variables: [],
+        outputs: [],
+      });
+    });
+
+    it("reads the cwd itself when moduleDir is empty", () => {
+      const iface = collectModuleInterface(join(root, "modules", "cloudwatch_logs"), "");
+      expect(iface.variables).toHaveLength(2);
+    });
+  });
+
+  describe("ListModulesTool", () => {
+    it("combines the catalogue with discovered house modules", async () => {
+      const ctx = makeCtx({
+        cwd: root,
+        moduleCatalogue: "vpc=terraform-aws-modules/vpc/aws ~> 5.0",
+      });
+      const result = await runTool(ListModulesTool(ctx), {});
+
+      const text = result.content[0].text;
+      expect(result.isError).toBeUndefined();
+      expect(text).toContain("configured: true");
+      expect(text).toContain("terraform-aws-modules/vpc/aws");
+      expect(text).toContain("modules/cloudwatch_logs");
+      expect(text).toContain("exists: true");
+      expect(text).toContain("Prefer these modules");
+    });
+
+    it("falls back to the no-catalogue note when nothing is configured or discovered", async () => {
+      const result = await runTool(ListModulesTool(makeCtx({ cwd: emptyRoot })), {});
+
+      const text = result.content[0].text;
+      expect(text).toContain("configured: false");
+      expect(text).toContain("No catalogue or house modules");
+    });
+  });
+
+  describe("TerraformModuleGraphTool", () => {
+    it("returns the classified blocks, local dirs, and dependency order", async () => {
+      const result = await runTool(TerraformModuleGraphTool(makeCtx({ cwd: root })), {});
+
+      const text = result.content[0].text;
+      expect(result.isError).toBeUndefined();
+      expect(text).toContain("ok: true");
+      expect(text).toContain("declared_in");
+      expect(text).toContain("main.tf");
+      expect(text).toContain("external_module_count: 1");
+      expect(text).toContain("modules/cloudwatch_logs");
+    });
+  });
+
+  describe("TerraformModuleInterfaceTool", () => {
+    it("reports the module's variables, outputs, and required inputs", async () => {
+      const result = await runTool(TerraformModuleInterfaceTool(makeCtx({ cwd: root })), {
+        module_dir: "modules/cloudwatch_logs",
+      });
+
+      const text = result.content[0].text;
+      expect(result.isError).toBeUndefined();
+      expect(text).toContain("ok: true");
+      expect(text).toContain("module_dir: modules/cloudwatch_logs");
+      expect(text).toContain("required_variables[1]: name");
+      expect(text).toContain("arn");
+    });
   });
 });

@@ -238,12 +238,15 @@ export async function main(): Promise<MainResult> {
     //     id — see PR #2, where a Google key was set but the slug was invalid
     //     and the run silently used big-pickle).
     const authorized = getAuthorizedModels();
+    // the gate needs the agent to spare claude-harness runs (own auth,
+    // invisible to `opencode models`) from a spurious downgrade/failure.
     const decision = selectFallbackModelIfNeeded({
       resolvedModel: initialResolvedModel,
       authorized,
       providerKeyPresent: initialResolvedModel
         ? hasProviderKeyForModel(initialResolvedModel)
         : false,
+      agentName: resolveAgent({ model: initialResolvedModel }).name,
     });
     if (decision.kind === "unavailable") {
       throw new Error(buildUnavailableModelError({ model: decision.model, authorized }));

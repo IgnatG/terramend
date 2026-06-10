@@ -1,16 +1,39 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// the guardrails read git through `$` (#app/utils/shell) and run gitleaks via
+// `spawnSync` — both are mocked so no real subprocess executes.
+const shellMock = vi.hoisted(() => vi.fn());
+const spawnSyncMock = vi.hoisted(() => vi.fn());
+
+vi.mock("#app/utils/shell", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/shell")>();
+  return { ...actual, $: shellMock };
+});
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return { ...actual, spawnSync: spawnSyncMock };
+});
+
 import {
   assertNoBlockedDestroy,
+  assertNoSecretsInDiff,
   assertUnderPrCap,
   DEFAULT_ALLOWED_PATHS,
   enforceProtectedPaths,
+  enforceRemediationPaths,
   GENERATE_MODE,
   globToRegex,
   isPathAllowed,
   parseGitleaksReport,
   REMEDIATE_MODE,
   recordRemediationPrOpened,
+  resolveAllowedPaths,
   scanDiffForSecrets,
+  TERRATEST_ALLOWED_PATHS,
 } from "#app/mcp/guardrails";
 import type { ToolContext } from "#app/mcp/server";
 
@@ -267,6 +290,198 @@ describe("scanDiffForSecrets (§2.8)", () => {
   it("returns nothing for a clean diff", () => {
     const d = diff("+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.bucket_name");
     expect(scanDiffForSecrets(d)).toEqual([]);
+  });
+});
+
+// --- git-backed guardrails (mocked `$` + spawnSync) --------------------------
+
+/** `$` stub that resolves the run-start sha and returns canned git output. */
+function gitStub(out: { diffNames?: string; diff?: string; failRevParse?: boolean }) {
+  shellMock.mockImplementation((cmd: string, args: string[]) => {
+    if (cmd !== "git") throw new Error(`unexpected command: ${cmd}`);
+    if (args[0] === "rev-parse") {
+      if (out.failRevParse) throw new Error("fatal: unknown revision");
+      return "base-sha";
+    }
+    if (args[0] === "diff" && args[1] === "--name-only") return out.diffNames ?? "";
+    if (args[0] === "diff") return out.diff ?? "";
+    throw new Error(`unexpected git args: ${args.join(" ")}`);
+  });
+}
+
+function gitCtx(over: {
+  selectedMode?: string;
+  payload?: Record<string, unknown>;
+  tmpdir?: string;
+}): ToolContext {
+  return {
+    toolState: {
+      selectedMode: over.selectedMode ?? REMEDIATE_MODE,
+      initialHead: { kind: "branch", name: "main" },
+    },
+    payload: { ...(over.payload ?? {}) },
+    tmpdir: over.tmpdir ?? "",
+  } as unknown as ToolContext;
+}
+
+beforeEach(() => {
+  shellMock.mockReset();
+  spawnSyncMock.mockReset();
+  spawnSyncMock.mockImplementation(() => ({
+    error: Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }),
+    status: null,
+    stdout: "",
+    stderr: "",
+  }));
+});
+
+describe("resolveAllowedPaths", () => {
+  it("defaults to Terraform-only globs", () => {
+    expect(resolveAllowedPaths(gitCtx({}))).toEqual([...DEFAULT_ALLOWED_PATHS]);
+  });
+
+  it("prefers the operator-configured allow-list", () => {
+    const ctx = gitCtx({ payload: { allowedPaths: ["infra/**"] } });
+    expect(resolveAllowedPaths(ctx)).toEqual(["infra/**"]);
+  });
+
+  it("treats an EMPTY configured list as unset (falls back to the default)", () => {
+    expect(resolveAllowedPaths(gitCtx({ payload: { allowedPaths: [] } }))).toEqual([
+      ...DEFAULT_ALLOWED_PATHS,
+    ]);
+  });
+
+  it("adds the Terratest scaffold paths only when the terratest input is on (§28)", () => {
+    const ctx = gitCtx({ payload: { terratest: true } });
+    expect(resolveAllowedPaths(ctx)).toEqual([
+      ...DEFAULT_ALLOWED_PATHS,
+      ...TERRATEST_ALLOWED_PATHS,
+    ]);
+  });
+});
+
+describe("enforceRemediationPaths (path allow-list at push time)", () => {
+  it("passes when every changed file is Terraform", () => {
+    gitStub({ diffNames: "main.tf\nmodules/net/vpc.tf\nenvs/prod.tfvars\n" });
+    expect(() => enforceRemediationPaths(gitCtx({}))).not.toThrow();
+  });
+
+  it("blocks the push when a non-Terraform file changed, listing the violations", () => {
+    gitStub({ diffNames: "main.tf\n.github/workflows/ci.yml\n" });
+    expect(() => enforceRemediationPaths(gitCtx({}))).toThrow(
+      /push blocked.*\.github\/workflows\/ci\.yml/s,
+    );
+  });
+
+  it("fails closed when the run-start commit can't be established", () => {
+    gitStub({ failRevParse: true });
+    expect(() => enforceRemediationPaths(gitCtx({}))).toThrow(
+      /could not establish the run-start commit/,
+    );
+  });
+
+  it("never engages outside the Terraform-write modes", () => {
+    gitStub({ diffNames: "src/app.ts\n" });
+    expect(() => enforceRemediationPaths(gitCtx({ selectedMode: "Build" }))).not.toThrow();
+    expect(shellMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("enforceProtectedPaths (deny-list at push time)", () => {
+  it("blocks a push that modified a protected file", () => {
+    gitStub({ diffNames: "prod/db/main.tf\nstaging/main.tf\n" });
+    const ctx = gitCtx({ payload: { protectedPaths: ["prod/**"] } });
+    expect(() => enforceProtectedPaths(ctx)).toThrow(/push blocked.*prod\/db\/main\.tf/s);
+  });
+
+  it("passes when no change matched a protected glob", () => {
+    gitStub({ diffNames: "staging/main.tf\n" });
+    const ctx = gitCtx({ payload: { protectedPaths: ["prod/**"] } });
+    expect(() => enforceProtectedPaths(ctx)).not.toThrow();
+  });
+
+  it("fails closed on a missing run-start baseline", () => {
+    gitStub({ failRevParse: true });
+    const ctx = gitCtx({ payload: { protectedPaths: ["prod/**"] } });
+    expect(() => enforceProtectedPaths(ctx)).toThrow(/could not establish the run-start commit/);
+  });
+});
+
+describe("assertNoSecretsInDiff (§2.8 at push time)", () => {
+  const cleanDiff = ["+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.bucket_name"].join("\n");
+  const leakyDiff = ["+++ b/main.tf", "@@ -0,0 +1 @@", '+  password = "hunter2"'].join("\n");
+
+  it("passes on a clean diff", () => {
+    gitStub({ diff: cleanDiff });
+    expect(() => assertNoSecretsInDiff(gitCtx({}))).not.toThrow();
+  });
+
+  it("blocks a push whose diff inlines a secret, with file:line and rule", () => {
+    gitStub({ diff: leakyDiff });
+    expect(() => assertNoSecretsInDiff(gitCtx({}))).toThrow(
+      /push blocked.*main\.tf:1 \(hardcoded-secret-assignment\)/s,
+    );
+  });
+
+  it("fails closed when the baseline is missing and no-ops outside guarded modes", () => {
+    gitStub({ failRevParse: true });
+    expect(() => assertNoSecretsInDiff(gitCtx({}))).toThrow(/could not establish/);
+    expect(() => assertNoSecretsInDiff(gitCtx({ selectedMode: "Review" }))).not.toThrow();
+  });
+
+  it("degrades to the built-in scanner when gitleaks is requested but absent", () => {
+    gitStub({ diff: cleanDiff });
+    // spawnSync default stub is ENOENT — gitleaks "not installed".
+    const ctx = gitCtx({ payload: { gitleaks: true } });
+    expect(() => assertNoSecretsInDiff(ctx)).not.toThrow();
+    expect(spawnSyncMock).toHaveBeenCalledWith(
+      "gitleaks",
+      expect.arrayContaining(["detect"]),
+      expect.anything(),
+    );
+  });
+
+  it("merges gitleaks hits on top of the built-in baseline", () => {
+    gitStub({ diff: cleanDiff });
+    const dir = mkdtempSync(join(tmpdir(), "terramend-gitleaks-"));
+    try {
+      spawnSyncMock.mockImplementation((cmd: unknown, args: unknown) => {
+        if (cmd !== "gitleaks") throw new Error(`unexpected spawn: ${String(cmd)}`);
+        const argv = args as string[];
+        const reportPath = argv[argv.indexOf("--report-path") + 1] ?? "";
+        writeFileSync(
+          reportPath,
+          JSON.stringify([{ RuleID: "aws-access-token", File: "main.tf", StartLine: 3 }]),
+        );
+        return { status: 0, stdout: "", stderr: "" };
+      });
+      const ctx = gitCtx({ payload: { gitleaks: true }, tmpdir: dir });
+      expect(() => assertNoSecretsInDiff(ctx)).toThrow(/main\.tf:3 \(gitleaks:aws-access-token\)/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a gitleaks run with no report file as a clean scan", () => {
+    gitStub({ diff: cleanDiff });
+    spawnSyncMock.mockImplementation(() => ({ status: 0, stdout: "", stderr: "" }));
+    const dir = mkdtempSync(join(tmpdir(), "terramend-gitleaks-"));
+    try {
+      const ctx = gitCtx({ payload: { gitleaks: true }, tmpdir: dir });
+      expect(() => assertNoSecretsInDiff(ctx)).not.toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("resolveMaxPrs default (via assertUnderPrCap)", () => {
+  it("caps at one PR per run when max_prs is not configured", () => {
+    const ctx = {
+      toolState: { selectedMode: REMEDIATE_MODE, remediationPrsOpened: 1 },
+      payload: {},
+    } as unknown as ToolContext;
+    expect(() => assertUnderPrCap(ctx)).toThrow(/at most 1 PR/);
   });
 });
 

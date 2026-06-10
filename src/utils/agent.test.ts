@@ -167,6 +167,59 @@ describe("resolveModel", () => {
     process.env.VERTEX_MODEL_ID = "gemini-2.5-pro";
     expect(resolveModel({ slug: "openai/gpt" })).toBe("gemini-2.5-pro");
   });
+
+  it("TERRAMEND_MODEL=vertex/byok throws if VERTEX_MODEL_ID is missing", () => {
+    process.env.TERRAMEND_MODEL = "vertex/byok";
+    expect(() => resolveModel({ slug: "openai/gpt" })).toThrow("VERTEX_MODEL_ID");
+  });
+
+  it("passes a raw TERRAMEND_MODEL specifier through when it is not a registry alias", () => {
+    process.env.TERRAMEND_MODEL = "anthropic/claude-opus-4-6-20250514";
+    expect(resolveModel({ slug: "openai/gpt" })).toBe("anthropic/claude-opus-4-6-20250514");
+  });
+
+  it("returns undefined for an unknown slug (warn-and-auto-select path)", () => {
+    expect(resolveModel({ slug: "nope/not-a-model" })).toBeUndefined();
+  });
+});
+
+describe("resolveAgent — TERRAMEND_AGENT override and fallthroughs", () => {
+  it("returns the named agent for a valid TERRAMEND_AGENT", () => {
+    process.env.TERRAMEND_AGENT = "claude";
+    expect(resolveAgent({}).name).toBe("claude");
+  });
+
+  it("falls through to the default for an unknown TERRAMEND_AGENT", () => {
+    process.env.TERRAMEND_AGENT = "codex";
+    expect(resolveAgent({}).name).toBe("opencode");
+  });
+
+  it("unknown TERRAMEND_AGENT still honors Anthropic model routing", () => {
+    process.env.TERRAMEND_AGENT = "nope";
+    process.env.ANTHROPIC_API_KEY = "sk-test";
+    expect(resolveAgent({ model: "anthropic/claude-opus-4-7" }).name).toBe("claude");
+  });
+
+  it("routes anthropic/* to claude on CLAUDE_CODE_OAUTH_TOKEN alone", () => {
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-token";
+    expect(resolveAgent({ model: "anthropic/claude-opus-4-7" }).name).toBe("claude");
+  });
+
+  it("falls through to opencode for an invalid model format even with claude creds", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-test";
+    expect(resolveAgent({ model: "no-slash-model" }).name).toBe("opencode");
+  });
+
+  it("ignores the bedrock route when AWS auth is missing", () => {
+    process.env.BEDROCK_MODEL_ID = "eu.anthropic.claude-opus-4-7";
+    expect(resolveAgent({ model: "eu.anthropic.claude-opus-4-7" }).name).toBe("opencode");
+  });
+
+  it("ignores the vertex route when VERTEX_MODEL_ID does not match the model", () => {
+    process.env.VERTEX_SERVICE_ACCOUNT_JSON = "{}";
+    process.env.VERTEX_MODEL_ID = "some-other-model";
+    expect(resolveAgent({ model: "claude-opus-4-1@20250805" }).name).toBe("opencode");
+  });
 });
 
 describe("materializeVertexCredentials", () => {

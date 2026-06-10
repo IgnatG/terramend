@@ -25,16 +25,17 @@ export default defineConfig({
       // Still emit the report when some tests fail (e.g. the OS-specific suites
       // that only pass on Linux CI) so the threshold gate is always evaluated.
       reportOnFailure: true,
-      // Floor set just below the current baseline (stmts ~33%, branches ~28%,
-      // funcs ~35%, lines ~33%) so coverage can't silently backslide. Raise as
-      // coverage improves. NOTE: the bulk of agent-run behavior is exercised by
-      // the integration suites in test/ (currently not wired into CI), so this
-      // unit-test floor is deliberately conservative.
+      // Floor set just below the current baseline (stmts ~92%, branches ~84%,
+      // funcs ~92%, lines ~93%) so coverage can't silently backslide. Raise as
+      // coverage improves. The residual gap is concentrated in OS-conditional
+      // arms (win32/darwin), defensive guards on states the public API can't
+      // produce, `satisfies never` exhaustiveness arms, and the test-runner
+      // helpers (src/utils/run*.ts) exercised by the integration suites.
       thresholds: {
-        statements: 30,
-        branches: 25,
-        functions: 32,
-        lines: 30,
+        statements: 90,
+        branches: 82,
+        functions: 90,
+        lines: 91,
       },
     },
   },

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCrosswalkReport, mapConcernToControls } from "#app/mcp/crosswalk";
+import {
+  buildCrosswalkReport,
+  ComplianceCrosswalkTool,
+  mapConcernToControls,
+} from "#app/mcp/crosswalk";
+import type { ToolContext } from "#app/mcp/server";
 
 describe("mapConcernToControls", () => {
   it("maps an encryption concern to encryption controls", () => {
@@ -70,5 +75,32 @@ describe("buildCrosswalkReport", () => {
   it("is deterministic for the same input", () => {
     const input = [{ id: "a", rule_id: "r", evidence: "public ingress without encryption" }];
     expect(buildCrosswalkReport(input)).toEqual(buildCrosswalkReport(input));
+  });
+});
+
+describe("ComplianceCrosswalkTool", () => {
+  it("wraps the report in the ok envelope with the indicative-crosswalk note", async () => {
+    const tool = ComplianceCrosswalkTool({} as unknown as ToolContext);
+    const exec = tool.execute as (
+      p: unknown,
+      c: unknown,
+    ) => Promise<{ content: [{ type: "text"; text: string }]; isError?: boolean }>;
+    const result = await exec(
+      {
+        concerns: [
+          { id: "a", rule_id: "trivy:AVD-AWS-0088", evidence: "bucket lacks encryption" },
+          { id: "z", rule_id: "none", evidence: "completely unrelated text" },
+        ],
+      },
+      {},
+    );
+
+    const text = result.content[0].text;
+    expect(result.isError).toBeUndefined();
+    expect(text).toContain("ok: true");
+    expect(text).toContain("concern_id: a");
+    expect(text).toContain("unmapped_concern_ids[1]: z");
+    expect(text).toContain("Indicative crosswalk");
+    expect(text).toContain("not an audit verdict");
   });
 });

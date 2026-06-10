@@ -46,6 +46,7 @@ import {
   resourceTypeOf,
   ruleDocUrl,
   shouldSuggestInline,
+  toRepoRelative,
 } from "#app/mcp/terraform";
 
 describe("parseFmtOutput", () => {
@@ -1742,6 +1743,113 @@ describe("parseResourceArguments (§4.15-next)", () => {
     expect([...r.args].sort()).toEqual(["assume_role_policy", "name", "tags"]);
     expect(r.args).not.toContain("fake_arg");
     expect(r.args).not.toContain("Version");
+  });
+});
+
+describe("parseTerraformPlanJson (address + summary fallbacks)", () => {
+  const lines = (...objs: unknown[]) => objs.map((o) => JSON.stringify(o)).join("\n");
+
+  it("falls back to resource.resource, then '(unknown)', for the address", () => {
+    const out = lines(
+      {
+        type: "planned_change",
+        change: { action: "update", resource: { resource: "aws_instance.web" } },
+      },
+      { type: "planned_change", change: { action: "update", resource: {} } },
+    );
+    expect(parseTerraformPlanJson(out).changed).toEqual([
+      { address: "aws_instance.web", action: "update" },
+      { address: "(unknown)", action: "update" },
+    ]);
+  });
+
+  it("coerces non-numeric change_summary counts to 0", () => {
+    const out = lines({
+      type: "change_summary",
+      changes: { add: "nope", change: null, remove: undefined },
+    });
+    expect(parseTerraformPlanJson(out)).toMatchObject({ add: 0, change: 0, destroy: 0 });
+  });
+
+  it("skips a planned_change with no action", () => {
+    const out = lines({
+      type: "planned_change",
+      change: { resource: { addr: "aws_s3_bucket.a" } },
+    });
+    expect(parseTerraformPlanJson(out).changed).toEqual([]);
+  });
+});
+
+describe("aggregatePlans (empty input)", () => {
+  it("returns a zeroed, idempotent aggregate for no roots", () => {
+    expect(aggregatePlans([])).toEqual({
+      add: 0,
+      change: 0,
+      destroy: 0,
+      changed: [],
+      destructive: [],
+      hasDestroyOrReplace: false,
+      idempotent: true,
+    });
+  });
+});
+
+describe("computeCostDelta (currency fallback)", () => {
+  it("defaults to USD when neither side carries a currency", () => {
+    const d = computeCostDelta(null, { totalMonthlyCost: 5, currency: "" });
+    expect(d.currency).toBe("USD");
+  });
+});
+
+describe("parseRequiredProviders (constraint edge cases)", () => {
+  it("yields a null major for an unconstrained provider", () => {
+    const hcl = `required_providers { aws = { source = "hashicorp/aws" } }`;
+    expect(parseRequiredProviders(hcl)).toEqual([
+      { name: "aws", source: "hashicorp/aws", version: null, major: null },
+    ]);
+  });
+
+  it("reads a bare integer constraint's major", () => {
+    const hcl = `required_providers { aws = { version = "5" } }`;
+    expect(parseRequiredProviders(hcl)[0]).toMatchObject({ major: 5 });
+  });
+});
+
+describe("parseTflintOutput (severity + fallbacks)", () => {
+  const issue = (rule: Record<string, unknown> | undefined, message?: string) =>
+    JSON.stringify({ issues: [{ rule, message, range: { filename: "a.tf" } }] });
+
+  it("maps error to high and an unknown severity to low", () => {
+    const [error] = parseTflintOutput(issue({ name: "r", severity: "error" }));
+    expect(error).toMatchObject({ severity: "high" });
+    const [notice] = parseTflintOutput(issue({ name: "r", severity: "notice" }));
+    expect(notice).toMatchObject({ severity: "low" });
+  });
+
+  it("falls back to 'issue' for a missing rule name and a null line", () => {
+    const [c] = parseTflintOutput(issue(undefined));
+    expect(c).toMatchObject({
+      rule_id: "tflint:issue",
+      evidence: "issue",
+      location: { file: "a.tf", line: null },
+    });
+  });
+});
+
+describe("parseCheckovOutput (missing check id)", () => {
+  it("falls back to 'issue' for the rule and evidence", () => {
+    const json = JSON.stringify({ results: { failed_checks: [{ file_path: "a.tf" }] } });
+    const [c] = parseCheckovOutput(json);
+    expect(c).toMatchObject({ rule_id: "checkov:issue", evidence: "issue" });
+  });
+});
+
+describe("toRepoRelative", () => {
+  it("returns '(unknown)' for an empty path and strips ./ prefixes", () => {
+    expect(toRepoRelative(undefined, "/repo")).toBe("(unknown)");
+    expect(toRepoRelative("", "/repo")).toBe("(unknown)");
+    expect(toRepoRelative("./main.tf", "")).toBe("main.tf");
+    expect(toRepoRelative("/repo/", "/repo")).toBe("(unknown)");
   });
 });
 

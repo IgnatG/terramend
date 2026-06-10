@@ -2,8 +2,14 @@
  * Claude Code agent — secure harness around the `claude` CLI.
  *
  * mirrors the opencode harness's security model:
- * - native exec tools (Bash, Monitor, REPL, Workflow) blocked via
- *   --disallowedTools (agent cannot shell out / run code outside the MCP shell)
+ * - native exec tools (Bash, Monitor, REPL, Workflow) blocked via BOTH
+ *   --disallowedTools AND managed-settings.json `permissions.deny` (the agent
+ *   cannot shell out / run code outside the MCP shell). the managed-settings
+ *   deny is the authoritative, bypass-immune layer: `--disallowedTools` alone
+ *   (a `cliArg`-source deny) was observed to leak under
+ *   `--dangerously-skip-permissions`, surfacing a secret env marker via the
+ *   native Bash tool. managed-settings denies are `policySettings`-source,
+ *   highest precedence, and survive bypassPermissions mode.
  * - managed-settings.json: filesystem sandbox — deny /proc, /sys reads
  * - MCP ShellTool provides restricted shell (filtered env, no secrets)
  * - MCP server injected via --mcp-config (not replacing project config)
@@ -45,6 +51,7 @@ import {
   VERTEX_MODEL_ID_ENV,
 } from "#app/models";
 import { AGENT_ACTIVITY_TIMEOUT_MS, getIdleMs, markActivity } from "#app/utils/activity";
+import { preflightClaudeSubscription } from "#app/utils/claudeSubscription";
 import { formatJsonValue, log } from "#app/utils/cli";
 import { installFromNpmTarball } from "#app/utils/install";
 import { findProviderErrorMatch } from "#app/utils/providerErrors";
@@ -87,12 +94,20 @@ async function installClaudeCli(): Promise<string> {
  * Each is denied at top level and inside `Agent(...)` (Task subagents), mirroring
  * the existing `Bash` / `Agent(Bash)` pair. Denying a tool that isn't registered
  * in a given run is a harmless no-op, so this list is also forward-safe.
+ *
+ * `CLAUDE_EXEC_TOOL_DENY_RULES` is wired into TWO surfaces: `--disallowedTools`
+ * (removes the tools from the advertised list) and managed-settings.json
+ * `permissions.deny` (the authoritative, bypass-immune deny — see
+ * buildManagedSettings). The flag alone proved insufficient: under
+ * `--dangerously-skip-permissions` the native Bash tool ran despite
+ * `--disallowedTools Bash`, leaking a per-run secret marker.
  */
 const CLAUDE_EXEC_TOOLS = ["Bash", "Monitor", "REPL", "Workflow"] as const;
-const CLAUDE_DISALLOWED_TOOLS = [
+export const CLAUDE_EXEC_TOOL_DENY_RULES = [
   ...CLAUDE_EXEC_TOOLS,
   ...CLAUDE_EXEC_TOOLS.map((t) => `Agent(${t})`),
-].join(",");
+];
+const CLAUDE_DISALLOWED_TOOLS = CLAUDE_EXEC_TOOL_DENY_RULES.join(",");
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
@@ -124,6 +139,12 @@ function writeMcpConfig(ctx: AgentRunContext): string {
  *   2. managed settings (/etc/claude-code/managed-settings.json) — covers CI,
  *      where `allowManagedHooksOnly: true` filters flag-settings hooks. The
  *      same hook entry is embedded in `buildManagedSettings` below.
+ *
+ * The flag settings also carry the native exec-tool `permissions.deny`
+ * (via `buildClaudePretoolGateSettings`) so non-CI runs (where managed
+ * settings are absent) still block native Bash et al. at a settings-source
+ * deny, not just the `--disallowedTools` cliArg deny that proved leaky under
+ * `--dangerously-skip-permissions`.
  */
 function writePretoolGateAssets(ctx: AgentRunContext): {
   scriptPath: string;
@@ -133,7 +154,8 @@ function writePretoolGateAssets(ctx: AgentRunContext): {
   writeFileSync(scriptPath, CLAUDE_PRETOOL_GATE_SOURCE);
   chmodSync(scriptPath, 0o755);
   const settingsPath = join(ctx.tmpdir, "terramend-claude-settings.json");
-  writeFileSync(settingsPath, JSON.stringify(buildClaudePretoolGateSettings(scriptPath)));
+  const settings = buildClaudePretoolGateSettings(scriptPath, CLAUDE_EXEC_TOOL_DENY_RULES);
+  writeFileSync(settingsPath, JSON.stringify(settings));
   return { scriptPath, settingsPath };
 }
 
@@ -152,7 +174,7 @@ function writePretoolGateAssets(ctx: AgentRunContext): {
  * prompt baked into the agent — see action/agents/reviewer.ts for why we
  * no longer wire per-agent `disallowedTools` here.
  */
-function buildAgentsJson(): string {
+export function buildAgentsJson(): string {
   const agents = {
     [REVIEWER_AGENT_NAME]: {
       description:
@@ -168,7 +190,7 @@ function buildAgentsJson(): string {
 // ── model helpers ─────────────────────────────────────────────────────────────
 
 // claude CLI expects bare model names (e.g. "claude-sonnet-4-6"), not provider-prefixed specifiers
-function stripProviderPrefix(specifier: string): string {
+export function stripProviderPrefix(specifier: string): string {
   const slashIndex = specifier.indexOf("/");
   return slashIndex > 0 ? specifier.slice(slashIndex + 1) : specifier;
 }
@@ -318,7 +340,7 @@ type ClaudeRunResult = AgentResult & { sessionId?: string | undefined };
  * `String.prototype.slice` operates on UTF-16 units; for multi-byte UTF-8
  * content the effective byte budget can be up to 4× the nominal limit.
  */
-function tailLines(text: string, maxCodeUnits: number): string {
+export function tailLines(text: string, maxCodeUnits: number): string {
   if (text.length <= maxCodeUnits) return text;
   const tail = text.slice(-maxCodeUnits);
   const firstNewline = tail.indexOf("\n");
@@ -901,7 +923,7 @@ const STOP_HOOK_GATE_TOKEN_ENV = "TERRAMEND_GATE_TOKEN";
  * one session are safe. claude-code's 8-consecutive-block override is the
  * last-line backstop.
  */
-function buildStopHookScript(): string {
+export function buildStopHookScript(): string {
   return [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
@@ -919,13 +941,13 @@ function buildStopHookScript(): string {
   ].join("\n");
 }
 
-interface ManagedSettingsParams {
+export interface ManagedSettingsParams {
   ctx: AgentRunContext;
   stopHookPath: string | null;
   pretoolGateScriptPath: string;
 }
 
-function buildManagedSettings(params: ManagedSettingsParams): Record<string, unknown> {
+export function buildManagedSettings(params: ManagedSettingsParams): Record<string, unknown> {
   const secretDenyPaths = params.ctx.secretDenyPaths ?? [];
   const toolDeny = secretDenyPaths.flatMap((path) => [
     `Read(${path}/**)`,
@@ -937,11 +959,24 @@ function buildManagedSettings(params: ManagedSettingsParams): Record<string, unk
     `Glob(${path}/**)`,
     `Glob(/${path}/**)`,
   ]);
+  // single builder for both the PreToolUse gate hook and the native exec-tool
+  // deny — both fields are consumed here (and identically in the flag-settings
+  // path via writePretoolGateAssets), keeping CLAUDE_EXEC_TOOL_DENY_RULES the
+  // single source.
+  const gate = buildClaudePretoolGateSettings(
+    params.pretoolGateScriptPath,
+    CLAUDE_EXEC_TOOL_DENY_RULES,
+  );
   const base: Record<string, unknown> = {
     allowManagedPermissionRulesOnly: true,
     allowManagedHooksOnly: true,
     permissions: {
       deny: [
+        // native exec tools — the authoritative, bypass-immune deny.
+        // `--disallowedTools` (a cliArg-source deny) leaked under
+        // `--dangerously-skip-permissions`; policySettings denies survive
+        // bypassPermissions mode. covers top-level + Agent(...) subagent use.
+        ...gate.permissions.deny,
         "Read(//proc/**)",
         "Read(//sys/**)",
         "Grep(//proc/**)",
@@ -972,7 +1007,7 @@ function buildManagedSettings(params: ManagedSettingsParams): Record<string, unk
   // hook (gate-server retries) is layered into the same `hooks` object when
   // present so both fire under managed settings.
   const hooks: Record<string, unknown> = {
-    ...buildClaudePretoolGateSettings(params.pretoolGateScriptPath).hooks,
+    ...gate.hooks,
   };
   if (params.stopHookPath) {
     hooks.Stop = [
@@ -1134,11 +1169,25 @@ export const claude = agent({
     // claude-code's `Vw()` resolver prefers ANTHROPIC_API_KEY over the OAuth
     // token when both are set, so we strip the API key to fall through to the
     // Max-subscription path. bedrock route uses AWS creds and is excluded.
+    // the strip is gated on a 1-token preflight: an exhausted (session/weekly
+    // limit) or revoked subscription would otherwise kill the run at its first
+    // model call with a working API key sitting unused in env.
     if (env.CLAUDE_CODE_OAUTH_TOKEN && !isBedrockRoute && env.ANTHROPIC_API_KEY) {
-      log.debug(
-        "» CLAUDE_CODE_OAUTH_TOKEN present — stripping ANTHROPIC_API_KEY from Claude Code env so the OAuth subscription is used",
-      );
-      delete env.ANTHROPIC_API_KEY;
+      const preflight = await preflightClaudeSubscription({
+        token: env.CLAUDE_CODE_OAUTH_TOKEN,
+        model,
+      });
+      if (preflight.usable) {
+        log.debug(
+          "» CLAUDE_CODE_OAUTH_TOKEN present — stripping ANTHROPIC_API_KEY from Claude Code env so the OAuth subscription is used",
+        );
+        delete env.ANTHROPIC_API_KEY;
+      } else {
+        log.info(
+          `» Claude subscription unusable (${preflight.reason}) — falling back to ANTHROPIC_API_KEY`,
+        );
+        delete env.CLAUDE_CODE_OAUTH_TOKEN;
+      }
     }
 
     log.info(`» effort: ${effort}`);

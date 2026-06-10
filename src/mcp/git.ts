@@ -220,10 +220,15 @@ export function classifyPushError(msg: string): PushErrorKind {
   return "unknown";
 }
 
-// backoff delays before retry attempts 2 and 3. attempt 1 is the original
-// push. total worst-case added latency: ~7s. small enough that the agent
-// rarely notices, large enough to ride out most upstream hiccups.
-const TRANSIENT_RETRY_DELAYS_MS = [2000, 5000];
+// exponential backoff delays before retry attempts 2-6. attempt 1 is the
+// original push. total worst-case added latency: ~60s. larger than it looks
+// like it needs to be, on purpose: github installation-token replication lag
+// can exceed 20s, and the same token surfaces as "Invalid username or token"
+// until it propagates to the push edge. re-minting does not help (a fresh
+// token has the same lag), so the cure is to wait out the propagation with
+// the same token. a short window reddens CI (notably the push-restricted
+// e2e); ~60s rides it out while still bounding a permanently-failing push.
+const TRANSIENT_RETRY_DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
 
 /**
  * push with backoff retry on transient failures (network 5xx, connection

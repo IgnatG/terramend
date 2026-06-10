@@ -55,6 +55,7 @@
     "check:entrypoints": "node scripts/check-entrypoint-imports.ts",
     "dev:run": "node dev-run.ts",
     "docker": "node docker.ts",
+    "docs:models": "node scripts/generate-model-docs.ts",
     "format": "biome format --write .",
     "lint": "biome check .",
     "lint:ci": "biome ci .",
@@ -69,7 +70,7 @@
   },
   "devDependencies": {
     "@actions/core": "^3.0.1",
-    "@anthropic-ai/claude-code": "2.1.168",
+    "@anthropic-ai/claude-code": "2.1.170",
     "@ark/fs": "0.56.0",
     "@ark/util": "0.56.0",
     "@biomejs/biome": "^2.4.16",

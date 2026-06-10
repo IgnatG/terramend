@@ -25,7 +25,7 @@ type LogAnalysis = {
   };
 };
 
-function analyzeLog(logs: string, excerptLines = 80): LogAnalysis {
+export function analyzeLog(logs: string, excerptLines = 80): LogAnalysis {
   // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape codes use control chars
   const clean = logs.replace(/\x1b\[[0-9;]*m/g, "");
   const lines = clean.split("\n");

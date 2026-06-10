@@ -1,7 +1,8 @@
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type GitAuthServer, startGitAuthServer } from "#app/utils/gitAuthServer";
 
 let server: GitAuthServer | undefined;
@@ -108,8 +109,9 @@ describe("code lifecycle (tamper detection)", () => {
 
   it("revoke() on an unknown code is a no-op", async () => {
     const tmp = makeTmpdir();
-    server = await startGitAuthServer(tmp);
-    expect(() => server!.revoke("nonexistent")).not.toThrow();
+    const local = await startGitAuthServer(tmp);
+    server = local;
+    expect(() => local.revoke("nonexistent")).not.toThrow();
   });
 
   it("each register() call produces an independent code", async () => {
@@ -156,5 +158,103 @@ describe("askpass script generation", () => {
     // script checks for /^Username/i and returns "x-access-token" without HTTP
     expect(content).toContain("Username");
     expect(content).toContain("x-access-token");
+  });
+
+  it("each writeAskpassScript call produces a distinct script file", async () => {
+    const tmp = makeTmpdir();
+    server = await startGitAuthServer(tmp);
+    const code = server.register("ghs_distinct_test");
+
+    const first = server.writeAskpassScript(code);
+    const second = server.writeAskpassScript(code);
+    expect(first).not.toBe(second);
+    expect(existsSync(first)).toBe(true);
+    expect(existsSync(second)).toBe(true);
+  });
+});
+
+describe("revoked-entry trap window", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("forgets a revoked code after the trap window, replay then 404s instead of 409", async () => {
+    const tmp = makeTmpdir();
+    server = await startGitAuthServer(tmp);
+    const code = server.register("ghs_trap_expiry_test");
+
+    // fake timers only around revoke() so the cleanup setTimeout is controllable;
+    // the actual HTTP round-trips below run on real timers.
+    vi.useFakeTimers();
+    server.revoke(code);
+    vi.advanceTimersByTime(60_001);
+    vi.useRealTimers();
+
+    const replay = await fetch(`http://127.0.0.1:${server.port}/${code}`);
+    expect(replay.status).toBe(404);
+  });
+
+  it("close() clears pending trap timers and shuts the listener", async () => {
+    const tmp = makeTmpdir();
+    const local = await startGitAuthServer(tmp);
+    const code = local.register("ghs_close_with_pending_trap");
+    local.revoke(code);
+
+    // must not hang or throw with a revoked entry's timer still pending
+    await local.close();
+
+    const err = await fetch(`http://127.0.0.1:${local.port}/${code}`).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+  });
+});
+
+describe("github token revocation on replay", () => {
+  let apiServer: Server | undefined;
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    if (apiServer) {
+      const closing = apiServer;
+      apiServer = undefined;
+      await new Promise<void>((resolve) => closing.close(() => resolve()));
+    }
+  });
+
+  it("DELETEs the installation token at GITHUB_API_URL when a revoked code is replayed", async () => {
+    const received = Promise.withResolvers<{ method: string; url: string; auth: string }>();
+    apiServer = createServer((req, res) => {
+      received.resolve({
+        method: req.method ?? "",
+        url: req.url ?? "",
+        auth: req.headers.authorization ?? "",
+      });
+      res.writeHead(204).end();
+    });
+    await new Promise<void>((resolve) => {
+      const listener = apiServer;
+      if (!listener) throw new Error("api server not constructed");
+      listener.listen(0, "127.0.0.1", () => resolve());
+    });
+    const addr = apiServer.address();
+    if (!addr || typeof addr === "string") throw new Error("api server failed to bind");
+    vi.stubEnv("GITHUB_API_URL", `http://127.0.0.1:${addr.port}`);
+
+    const tmp = makeTmpdir();
+    server = await startGitAuthServer(tmp);
+    const code = server.register("ghs_revoke_forward_test");
+    server.revoke(code);
+
+    const replay = await fetch(`http://127.0.0.1:${server.port}/${code}`);
+    expect(replay.status).toBe(409);
+
+    // the tamper-trap revocation is fire-and-forget; await its arrival
+    const revocation = await received.promise;
+    expect(revocation.method).toBe("DELETE");
+    expect(revocation.url).toBe("/installation/token");
+    expect(revocation.auth).toBe("Bearer ghs_revoke_forward_test");
+
+    // the trapped entry is consumed — a second replay is an opaque 404
+    const second = await fetch(`http://127.0.0.1:${server.port}/${code}`);
+    expect(second.status).toBe(404);
   });
 });

@@ -43,5 +43,9 @@ export const test: TestRunnerOptions = {
   validator,
   agentEnv,
   env: { TERRAMEND_DISABLE_SECURITY_INSTRUCTIONS: "1" },
-  coverage: ["src/mcp/shell.ts", "src/agents/{claude,opencode}.ts"],
+  coverage: [
+    "src/mcp/shell.ts",
+    "src/agents/{claude,opencode}.ts",
+    "src/agents/claudePretoolGate.ts",
+  ],
 };

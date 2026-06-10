@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { filterEnv, isSensitiveEnvName, setEnvAllowlist } from "#app/utils/secrets";
+import { filterEnv, isSensitiveEnvName, resolveEnv, setEnvAllowlist } from "#app/utils/secrets";
 
 // keys this suite injects into process.env — cleaned up after each test so we
 // don't leak state into other tests sharing the worker.
@@ -66,5 +66,38 @@ describe("filterEnv GITHUB_* exact allowlist (fail-closed)", () => {
     const env = filterEnv();
     expect(env.MY_CUSTOM_VALUE).toBe("x");
     expect(env.GITHUB_FUTURE_UNKNOWN_VAR).toBe("y");
+  });
+
+  it("lets the user allowlist opt a sensitive-named var back in", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-xxx";
+    setEnvAllowlist("ANTHROPIC_API_KEY");
+    expect(filterEnv().ANTHROPIC_API_KEY).toBe("sk-ant-xxx");
+  });
+
+  it("passes through safe prefixes (RUNNER_*, JAVA_HOME_*)", () => {
+    process.env.RUNNER_TEMP = "/tmp/runner";
+    const env = filterEnv();
+    expect(env.RUNNER_TEMP).toBe("/tmp/runner");
+  });
+});
+
+describe("resolveEnv", () => {
+  it("returns the full process env for 'inherit'", () => {
+    expect(resolveEnv("inherit")).toBe(process.env);
+  });
+
+  it("filters for 'restricted' and for the undefined default", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-xxx";
+    expect(resolveEnv("restricted").ANTHROPIC_API_KEY).toBeUndefined();
+    expect(resolveEnv(undefined).ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
+  it("merges a custom env object over the restricted base", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-xxx";
+    process.env.GITHUB_WORKSPACE = "/work";
+    const env = resolveEnv({ EXTRA_VAR: "1" });
+    expect(env.EXTRA_VAR).toBe("1");
+    expect(env.GITHUB_WORKSPACE).toBe("/work"); // restricted base survives
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined(); // secrets still filtered
   });
 });

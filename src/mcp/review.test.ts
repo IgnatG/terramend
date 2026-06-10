@@ -1,15 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Unwrap the ToolResult envelope so the CreatePullRequestReviewTool tests can
+// assert on the raw object the tool returns (and see thrown errors as
+// rejections instead of encoded error text).
+vi.mock("#app/mcp/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/mcp/shared")>();
+  return {
+    ...actual,
+    execute: <T, R>(fn: (params: T) => Promise<R>): ((params: T) => Promise<R>) => fn,
+  };
+});
+
 import {
+  buildCommentableMap,
   type CommentableLines,
+  CreatePullRequestReviewTool,
+  clearStrandedPendingReview,
   commentableLinesForFile,
+  createReviewWithStrandedRecovery,
   type DroppedComment,
   duplicateReviewDecision,
   formatDroppedCommentsNote,
+  isTransientReviewError,
   MAX_DROPPED_COMMENT_LINES,
   type ReviewCommentInput,
   reviewSkipDecision,
   validateInlineComments,
 } from "#app/mcp/review";
+import type { ToolContext } from "#app/mcp/server";
 
 describe("commentableLinesForFile", () => {
   it("returns empty sets for missing patches (binary or no changes)", () => {
@@ -396,5 +414,508 @@ describe("duplicateReviewDecision", () => {
       currentCheckoutSha: "sha1",
     });
     expect(decision?.kind).toBe("already-submitted");
+  });
+});
+
+// --- network-boundary helpers (fake octokit) --------------------------------
+
+function octokitErr(status: number, message: string): Error & { status: number } {
+  return Object.assign(new Error(message), { status });
+}
+
+const TRANSIENT_422 = () => octokitErr(422, "An internal error occurred, please try again.");
+
+function makeCtx(over: Record<string, unknown> = {}): ToolContext {
+  return {
+    agentId: "claude",
+    repo: { owner: "octo", name: "repo" },
+    prApproveEnabled: true,
+    payload: {},
+    toolState: {},
+    octokit: {},
+    ...over,
+  } as unknown as ToolContext;
+}
+
+describe("isTransientReviewError", () => {
+  it("matches only GitHub's generic 422 'internal error' body", () => {
+    expect(isTransientReviewError(TRANSIENT_422())).toBe(true);
+  });
+
+  it("rejects a 422 that cites a specific cause", () => {
+    expect(isTransientReviewError(octokitErr(422, "Validation Failed: invalid line"))).toBe(false);
+  });
+
+  it("rejects other statuses and non-error values", () => {
+    expect(
+      isTransientReviewError(octokitErr(500, "An internal error occurred, please try again.")),
+    ).toBe(false);
+    expect(isTransientReviewError(new Error("plain"))).toBe(false);
+    expect(isTransientReviewError(null)).toBe(false);
+    expect(isTransientReviewError("string")).toBe(false);
+  });
+});
+
+describe("clearStrandedPendingReview", () => {
+  const params = (originalErr: unknown) => ({
+    owner: "octo",
+    repo: "repo",
+    pull_number: 7,
+    originalErr,
+  });
+
+  it("rethrows the original error when it is not a pending-review 422", async () => {
+    const original = octokitErr(500, "server exploded");
+    await expect(clearStrandedPendingReview(makeCtx(), params(original))).rejects.toBe(original);
+
+    const wrong422 = octokitErr(422, "Validation Failed");
+    await expect(clearStrandedPendingReview(makeCtx(), params(wrong422))).rejects.toBe(wrong422);
+  });
+
+  it("deletes the leftover PENDING review and resolves", async () => {
+    const deletePendingReview = vi.fn().mockResolvedValue({});
+    const ctx = makeCtx({
+      octokit: {
+        paginate: vi.fn().mockResolvedValue([
+          { id: 1, state: "COMMENTED" },
+          { id: 9, state: "PENDING" },
+        ]),
+        rest: { pulls: { listReviews: vi.fn(), deletePendingReview } },
+      },
+    });
+
+    const original = octokitErr(422, "User can only have one pending review per pull request");
+    await expect(clearStrandedPendingReview(ctx, params(original))).resolves.toBeUndefined();
+    expect(deletePendingReview).toHaveBeenCalledWith(
+      expect.objectContaining({ pull_number: 7, review_id: 9 }),
+    );
+  });
+
+  it("rethrows the original when no PENDING leftover exists", async () => {
+    const ctx = makeCtx({
+      octokit: {
+        paginate: vi.fn().mockResolvedValue([{ id: 1, state: "COMMENTED" }]),
+        rest: { pulls: { listReviews: vi.fn(), deletePendingReview: vi.fn() } },
+      },
+    });
+    const original = octokitErr(422, "already has a pending review");
+    await expect(clearStrandedPendingReview(ctx, params(original))).rejects.toBe(original);
+  });
+
+  it("surfaces the original 422 when listReviews itself fails", async () => {
+    const ctx = makeCtx({
+      octokit: {
+        paginate: vi.fn().mockRejectedValue(octokitErr(502, "bad gateway")),
+        rest: { pulls: { listReviews: vi.fn(), deletePendingReview: vi.fn() } },
+      },
+    });
+    const original = octokitErr(422, "already has a pending review");
+    await expect(clearStrandedPendingReview(ctx, params(original))).rejects.toBe(original);
+  });
+
+  it("swallows a 404/422 from the delete but rethrows anything else", async () => {
+    const mk = (deleteErr: Error) =>
+      makeCtx({
+        octokit: {
+          paginate: vi.fn().mockResolvedValue([{ id: 9, state: "PENDING" }]),
+          rest: {
+            pulls: {
+              listReviews: vi.fn(),
+              deletePendingReview: vi.fn().mockRejectedValue(deleteErr),
+            },
+          },
+        },
+      });
+    const original = octokitErr(422, "already has a pending review");
+
+    await expect(
+      clearStrandedPendingReview(mk(octokitErr(404, "gone")), params(original)),
+    ).resolves.toBeUndefined();
+    await expect(
+      clearStrandedPendingReview(mk(octokitErr(422, "already submitted")), params(original)),
+    ).resolves.toBeUndefined();
+
+    const hardErr = octokitErr(500, "delete exploded");
+    await expect(clearStrandedPendingReview(mk(hardErr), params(original))).rejects.toBe(hardErr);
+  });
+});
+
+describe("createReviewWithStrandedRecovery", () => {
+  const params = {
+    owner: "octo",
+    repo: "repo",
+    pull_number: 7,
+    event: "COMMENT",
+  } as Parameters<typeof createReviewWithStrandedRecovery>[1];
+
+  it("passes a first-try success straight through", async () => {
+    const response = { data: { id: 1 } };
+    const createReview = vi.fn().mockResolvedValue(response);
+    const ctx = makeCtx({ octokit: { rest: { pulls: { createReview } } } });
+
+    await expect(createReviewWithStrandedRecovery(ctx, params)).resolves.toBe(response);
+    expect(createReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a stranded pending draft and retries once", async () => {
+    const response = { data: { id: 2 } };
+    const createReview = vi
+      .fn()
+      .mockRejectedValueOnce(octokitErr(422, "user already has a pending review"))
+      .mockResolvedValueOnce(response);
+    const deletePendingReview = vi.fn().mockResolvedValue({});
+    const ctx = makeCtx({
+      octokit: {
+        paginate: vi.fn().mockResolvedValue([{ id: 9, state: "PENDING" }]),
+        rest: { pulls: { createReview, listReviews: vi.fn(), deletePendingReview } },
+      },
+    });
+
+    await expect(createReviewWithStrandedRecovery(ctx, params)).resolves.toBe(response);
+    expect(createReview).toHaveBeenCalledTimes(2);
+    expect(deletePendingReview).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("buildCommentableMap", () => {
+  it("reuses the checkout snapshot when PR number and sha both match", async () => {
+    const cached = buildMap([["src/foo.ts", "@@ -1 +1 @@\n+x"]]);
+    const paginate = vi.fn();
+    const ctx = makeCtx({
+      octokit: { paginate, rest: { pulls: { listFiles: vi.fn() } } },
+      toolState: {
+        commentableLinesByFile: cached,
+        commentableLinesPullNumber: 5,
+        commentableLinesCheckoutSha: "sha1",
+        checkoutSha: "sha1",
+      },
+    });
+
+    await expect(buildCommentableMap(ctx, 5)).resolves.toBe(cached);
+    expect(paginate).not.toHaveBeenCalled();
+  });
+
+  it("refetches when the cache was built for a different sha", async () => {
+    const cached = buildMap([["stale.ts", "@@ -1 +1 @@\n+x"]]);
+    const paginate = vi.fn().mockResolvedValue([
+      { filename: "src/foo.ts", patch: "@@ -1 +1,2 @@\n+a\n+b" },
+      { filename: "assets/logo.png" }, // no patch — binary
+    ]);
+    const ctx = makeCtx({
+      octokit: { paginate, rest: { pulls: { listFiles: vi.fn() } } },
+      toolState: {
+        commentableLinesByFile: cached,
+        commentableLinesPullNumber: 5,
+        commentableLinesCheckoutSha: "old-sha",
+        checkoutSha: "new-sha",
+      },
+    });
+
+    const map = await buildCommentableMap(ctx, 5);
+    expect(map).not.toBe(cached);
+    expect(map.get("src/foo.ts")?.RIGHT.has(2)).toBe(true);
+    expect(map.get("assets/logo.png")?.RIGHT.size).toBe(0);
+  });
+});
+
+describe("CreatePullRequestReviewTool", () => {
+  const FULL_SHA = "a".repeat(40);
+  const patch = ["@@ -10,2 +10,3 @@", " ctx", "-old", "+new", "+new2"].join("\n");
+
+  type RawResult = Record<string, unknown>;
+  function runTool(
+    toolDef: { execute: unknown },
+    params: Record<string, unknown>,
+  ): Promise<RawResult> {
+    const fn = toolDef.execute as (p: Record<string, unknown>) => Promise<RawResult>;
+    return fn(params);
+  }
+
+  /** toolState pre-seeded with a commentable-lines snapshot for PR 5 @ sha1. */
+  const snapshotState = (over: Record<string, unknown> = {}) => ({
+    commentableLinesByFile: buildMap([["src/foo.ts", patch]]),
+    commentableLinesPullNumber: 5,
+    commentableLinesCheckoutSha: "sha1",
+    checkoutSha: "sha1",
+    ...over,
+  });
+
+  const reviewResponse = (id: number) => ({
+    data: {
+      id,
+      node_id: `node-${id}`,
+      html_url: `https://github.test/review/${id}`,
+      state: "COMMENTED",
+      user: { login: "terramend[bot]" },
+      submitted_at: "2026-06-10T00:00:00Z",
+    },
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("short-circuits a duplicate submission in the same session", async () => {
+    const createReview = vi.fn();
+    const ctx = makeCtx({
+      toolState: { review: { id: 100, reviewedSha: "sha1" }, checkoutSha: "sha1" },
+      octokit: { rest: { pulls: { createReview } } },
+    });
+
+    const result = await runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      body: "second call",
+    });
+
+    expect(result).toMatchObject({ success: true, skipped: true, reviewId: 100 });
+    expect(createReview).not.toHaveBeenCalled();
+    expect(ctx.toolState.issueNumber).toBe(5);
+  });
+
+  it("skips an empty non-approve review before any GitHub call", async () => {
+    const ctx = makeCtx({ octokit: {} });
+    const result = await runTool(CreatePullRequestReviewTool(ctx), { pull_number: 5 });
+    expect(result).toMatchObject({ success: true, skipped: true });
+    expect(result.reason).toMatch(/nothing to post/);
+  });
+
+  it("drops invalid comments and posts the dropped-comments note as the review body", async () => {
+    const createReview = vi.fn().mockResolvedValue({ data: { id: 60 } });
+    const submitReview = vi.fn().mockResolvedValue(reviewResponse(60));
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: { rest: { pulls: { createReview, submitReview } } },
+    });
+
+    const result = await runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      commit_id: FULL_SHA,
+      comments: [{ path: "not-in-diff.ts", line: 1, body: "x" }],
+    });
+
+    expect(result).toMatchObject({ success: true, reviewId: 60 });
+    expect(result.droppedComments).toHaveLength(1);
+    // the dropped set is surfaced in the posted body, and the invalid comment
+    // never reaches GitHub.
+    const submitted = submitReview.mock.calls[0]?.[0] as { body: string };
+    expect(submitted.body).toContain("**Note:** 1 inline comment(s) dropped");
+    expect(createReview.mock.calls[0]?.[0]).toMatchObject({ comments: [] });
+  });
+
+  it("submits a comments-only review, rendering suggestions and multi-line ranges", async () => {
+    const createReview = vi.fn().mockResolvedValue(reviewResponse(42));
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: { rest: { pulls: { createReview } } },
+    });
+
+    const result = await runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      commit_id: FULL_SHA,
+      comments: [
+        { path: "src/foo.ts", line: 12, start_line: 11, suggestion: "  fixed();", body: "tidy" },
+      ],
+    });
+
+    expect(result).toMatchObject({ success: true, reviewId: 42, state: "COMMENTED" });
+    expect(result.droppedComments).toBeUndefined();
+    expect(ctx.toolState.review).toEqual({ id: 42, nodeId: "node-42", reviewedSha: "sha1" });
+    expect(ctx.toolState.wasUpdated).toBe(true);
+
+    expect(createReview).toHaveBeenCalledTimes(1);
+    const sent = createReview.mock.calls[0]?.[0] as {
+      event: string;
+      commit_id: string;
+      comments: Array<Record<string, unknown>>;
+    };
+    expect(sent.event).toBe("COMMENT");
+    expect(sent.commit_id).toBe(FULL_SHA);
+    expect(sent.comments[0]).toMatchObject({
+      path: "src/foo.ts",
+      line: 12,
+      start_line: 11,
+      side: "RIGHT",
+      start_side: "RIGHT",
+    });
+    expect(String(sent.comments[0]?.body)).toContain("tidy\n\n```suggestion\n  fixed();\n```");
+  });
+
+  it("submits a body review via pending+submit, appending the Fix-it footer", async () => {
+    const createReview = vi.fn().mockResolvedValue({ data: { id: 7 } });
+    const submitReview = vi.fn().mockResolvedValue(reviewResponse(7));
+    const pulls = {
+      createReview,
+      submitReview,
+      get: vi.fn().mockResolvedValue({ data: { head: { sha: "sha1" } } }),
+    };
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: { rest: { pulls } },
+    });
+
+    const result = await runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      body: "Found two issues.",
+    });
+
+    expect(result).toMatchObject({ success: true, reviewId: 7 });
+    // pending draft created WITHOUT the event…
+    expect(createReview.mock.calls[0]?.[0]).not.toHaveProperty("event");
+    // …then submitted with it, body + footer affordance included.
+    const submitted = submitReview.mock.calls[0]?.[0] as { event: string; body: string };
+    expect(submitted.event).toBe("COMMENT");
+    expect(submitted.body).toContain("Found two issues.");
+    expect(submitted.body).toContain("Fix it ➔");
+  });
+
+  it("downgrades APPROVE to COMMENT when prApproveEnabled is off (no Fix footer)", async () => {
+    const createReview = vi.fn().mockResolvedValue({ data: { id: 8 } });
+    const submitReview = vi.fn().mockResolvedValue(reviewResponse(8));
+    const ctx = makeCtx({
+      prApproveEnabled: false,
+      toolState: snapshotState(),
+      octokit: {
+        rest: {
+          pulls: {
+            createReview,
+            submitReview,
+            get: vi.fn().mockResolvedValue({ data: { head: { sha: "sha1" } } }),
+          },
+        },
+      },
+    });
+
+    await runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      body: "nits follow",
+      approved: true,
+    });
+
+    const submitted = submitReview.mock.calls[0]?.[0] as { event: string; body: string };
+    expect(submitted.event).toBe("COMMENT");
+    // approving reviews suppress Fix buttons even after the downgrade.
+    expect(submitted.body).not.toContain("Fix it ➔");
+  });
+
+  it("cleans up the pending draft when the submit step fails", async () => {
+    const createReview = vi.fn().mockResolvedValue({ data: { id: 7 } });
+    const submitErr = octokitErr(500, "submit exploded");
+    const submitReview = vi.fn().mockRejectedValue(submitErr);
+    const deletePendingReview = vi.fn().mockResolvedValue({});
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: {
+        rest: {
+          pulls: {
+            createReview,
+            submitReview,
+            deletePendingReview,
+            get: vi.fn().mockResolvedValue({ data: { head: { sha: "sha1" } } }),
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(CreatePullRequestReviewTool(ctx), { pull_number: 5, body: "B" }),
+    ).rejects.toBe(submitErr);
+    expect(deletePendingReview).toHaveBeenCalledWith(expect.objectContaining({ review_id: 7 }));
+  });
+
+  it("reports new commits pushed mid-review and advances the checkout sha", async () => {
+    const createReview = vi.fn().mockResolvedValue(reviewResponse(43));
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: {
+        rest: {
+          pulls: {
+            createReview,
+            get: vi.fn().mockResolvedValue({ data: { head: { sha: "sha2" } } }),
+          },
+        },
+      },
+    });
+
+    const result = await runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      comments: [{ path: "src/foo.ts", line: 12, body: "x" }],
+    });
+
+    expect(result).toMatchObject({ success: true, reviewId: 43 });
+    expect(result.newCommits).toMatchObject({ from: "sha1", to: "sha2" });
+    expect(ctx.toolState.beforeSha).toBe("sha1");
+    expect(ctx.toolState.checkoutSha).toBe("sha2");
+    // the review anchors to the sha the agent actually analyzed.
+    expect(createReview.mock.calls[0]?.[0]).toMatchObject({ commit_id: "sha1" });
+  });
+
+  it("enriches a non-transient 422 with the affected comments and GitHub's message", async () => {
+    const createReview = vi.fn().mockRejectedValue(octokitErr(422, "Validation Failed: line"));
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: { rest: { pulls: { createReview } } },
+    });
+
+    await expect(
+      runTool(CreatePullRequestReviewTool(ctx), {
+        pull_number: 5,
+        commit_id: FULL_SHA,
+        comments: [{ path: "src/foo.ts", line: 12, body: "x" }],
+      }),
+    ).rejects.toThrow(/Affected comments: src\/foo\.ts:12 \(RIGHT\).*Validation Failed: line/s);
+  });
+
+  it("retries GitHub's transient 422 in-tool and surfaces dedicated guidance after exhaustion", async () => {
+    vi.useFakeTimers();
+    const createReview = vi.fn().mockImplementation(() => Promise.reject(TRANSIENT_422()));
+    const ctx = makeCtx({
+      toolState: snapshotState(),
+      octokit: { rest: { pulls: { createReview } } },
+    });
+
+    const pending = runTool(CreatePullRequestReviewTool(ctx), {
+      pull_number: 5,
+      commit_id: FULL_SHA,
+      comments: [{ path: "src/foo.ts", line: 12, body: "x" }],
+    }).then(
+      () => {
+        throw new Error("expected the tool to throw");
+      },
+      (err: unknown) => err,
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    const err = await pending;
+
+    expect(String(err)).toMatch(/transient 422 "internal error".*after 3 attempts/s);
+    expect(String(err)).toMatch(/Do NOT modify or drop inline comments/);
+    expect(createReview).toHaveBeenCalledTimes(3);
+  });
+
+  it("nudges once about unread diff TOC regions, then lets the retry through", async () => {
+    const createReview = vi.fn().mockResolvedValue(reviewResponse(50));
+    const ctx = makeCtx({
+      toolState: snapshotState({
+        diffCoverage: {
+          diffPath: "/tmp/pr.diff",
+          totalLines: 10,
+          tocEntries: [{ filename: "src/foo.ts", startLine: 1, endLine: 10 }],
+          coveredRanges: [],
+          coveragePreflightRan: false,
+        },
+      }),
+      octokit: { rest: { pulls: { createReview } } },
+    });
+    const params = {
+      pull_number: 5,
+      commit_id: FULL_SHA,
+      comments: [{ path: "src/foo.ts", line: 12, body: "x" }],
+    };
+
+    await expect(runTool(CreatePullRequestReviewTool(ctx), params)).rejects.toThrow(
+      /diff coverage pre-flight.*src\/foo\.ts \(10 lines, 1-10\)/s,
+    );
+    // one-time nudge: the same call goes through on retry.
+    const result = await runTool(CreatePullRequestReviewTool(ctx), params);
+    expect(result).toMatchObject({ success: true, reviewId: 50 });
   });
 });

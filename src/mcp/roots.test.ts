@@ -2,7 +2,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { detectEnvironmentTwins, discoverTerraformRoots, isRootModuleHcl } from "#app/mcp/roots";
+import {
+  detectEnvironmentTwins,
+  discoverTerraformRoots,
+  isRootModuleHcl,
+  TerraformRootsTool,
+} from "#app/mcp/roots";
+import type { ToolContext } from "#app/mcp/server";
 
 describe("isRootModuleHcl", () => {
   it("detects a provider configuration block (root)", () => {
@@ -105,5 +111,65 @@ describe("detectEnvironmentTwins (§22)", () => {
 
   it("ignores paths with no env/region segment", () => {
     expect(detectEnvironmentTwins(["modules/vpc", "modules/s3"])).toEqual([]);
+  });
+});
+
+describe("TerraformRootsTool", () => {
+  async function runRootsTool(cwd: string): Promise<string> {
+    const tool = TerraformRootsTool({ payload: { cwd } } as unknown as ToolContext);
+    const exec = tool.execute as (
+      p: unknown,
+      c: unknown,
+    ) => Promise<{ content: [{ type: "text"; text: string }] }>;
+    const result = await exec({}, {});
+    return result.content[0].text;
+  }
+
+  let multiRoot: string;
+  let twinRoot: string;
+  let singleRoot: string;
+
+  beforeAll(() => {
+    multiRoot = mkdtempSync(join(tmpdir(), "tf-rootstool-"));
+    mkdirSync(join(multiRoot, "core"), { recursive: true });
+    writeFileSync(join(multiRoot, "main.tf"), 'provider "aws" {}');
+    writeFileSync(join(multiRoot, "core", "main.tf"), 'terraform {\n  backend "s3" {}\n}');
+
+    twinRoot = mkdtempSync(join(tmpdir(), "tf-rootstwin-"));
+    for (const env of ["dev", "prod"]) {
+      mkdirSync(join(twinRoot, "stacks", env), { recursive: true });
+      writeFileSync(join(twinRoot, "stacks", env, "main.tf"), 'provider "aws" {}');
+    }
+
+    singleRoot = mkdtempSync(join(tmpdir(), "tf-rootsone-"));
+    writeFileSync(join(singleRoot, "main.tf"), 'provider "aws" {}');
+  });
+
+  afterAll(() => {
+    rmSync(multiRoot, { recursive: true, force: true });
+    rmSync(twinRoot, { recursive: true, force: true });
+    rmSync(singleRoot, { recursive: true, force: true });
+  });
+
+  it("reports multiple roots with the per-root flags and the multi-root note", async () => {
+    const text = await runRootsTool(multiRoot);
+    expect(text).toContain("root_count: 2");
+    expect(text).toContain("has_backend");
+    expect(text).toContain("has_provider_config");
+    expect(text).toContain("Multiple roots");
+    expect(text).toContain("environment_twins: []");
+  });
+
+  it("reports environment twins among parallel stacks", async () => {
+    const text = await runRootsTool(twinRoot);
+    expect(text).toContain("root_count: 2");
+    expect(text).toContain("stacks/{env}");
+    expect(text).toContain("Detected environment twins");
+  });
+
+  it("reports a single root with the single-root note", async () => {
+    const text = await runRootsTool(singleRoot);
+    expect(text).toContain("root_count: 1");
+    expect(text).toContain("Single root (or none detected)");
   });
 });

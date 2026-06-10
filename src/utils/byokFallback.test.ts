@@ -25,12 +25,27 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: "anthropic/claude-opus-4-7",
       authorized: empty,
       providerKeyPresent: false,
+      agentName: "opencode",
     });
     expect(result).toEqual({
       kind: "fallback",
       from: "anthropic/claude-opus-4-7",
       to: FREE_FALLBACK_SLUG,
     });
+  });
+
+  it("uses the resolved model when the claude harness serves it", () => {
+    // opencode models can't see CLAUDE_CODE_OAUTH_TOKEN, so `authorized` is
+    // empty for anthropic/* — and the OAuth token counts as a present provider
+    // key, which would land in `unavailable` and fail the run. resolveAgent
+    // picks the claude agent, which brings its own auth; the gate must defer.
+    const result = selectFallbackModelIfNeeded({
+      resolvedModel: "anthropic/claude-opus-4-8",
+      authorized: empty,
+      providerKeyPresent: true,
+      agentName: "claude",
+    });
+    expect(result).toEqual({ kind: "use-resolved" });
   });
 
   it("reports unavailable (does NOT downgrade) when a provider key IS present but the model is unauthorized", () => {
@@ -40,6 +55,7 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: "google/gemini-3.5-flash-lite",
       authorized: new Set(["google/gemini-3.5-flash", "google/gemini-3.1-pro"]),
       providerKeyPresent: true,
+      agentName: "opencode",
     });
     expect(result).toEqual({ kind: "unavailable", model: "google/gemini-3.5-flash-lite" });
   });
@@ -49,6 +65,7 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: "anthropic/claude-opus-4-7",
       authorized: new Set(["anthropic/claude-opus-4-7"]),
       providerKeyPresent: true,
+      agentName: "opencode",
     });
     expect(result).toEqual({ kind: "use-resolved" });
   });
@@ -58,6 +75,7 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: undefined,
       authorized: empty,
       providerKeyPresent: false,
+      agentName: "opencode",
     });
     expect(result).toEqual({ kind: "use-resolved" });
   });
@@ -67,6 +85,7 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: FREE_FALLBACK_SLUG,
       authorized: empty,
       providerKeyPresent: false,
+      agentName: "opencode",
     });
     expect(result).toEqual({ kind: "use-resolved" });
   });
@@ -80,6 +99,7 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: "eu.anthropic.claude-opus-4-7",
       authorized: empty,
       providerKeyPresent: true,
+      agentName: "claude",
     });
     expect(result).toEqual({ kind: "use-resolved" });
   });
@@ -89,6 +109,7 @@ describe("selectFallbackModelIfNeeded", () => {
       resolvedModel: resolveCliModel("opencode/minimax-m2.5-free"),
       authorized: empty,
       providerKeyPresent: false,
+      agentName: "opencode",
     });
     expect(result).toEqual({ kind: "use-resolved" });
   });

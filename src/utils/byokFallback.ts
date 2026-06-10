@@ -1,3 +1,4 @@
+import type { AgentId } from "#app/external";
 import { getModelEnvVars, getProviderDisplayName } from "#app/models";
 
 /**
@@ -62,16 +63,26 @@ export function hasProviderKeyForModel(resolvedModel: string): boolean {
  *   - Resolved model is a raw Bedrock / Vertex ID (no `/`): the routing
  *     validators (`validateBedrockSetup` / `validateVertexSetup`) cover
  *     auth + region/location/model-id; `opencode models` does not.
+ *   - The selected agent is `claude`: the Claude Code harness brings its own
+ *     auth and `resolveAgent` only returns it when that auth is present.
+ *     `opencode models` can't see `CLAUDE_CODE_OAUTH_TOKEN`, so without this
+ *     an OAuth-subscription run on an Anthropic model would land in
+ *     `unavailable` (the token counts as a present provider key) and fail a
+ *     run the claude harness serves fine. `validateAgentApiKey` still covers
+ *     the claude path with its own Anthropic auth check.
  */
 export function selectFallbackModelIfNeeded(input: {
   resolvedModel: string | undefined;
   authorized: Set<string>;
   /** whether a provider key for the resolved model's provider is present in env */
   providerKeyPresent: boolean;
+  /** which agent harness `resolveAgent` picks for the resolved model */
+  agentName: AgentId;
 }): FallbackDecision {
   if (!input.resolvedModel) return { kind: "use-resolved" };
   if (input.resolvedModel === FREE_FALLBACK_SLUG) return { kind: "use-resolved" };
   if (!input.resolvedModel.includes("/")) return { kind: "use-resolved" };
+  if (input.agentName === "claude") return { kind: "use-resolved" };
   if (input.authorized.has(input.resolvedModel)) return { kind: "use-resolved" };
 
   // resolved model is NOT in OpenCode's authorized set. split the two cases:

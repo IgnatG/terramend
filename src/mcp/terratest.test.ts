@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { scaffoldTerraformTest, scaffoldTerratest } from "#app/mcp/terratest";
+import type { ToolContext } from "#app/mcp/server";
+import {
+  ScaffoldTerratestTool,
+  scaffoldTerraformTest,
+  scaffoldTerratest,
+} from "#app/mcp/terratest";
 
 describe("scaffoldTerratest (§28)", () => {
   it("emits a plan-only Go test + a native test, and no examples/ fixture", () => {
@@ -61,5 +66,40 @@ describe("scaffoldTerraformTest (§28 native variant)", () => {
     expect(f.content).toContain('run "plan_my_vpc"');
     expect(f.content).toContain("command = plan");
     expect(f.content).not.toMatch(/command\s*=\s*apply/);
+  });
+});
+
+describe("ScaffoldTerratestTool", () => {
+  async function runScaffoldTool(terratest: boolean, params: unknown): Promise<string> {
+    const tool = ScaffoldTerratestTool({ payload: { terratest } } as unknown as ToolContext);
+    const exec = tool.execute as (
+      p: unknown,
+      c: unknown,
+    ) => Promise<{ content: [{ type: "text"; text: string }] }>;
+    const result = await exec(params, {});
+    return result.content[0].text;
+  }
+
+  it("degrades green when the terratest input is disabled", async () => {
+    const text = await runScaffoldTool(false, { module_name: "vpc", module_path: "modules/vpc" });
+    expect(text).toContain("enabled: false");
+    expect(text).toContain("opt-in");
+  });
+
+  it("returns the scaffold files when enabled (variables defaulted)", async () => {
+    const text = await runScaffoldTool(true, { module_name: "vpc", module_path: "modules/vpc" });
+    expect(text).toContain("enabled: true");
+    expect(text).toContain("test/vpc_test.go");
+    expect(text).toContain("modules/vpc/tests/vpc.tftest.hcl");
+  });
+
+  it("threads the variables through to the scaffold", async () => {
+    const text = await runScaffoldTool(true, {
+      module_name: "s3",
+      module_path: "modules/s3",
+      variables: [{ name: "bucket_name", required: true }],
+    });
+    expect(text).toContain("bucket_name");
+    expect(text).toContain("(required)");
   });
 });

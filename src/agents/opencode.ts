@@ -105,7 +105,7 @@ const installCli = () => installOpencodeCli({ binPath: "bin/opencode.exe" });
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
-function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): string {
+export function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): string {
   const config: OpenCodeConfig = {
     permission: {
       bash: "deny",
@@ -174,7 +174,7 @@ function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): s
 }
 
 /** split `<providerID>/<modelID>` into the SDK's prompt model shape. */
-function parseModel(
+export function parseModel(
   value: string | undefined,
 ): { providerID: string; modelID: string } | undefined {
   if (!value) return undefined;
@@ -204,7 +204,7 @@ interface ServerHandle {
  * We still register with `trackChild()` so Ctrl-C kills the server alongside
  * everything else.
  */
-function bootOpencodeServer(params: {
+export function bootOpencodeServer(params: {
   cliPath: string;
   env: NodeJS.ProcessEnv;
   cwd: string;
@@ -330,7 +330,7 @@ function bootOpencodeServer(params: {
  * unified AgentResult at the end. Per-turn snapshot is reset between turns
  * inside the event loop via `beginTurn()` / `endTurn()`.
  */
-interface TurnAccumulator {
+export interface TurnAccumulator {
   finalText: string;
   /**
    * Aggregate token totals from step-finish parts across the orchestrator AND
@@ -345,7 +345,7 @@ interface TurnAccumulator {
   lastToolError: string | null;
 }
 
-function newTurn(): TurnAccumulator {
+export function newTurn(): TurnAccumulator {
   return {
     finalText: "",
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -357,7 +357,7 @@ function newTurn(): TurnAccumulator {
 
 // ── runner ─────────────────────────────────────────────────────────────────────
 
-interface RunnerContext {
+export interface RunnerContext {
   client: OpencodeClient;
   sessionID: string;
   label: string;
@@ -398,7 +398,7 @@ interface RunnerContext {
  * connect and be missed. live-stream logging is best-effort; see the
  * end-of-turn `logUnseenToolCalls` fallback for the guarantee.
  */
-async function consumeEvents(ctx: RunnerContext, signal: AbortSignal): Promise<void> {
+export async function consumeEvents(ctx: RunnerContext, signal: AbortSignal): Promise<void> {
   // wire the abort signal into the SSE request itself. without it the
   // generated client falls back to an internal never-aborting signal
   // (serverSentEvents.gen.js: `options.signal ?? new AbortController().signal`),
@@ -428,7 +428,10 @@ async function consumeEvents(ctx: RunnerContext, signal: AbortSignal): Promise<v
   }
 }
 
-async function dispatchEvent(ctx: RunnerContext, event: EventSubscribeResponse): Promise<void> {
+export async function dispatchEvent(
+  ctx: RunnerContext,
+  event: EventSubscribeResponse,
+): Promise<void> {
   // event union covers heartbeats, session lifecycle, message lifecycle, tui,
   // mcp, etc. we only care about a small subset.
   if (event.type === "message.part.updated") {
@@ -570,7 +573,7 @@ async function onToolPart(
  * otherwise be missed by `recordDiffReadFromToolUse`, and the subsequent
  * `create_pull_request_review` pre-flight would reject the review.
  */
-function processTerminalToolPart(
+export function processTerminalToolPart(
   ctx: RunnerContext,
   part: Extract<Part, { type: "tool" }>,
   label: string,
@@ -661,7 +664,7 @@ async function logUnseenToolCalls(ctx: RunnerContext): Promise<void> {
   }
 }
 
-function formatPartDuration(time: { start?: number; end?: number } | undefined): string {
+export function formatPartDuration(time: { start?: number; end?: number } | undefined): string {
   if (!time || typeof time.start !== "number" || typeof time.end !== "number") return "";
   if (time.end <= time.start) return "";
   return ` (${((time.end - time.start) / 1000).toFixed(1)}s)`;
@@ -683,7 +686,7 @@ function withLabel(label: string, message: string): string {
  * used when the response is missing (e.g. abort, transport error) — and as
  * the only source of per-step subagent attribution if we ever surface it.
  */
-async function runPromptTurn(
+export async function runPromptTurn(
   ctx: RunnerContext,
   params: {
     text: string;
@@ -863,7 +866,7 @@ async function aggregateTurnUsage(
   };
 }
 
-function buildUsage(
+export function buildUsage(
   turn: TurnAccumulator,
   assistant: AssistantMessage | undefined,
 ): AgentUsage | undefined {
@@ -902,7 +905,7 @@ function buildUsage(
   return undefined;
 }
 
-function extractTextFromParts(parts: Part[] | undefined): string | undefined {
+export function extractTextFromParts(parts: Part[] | undefined): string | undefined {
   if (!parts) return undefined;
   const texts: string[] = [];
   for (const p of parts) {
@@ -912,7 +915,7 @@ function extractTextFromParts(parts: Part[] | undefined): string | undefined {
   return joined || undefined;
 }
 
-function formatPromptError(error: unknown): string {
+export function formatPromptError(error: unknown): string {
   if (typeof error === "string") return error;
   if (error && typeof error === "object") {
     const obj = error as { message?: string; error?: { message?: string }; data?: unknown };
@@ -944,7 +947,7 @@ function formatPromptError(error: unknown): string {
  * silent tool window (#760), so a real tool can't trip it; a genuinely stalled
  * provider or a hung tool does, at the flat budget.
  */
-function startInnerActivityWatchdog(params: {
+export function startInnerActivityWatchdog(params: {
   ctx: RunnerContext;
   timeoutMs: number;
   abortController: AbortController;
@@ -981,6 +984,13 @@ export const opencode = agent({
     const cliPath = await installCli();
 
     const rawModel = ctx.resolvedModel ?? autoSelectModel();
+
+    // rawModel is the authoritative "what actually ran" — including the
+    // auto-select pick that main.ts cannot know (it's opencode-specific:
+    // folding it into `resolvedModel` earlier would mis-route `resolveAgent`).
+    // overwrite the pre-agent best-effort so `toolState.model` (the "Using `…`"
+    // footer badge) reflects the real model.
+    if (rawModel) ctx.toolState.model = rawModel;
 
     // bedrock route: opencode's `amazon-bedrock` provider expects the model
     // in `amazon-bedrock/<bedrock-id>` form. detect via env-var sentinel
@@ -1264,7 +1274,7 @@ export const opencode = agent({
  * classifies it as an `activity timeout` error itself. This wrapper must not
  * re-classify, since a stray post-prompt throw is not a hang.
  */
-async function runTurnGuarded(
+export async function runTurnGuarded(
   ctx: RunnerContext,
   fn: () => Promise<AgentResult>,
 ): Promise<AgentResult> {
