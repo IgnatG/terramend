@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "vitest": {
+    "configFile": "vitest.stryker.config.ts"
+  },
+  "mutate": [
+    "src/utils/byokFallback.ts",
+    "src/utils/claudeSubscription.ts",
+    "src/utils/gitAuth.ts",
+    "src/agents/claudePretoolGate.ts",
+    "src/mcp/guardrails.ts",
+    "src/mcp/comment.ts"
+  ],
+  "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
+  "reporters": ["clear-text", "progress", "json", "html"],
+  "concurrency": 4,
+  "timeoutMS": 30000,
+  "tempDirName": ".stryker-tmp"
+}

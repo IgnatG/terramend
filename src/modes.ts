@@ -1,6 +1,7 @@
 // changes to mode definitions should be reflected in docs/modes.mdx
 import { REVIEWER_AGENT_NAME } from "#app/agents/reviewer";
 import { type AgentId, formatMcpToolRef, terramendMcpName } from "#app/external";
+import { FINDING_VERIFICATION_PASS, REVIEW_FINDING_PRECEDENTS } from "#app/reviewQuality";
 
 export interface Mode {
   name: string;
@@ -19,11 +20,12 @@ export interface Mode {
 // selectMode.ts for the firewall.
 export const PR_SUMMARY_FORMAT = `### Default format
 
-The body has at most three parts in this exact order:
+The body has at most four parts in this exact order:
 
 1. **Reviewed changes preamble** — one bolded inline lead-in describing what was reviewed in this run, a bullet list of the substantive changes, and an HTML comment carrying review metadata for downstream agents.
 2. **Cross-cutting issue sections** (zero or more) — one \`### \` heading per concern, with a human-readable problem write-up and a collapsed \`<details>Technical details</details>\` block underneath.
-3. **\`### ℹ️ Nitpicks\`** at the very bottom (only if there are nits worth surfacing in the body) — a flat bullet list, no technical-details block.
+3. **\`### ℹ️ Nitpicks\`** (only if there are nits worth surfacing in the body) — a flat bullet list, no technical-details block.
+4. **\`Suppressed findings\` collapsed block** at the very bottom (only when the adversarial verification pass suppressed at least one 🚨/⚠️ candidate) — the one-line-per-finding audit trail for the false-positive filter.
 
 Inline-vs-body split: concerns that anchor to a specific line go inline (use the \`comments\` parameter). Body \`### \` sections are reserved for concerns that **have no line to anchor to** — typically because the concern is about *absence* (something the diff should have done but didn't), *sequencing* (rollout / deletion / migration order), *design decisions only the human can make*, or *scope questions the diff implicitly raises but doesn't address*. A concern that anchors to a line but has broad implications still goes inline (use the technical-details block there to capture the implications — see Inline technical details below). If you found no non-anchorable concerns, the body has zero \`### \` issue sections — just the preamble + metadata.
 
@@ -129,7 +131,7 @@ Inline comments are short (~2-3 sentences) by default. When an inline finding ha
 
 GitHub renders the same markdown parser in inline comments as in the review body, so the collapsed-details affordance works the same way. The visible part of the inline comment stays scannable; the depth is one click away for any agent that needs it.
 
-## 3. \`### ℹ️ Nitpicks\` (optional, last section)
+## 3. \`### ℹ️ Nitpicks\` (optional, last content section)
 
 Only when there are nits that for some reason can't be inlined. Filepaths in nit text are fine — these are simple enough that a human or agent reads once and acts. No technical-details block.
 
@@ -139,6 +141,21 @@ Only when there are nits that for some reason can't be inlined. Filepaths in nit
 - {nit, with file path inline if useful, ≤ ~200 chars}
 - ...
 \`\`\`
+
+## 4. \`Suppressed findings\` (optional, very last)
+
+Only when the adversarial verification pass (see the checklist) suppressed at least one 🚨/⚠️ candidate. One collapsed block, always the last element in the body, with the count in the summary line:
+
+\`\`\`
+<details><summary>🗑️ Suppressed findings (2)</summary>
+
+- ⚠️ \`networking/main.tf:42\` — claimed the subnet exposes the DB publicly — refuted: \`publicly_accessible = false\` at \`db.tf:18\`.
+- 🚨 \`api/auth.ts:77\` — claimed JWT signature bypass — refuted: the unverified decode is dev-only, gated by the \`NODE_ENV\` check two lines above.
+
+</details>
+\`\`\`
+
+One bullet per suppressed finding: severity emoji, \`file:line\`, the claim in a few words, the refutation in a few words. One line each — the block exists for auditability (a human catching the false-positive filter being wrong), not re-litigation. Omit the block entirely when nothing was suppressed.
 
 ## Inline comment shape
 
@@ -474,7 +491,11 @@ For simple, well-defined tasks, skip the plan phase and go straight to build.`,
 
 6. **aggregate & draft**: when the fan-out lands, merge findings; de-dup overlaps (two lenses catching the same issue = higher-confidence signal); trace each finding yourself before accepting it. drop praise, style preferences, speculative/unverified claims, findings about pre-existing code unrelated to the PR (heuristic: if the finding's root cause lives in lines this PR added or modified, it's in scope; otherwise drop unless the PR plausibly introduced or amplified the regression), and anything not actionable. also drop **bloat-shaped findings** — proposed fixes that would add defensive checks for cases that can't happen, abstractions used once, comments restating obvious code, tests asserting tautologies, or "just-in-case" guards. subagents are fallible and bias toward recommending changes; the bar for an actionable inline comment is sound + correct + elegant. recommending a change that improves only one of the three (or worse, degrades elegance to nominally improve correctness) makes the codebase worse, not better.
 
+   Apply the **Finding precedents** (defined after this checklist, before the body format) to every candidate — a precedent match means drop, unless you have specific evidence the precedent does not apply here.
+
    **Hunt for non-anchored concerns before drafting.** After collecting your anchored findings, deliberately scan for concerns that have no specific line to point at — typically: deletion / cleanup plans for code the diff replaces or shadows; rollout sequencing (what happens to in-flight state during deploy / revert?); coverage gaps the diff implies but doesn't add; scope questions that only the human can answer (e.g. is the legacy path going away or is this a long-term dual track?); architectural risks the diff opens up that aren't a single-line bug. On substantial PRs (migrations, refactors, multi-file rewrites, version bumps that change runtime semantics), at least one such concern almost always exists; if you can't think of any, your bar is probably too high.
+
+   ${FINDING_VERIFICATION_PASS}
 
    for surviving findings, draft inline comments with NEW line numbers from the diff — attach a \`<details>Technical details</details>\` block to any inline comment whose fix is non-trivial or has cross-file implications (see Inline technical details in the format below). every comment must be actionable, 2-3 sentences max in the visible part. use GitHub permalink format for code references. for impact-analysis findings (stale references after rename/remove), report them in the review body ordered by severity (runtime breakage > incorrect docs > stale comments) rather than as inline comments unless they're anchored to a specific line.
 
@@ -503,6 +524,8 @@ For simple, well-defined tasks, skip the plan phase and go straight to build.`,
      \`approved: true\`. Body opens with \`> ✅ No new issues found.\\n\\n\` followed by the PR summary. Do NOT include inline \`comments\` — the ✅ signals "no action needed", which contradicts an actionable anchor; if a point is concrete enough to anchor to a line, downgrade the whole review to "minor suggestions only" (\`approved: false\`) instead.
    - **no actionable issues**:
      \`approved: true\`. Body opens with \`> ✅ No new issues found.\\n\\n\` followed by the PR summary.
+
+${REVIEW_FINDING_PRECEDENTS}
 
 ${PR_SUMMARY_FORMAT}`,
     },
@@ -536,6 +559,7 @@ ${PR_SUMMARY_FORMAT}`,
    - **if addressed**: call \`${t("reply_to_review_comment")}\` with the root tag's numeric \`id=\` as \`comment_id\` (NOT the \`thread=\` value — that's a separate GraphQL ID used only by resolve) and a one-line body (e.g. \`Addressed in <short-sha>.\`), then call \`${t("resolve_review_thread")}\` with the root tag's \`thread=\` value as \`thread_id\`. Do this BEFORE drafting the new review so the GitHub thread state aligns with the new review by the time it lands.
    - **if uncertain or partially addressed**: leave open. False-positive resolutions erode trust faster than false negatives.
    - **scope**: only retire Terramend-originated threads. Threads from human reviewers belong to those humans to resolve, even if the commit happened to address them.
+   - **reaction signal**: comment tags may carry \`reactions=👍N,👎N\` — human votes on the finding. A 👎 on a Terramend-originated root comment is the human telling you the finding was wrong or unwanted: do NOT re-raise that finding class in this review, and treat it as false-positive feedback — when a LEARNINGS file is configured, record the rejected finding class (rule/pattern + why the human rejected it, if discernible) so future reviews stop flagging it. A 👍 confirms the finding class is valued; no action needed beyond noting it. Reactions never override the addressed/unaddressed judgment for retiring threads — a 👍 on an unfixed finding does not make it addressed.
 
    The remaining open threads feed step 8's dedup filter — anything already flagged and unchanged by the new commits should not be re-raised. The rolling PR summary snapshot is the durable record of retire activity; you don't need to surface it in the review body.
 
@@ -585,11 +609,15 @@ ${PR_SUMMARY_FORMAT}`,
 
 8. **aggregate, draft, self-critique**: merge findings (yours + any subagent output if you went multi-lens); de-dup overlaps; trace each finding yourself. drop praise, style preferences, speculative/unverified claims, findings about pre-existing code unrelated to the new commits, anything not actionable, and anything that re-states prior review feedback (heuristic: if the finding's root cause lives in lines the *new commits* added or modified, it's in scope; otherwise drop). also drop **bloat-shaped findings** — proposed fixes that would add defensive checks for cases that can't happen, abstractions used once, comments restating obvious code, tests asserting tautologies, or "just-in-case" guards. subagents are fallible and bias toward recommending changes; the bar for an actionable inline comment is sound + correct + elegant. recommending a change that improves only one of the three (or degrades elegance to nominally improve correctness) makes the codebase worse, not better. To compute "lines the new commits added or modified": if \`incrementalDiffPath\` from step 2 is present, use it directly. Otherwise, take the prior Terramend review's \`commit_id\` (returned alongside each entry from \`${t("list_pull_request_reviews")}\` in step 4) and run \`git diff <prior-review-sha>..HEAD\` to isolate the lines added since that review.
 
+   Apply the **Finding precedents** (defined after this checklist, before the body format) to every candidate — a precedent match means drop, unless you have specific evidence the precedent does not apply here.
+
    **Hunt for non-anchored concerns before drafting.** After collecting your anchored findings, deliberately scan for concerns that have no specific line to point at — typically: deletion / cleanup plans for code the new commits replace or shadow; rollout sequencing (what happens to in-flight state during deploy / revert?); coverage gaps the new commits imply but don't add; scope questions that only the human can answer (e.g. is the legacy path going away or is this a long-term dual track?); architectural risks the new commits open up that aren't a single-line bug. On substantial incremental diffs (migrations, refactors, multi-file rewrites, version bumps that change runtime semantics), at least one such concern almost always exists; if you can't think of any, your bar is probably too high.
+
+   ${FINDING_VERIFICATION_PASS}
 
    draft inline comments with NEW line numbers from the full PR diff — attach a \`<details>Technical details</details>\` block to any inline comment whose fix is non-trivial or has cross-file implications (see Inline technical details in the format below). every comment must be actionable, 2-3 sentences max in the visible part.
 
-9. **build the review body**: use the same default format as Review mode (preamble + optional cross-cutting \`### \` sections + optional \`### ℹ️ Nitpicks\`) — scoped to the **incremental delta**, not the full PR. The "Reviewed changes" bullets describe what changed since the prior terramend review (each bullet starts with a past-tense verb, e.g. \`- Extracted shared CLI runtime into a single module\`). Do NOT include a separate "Prior review feedback" checklist — that's tracked in the rolling PR summary snapshot for the next agent run, and surfacing it in the user-facing body is noise (changes that addressed prior feedback are already covered by the Reviewed-changes bullets). In some cases you may receive a complete diff for the whole PR instead of an incremental one; when this happens, determine what changed since Terramend's most recent review yourself before drafting bullets.
+9. **build the review body**: use the same default format as Review mode (preamble + optional cross-cutting \`### \` sections + optional \`### ℹ️ Nitpicks\` + optional suppressed-findings block) — scoped to the **incremental delta**, not the full PR. The "Reviewed changes" bullets describe what changed since the prior terramend review (each bullet starts with a past-tense verb, e.g. \`- Extracted shared CLI runtime into a single module\`). Do NOT include a separate "Prior review feedback" checklist — that's tracked in the rolling PR summary snapshot for the next agent run, and surfacing it in the user-facing body is noise (changes that addressed prior feedback are already covered by the Reviewed-changes bullets). In some cases you may receive a complete diff for the whole PR instead of an incremental one; when this happens, determine what changed since Terramend's most recent review yourself before drafting bullets.
 
 10. Submit — every run must end with EXACTLY ONE of \`${t("create_pull_request_review")}\` (substantive review) or \`${t("report_progress")}\` (no-review acknowledgement). do NOT call \`create_issue_comment\` for review output.
 
@@ -603,6 +631,8 @@ ${PR_SUMMARY_FORMAT}`,
    - ELSE IF NEW MINOR SUGGESTIONS ONLY (single-line nits, doc/comment polish, defer-able observations, "rough edges"): call \`${t("create_pull_request_review")}\` with \`approved: false\`, all comments, and the review body. body opens with \`> ℹ️ No critical issues — minor suggestions inline.\\n\\n\` (vary the wording after ℹ️ to fit the review), followed by the PR summary using the default format below.
    - ELSE IF INFORMATIONAL OBSERVATIONS (mergeable as-is, but worth surfacing — e.g. prior feedback addressed cleanly with one minor stale doc reference, or a noteworthy positive observation): call \`${t("create_pull_request_review")}\` with \`approved: true\`, NO inline comments, and the review body. body opens with \`> ✅ No new issues found.\\n\\n\` (or similar friendly green opener), followed by the PR summary using the default format below. If a point is concrete enough to anchor to a line, downgrade the whole review to "minor suggestions only" (\`approved: false\`) instead — the ✅ signals "no action needed", which contradicts an actionable anchor.
    - ELSE IF NO NEW ISSUES, SUBSTANTIVE CHANGES (new functionality, behavior changes, or fixes to prior review feedback): call \`${t("create_pull_request_review")}\` to create a PR review. If all previous reviews have been properly addressed and no new issues were discovered, set \`approved: true\`. body opens with \`> ✅ No new issues found.\\n\\n\`, followed by the PR summary using the default format below.
+
+${REVIEW_FINDING_PRECEDENTS}
 
 ${PR_SUMMARY_FORMAT}`,
     },

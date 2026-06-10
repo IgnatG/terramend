@@ -12,6 +12,7 @@ import {
 import type { ToolContext } from "#app/mcp/server";
 import { initToolState, type ToolState } from "#app/toolState";
 import { TERRAMEND_DIVIDER } from "#app/utils/buildTerramendFooter";
+import { log } from "#app/utils/cli";
 import { patchWorkflowRunFields } from "#app/utils/patchWorkflowRunFields";
 
 vi.mock("#app/utils/patchWorkflowRunFields", () => ({
@@ -193,6 +194,12 @@ describe("CreateCommentTool", () => {
     const updateBody = octokit.rest.issues.updateComment.mock.calls[0]?.[0] as { body: string };
     expect(updateBody.body).toContain("Implement plan");
     expect(updateBody.body).toContain("/trigger/octo/repo/12?action=implement&comment_id=101");
+    // the returned payload is the UPDATED comment (with the plan link), not the
+    // initial create — pin the fields so a regression to the create result (or
+    // an empty object) is caught.
+    expect(result.content[0].text).toContain("success: true");
+    expect(result.content[0].text).toContain("101");
+    expect(result.content[0].text).toContain("https://gh/comment/101");
   });
 
   it("Plan type without node_id skips the workflow-run patch", async () => {
@@ -315,6 +322,29 @@ describe("reportProgress", () => {
     expect(patchWorkflowRunFields).toHaveBeenCalledWith(ctx, { planCommentNodeId: "NODE_101" });
     const updateBody = octokit.rest.issues.updateComment.mock.calls[0]?.[0] as { body: string };
     expect(updateBody.body).toContain("Implement plan");
+  });
+
+  it("warns and falls through to the normal path when target_plan_comment has no stored id", async () => {
+    const { ctx, octokit } = makeCtx({
+      toolState: { progressComment: { id: 9, type: "issue" } },
+      event: { issue_number: 7 },
+    });
+    const warnSpy = vi.spyOn(log, "warning").mockImplementation(() => {});
+    try {
+      const result = await reportProgress(ctx, { body: "revise", target_plan_comment: true });
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("no existingPlanCommentId in tool state"),
+      );
+      // without a stored plan-comment id the flag is ignored: the run's own
+      // progress comment (id 9) is updated, not a plan comment.
+      expect(result.action).toBe("updated");
+      expect(octokit.rest.issues.updateComment).toHaveBeenCalledWith(
+        expect.objectContaining({ comment_id: 9 }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("updates an existing comment without plan extras outside Plan mode", async () => {

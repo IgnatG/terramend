@@ -1,4 +1,5 @@
 import type { AgentUsage } from "#app/agents/shared";
+import type { Concern } from "#app/mcp/terraform/types";
 import type { PrepResult } from "#app/prep/types";
 import type { AgentDiagnostic } from "#app/utils/agentHangReport";
 import { log } from "#app/utils/cli";
@@ -119,6 +120,17 @@ export interface ToolState {
   // terraform_verify_remediation to compute §1.4 regressions = current −
   // baseline (concern ids the fix INTRODUCED). undefined until the first scan.
   baselineConcernIds?: string[];
+  // the most recent terraform_scan's reported concern set (post scope/severity
+  // filtering — what the run acted on). read at end-of-run by
+  // finalizeSuccessRun to emit the SARIF artifact + findings-count output
+  // (§5.4). undefined until a scan ran; [] means the scan came back clean.
+  lastScanConcerns?: Concern[];
+  // absolute path of a SARIF file the agent wrote via terraform_emit_sarif.
+  // set by that tool on a successful write. read by finalizeSuccessRun's
+  // findings-output step so the end-of-run safety-net emit does NOT clobber an
+  // agent-emitted report (which may use a lower threshold / custom path) — it
+  // points findings-sarif-path at this file instead of rewriting.
+  emittedSarifPath?: string;
   // verification signals the confidence label (§5.19) aggregates, each recorded
   // by the tool that produced it: terraform_plan sets blastTier + idempotent
   // (undefined when no plan ran), infracost_diff sets costDirection. read by

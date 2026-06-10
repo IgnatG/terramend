@@ -70,6 +70,8 @@ export const Inputs = type({
   "cost_increase_block_usd?": type.string.or("undefined"),
   "module_catalogue?": type.string.or("undefined"),
   "terratest?": type.string.or("undefined"),
+  "review_instructions?": type.string.or("undefined"),
+  "fp_filtering_instructions?": type.string.or("undefined"),
 });
 
 export type Inputs = typeof Inputs.infer;
@@ -129,6 +131,8 @@ function resolveNonPromptInputs() {
     cost_increase_block_usd: core.getInput("cost_increase_block_usd") || undefined,
     module_catalogue: core.getInput("module_catalogue") || undefined,
     terratest: core.getInput("terratest") || undefined,
+    review_instructions: core.getInput("review_instructions") || undefined,
+    fp_filtering_instructions: core.getInput("fp_filtering_instructions") || undefined,
   });
 }
 
@@ -326,6 +330,11 @@ export function resolvePayload(
     // — consumed by the destroy-block guardrail (mcp/guardrails.ts). Unset means
     // no destructive change to a stateful resource is permitted.
     allowReplace: parseAllowReplace(inputs.allow_replace),
+    // §5.5 — org-specific review policy + FP precedents from the workflow file
+    // (owner-controlled, same trust surface as repo settings). merged into the
+    // Review mode instructions in main() via mergeReviewModeInstructions.
+    reviewInstructions: inputs.review_instructions,
+    fpFilteringInstructions: inputs.fp_filtering_instructions,
   };
 }
 

@@ -13,7 +13,9 @@ node_modules
 
 # We'll allow an example .env file which can be copied
 !.env.example
-
+.stryker-tmp/*
+stryker.log
+reports/*
 # Coverage directory used by testing tools
 coverage
 
@@ -48,3 +50,6 @@ dist
 **/.terraform/
 **/.terraform.lock.hcl
 
+
+# Detection-eval reports (baselines in test/eval/baselines/ ARE committed)
+test/eval/results/

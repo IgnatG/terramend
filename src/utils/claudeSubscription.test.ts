@@ -45,6 +45,7 @@ describe("preflightClaudeSubscription", () => {
       authorization: "Bearer oauth-tok",
       "anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
       "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
       "x-app": "cli",
     });
     expect(requestBody(mock)).toMatchObject({ model: "claude-fable-5", max_tokens: 1 });
@@ -137,5 +138,42 @@ describe("preflightClaudeSubscription", () => {
     const result = await preflightClaudeSubscription({ token: "t", model: "claude-fable-5" });
 
     expect(result).toEqual({ usable: false, reason: "401: " });
+  });
+
+  it("sends the exact probe body Anthropic's OAuth gate validates", async () => {
+    // the system-identity block and 1-token cap are what make the probe both
+    // accepted by the OAuth surface and effectively free — pin the full shape.
+    const mock = stubFetch(async () => new Response("{}", { status: 200 }));
+
+    await preflightClaudeSubscription({ token: "t", model: "claude-fable-5" });
+
+    expect(requestBody(mock)).toEqual({
+      model: "claude-fable-5",
+      max_tokens: 1,
+      system: "You are Claude Code, Anthropic's official CLI for Claude.",
+      messages: [{ role: "user", content: "ok" }],
+    });
+  });
+
+  it("uses the raw excerpt when error.message exists but is not a string", async () => {
+    const body = JSON.stringify({ error: { message: 42 } });
+    stubFetch(async () => new Response(body, { status: 401 }));
+
+    const result = await preflightClaudeSubscription({ token: "t", model: "claude-fable-5" });
+
+    expect(result).toEqual({ usable: false, reason: `401: ${body}` });
+  });
+
+  it.each([
+    "null",
+    "42",
+    '"just a string"',
+    JSON.stringify({ no_error_key: 1 }),
+  ])("uses the raw excerpt for JSON body %s (no extractable error.message)", async (body) => {
+    stubFetch(async () => new Response(body, { status: 429 }));
+
+    const result = await preflightClaudeSubscription({ token: "t", model: "claude-fable-5" });
+
+    expect(result).toEqual({ usable: false, reason: `429: ${body}` });
   });
 });

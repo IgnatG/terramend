@@ -22,10 +22,13 @@
  * outcome.
  */
 
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import * as core from "@actions/core";
 import type { AgentResult } from "#app/agents/shared";
 import { deleteProgressComment } from "#app/mcp/comment";
 import type { ToolContext } from "#app/mcp/server";
+import { buildSarifReport } from "#app/mcp/terraform/findings";
 import type { ToolState } from "#app/toolState";
 import { formatUsageSummary, log, writeSummary } from "#app/utils/cli";
 import { reportErrorToComment } from "#app/utils/errorReport";
@@ -150,6 +153,49 @@ export async function finalizeSuccessRun(input: {
   if (input.toolState.output) {
     log.info(`::terramend-output::${Buffer.from(input.toolState.output).toString("base64")}`);
     core.setOutput("result", input.toolState.output);
+  }
+
+  await emitFindingsOutputs(input.toolState);
+}
+
+/**
+ * §5.4 — when a deterministic scan ran this run (`terraform_scan` populated
+ * `lastScanConcerns`), expose its reported concern set to downstream workflow
+ * steps: the `findings-count` / `findings-sarif-path` action outputs, plus a
+ * safety-net SARIF write so modes that don't prompt the agent to call
+ * `terraform_emit_sarif` (Review) — or a Remediate run where the agent skipped
+ * that optional step — still surface a Code-Scanning artifact.
+ *
+ * When the agent already emitted a SARIF via `terraform_emit_sarif`
+ * (`toolState.emittedSarifPath` set), this defers to that file — points the
+ * output at it, does not rewrite — so an agent report at a lower threshold or
+ * custom path is never clobbered. Otherwise it writes the safety-net file using
+ * the canonical `buildSarifReport` (the same builder the tool uses), so there is
+ * only ever one SARIF format.
+ *
+ * Unset outputs when no scan ran; `0` + a results-free SARIF when the scan was
+ * clean — so a workflow gate can distinguish "clean scan" from "not scanned".
+ * Best-effort like every other finalize step: an emit failure must not flip the
+ * run outcome.
+ */
+async function emitFindingsOutputs(toolState: ToolState): Promise<void> {
+  const concerns = toolState.lastScanConcerns;
+  if (!concerns) return;
+  try {
+    core.setOutput("findings-count", String(concerns.length));
+    if (toolState.emittedSarifPath) {
+      core.setOutput("findings-sarif-path", toolState.emittedSarifPath);
+      log.info(
+        `» findings output: ${concerns.length} concern(s), SARIF at ${toolState.emittedSarifPath} (agent-emitted)`,
+      );
+      return;
+    }
+    const sarifPath = join(process.env.GITHUB_WORKSPACE ?? process.cwd(), "terramend.sarif");
+    await writeFile(sarifPath, `${JSON.stringify(buildSarifReport(concerns), null, 2)}\n`);
+    core.setOutput("findings-sarif-path", sarifPath);
+    log.info(`» findings output: ${concerns.length} concern(s), SARIF at ${sarifPath}`);
+  } catch (error) {
+    log.debug(`findings output emit failed: ${error}`);
   }
 }
 

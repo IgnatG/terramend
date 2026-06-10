@@ -36,6 +36,7 @@ import {
   TERRATEST_ALLOWED_PATHS,
 } from "#app/mcp/guardrails";
 import type { ToolContext } from "#app/mcp/server";
+import { log } from "#app/utils/cli";
 
 describe("globToRegex", () => {
   it("matches **/*.tf at any depth", () => {
@@ -257,8 +258,8 @@ describe("scanDiffForSecrets (§2.8)", () => {
     const hits = scanDiffForSecrets(d);
     expect(hits).toHaveLength(2); // AKIA value pattern + sensitive-assignment
     expect(hits.some((h) => h.rule === "aws-access-key-id")).toBe(true);
-    expect(hits[0]!.file).toBe("main.tf");
-    expect(hits[0]!.line).toBe(2); // second new-side line in the hunk
+    expect(hits[0]?.file).toBe("main.tf");
+    expect(hits[0]?.line).toBe(2); // second new-side line in the hunk
   });
 
   it("flags a hardcoded password literal but NOT a variable reference", () => {
@@ -268,6 +269,7 @@ describe("scanDiffForSecrets (§2.8)", () => {
     const ref = diff("+++ b/x.tf", "@@ -0,0 +1 @@", "+  password = var.db_password");
     expect(scanDiffForSecrets(ref)).toEqual([]);
 
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: literal HCL interpolation fixture, not a JS template
     const interp = diff("+++ b/x.tf", "@@ -0,0 +1 @@", '+  password = "${var.db_password}"');
     expect(scanDiffForSecrets(interp)).toEqual([]);
   });
@@ -485,6 +487,191 @@ describe("resolveMaxPrs default (via assertUnderPrCap)", () => {
   });
 });
 
+// --- mutation-hardening tests ------------------------------------------------
+// Added after a Stryker run showed these behaviors could regress silently: the
+// earlier tests exercised the right functions but with inputs that couldn't
+// distinguish redundant-looking arms (e.g. `*` vs the glob fallback) or never
+// observed the side channel (log output, subprocess options, line numbers).
+
+describe("globToRegex `?` semantics", () => {
+  it("`?` consumes exactly one non-separator character", () => {
+    expect(globToRegex("?.tf").test("a.tf")).toBe(true);
+    expect(globToRegex("?.tf").test(".tf")).toBe(false);
+    expect(globToRegex("?.tf").test("ab.tf")).toBe(false);
+  });
+});
+
+describe("destroy-block allowlist arms (§2.5)", () => {
+  const ctx = (plannedDestroy: ToolContext["toolState"]["plannedDestroy"], allow?: string[]) =>
+    ({
+      toolState: { selectedMode: REMEDIATE_MODE, plannedDestroy },
+      payload: { allowReplace: allow },
+    }) as unknown as ToolContext;
+
+  it("honors the `all` keyword", () => {
+    const planned = {
+      stateful: [{ address: "aws_db_instance.main", action: "delete", type: "aws_db_instance" }],
+      ephemeral: [],
+    };
+    expect(() => assertNoBlockedDestroy(ctx(planned, ["all"]))).not.toThrow();
+  });
+
+  it("`*` allows an address the glob engine cannot match (slash inside an index key)", () => {
+    // globToRegex("*") compiles to [^/]* — it does NOT match an address whose
+    // for_each key contains a slash. only the literal `*` arm covers it, so
+    // this input distinguishes that arm from the glob fallback.
+    const planned = {
+      stateful: [
+        { address: 'aws_s3_bucket.b["logs/prod"]', action: "delete", type: "aws_s3_bucket" },
+      ],
+      ephemeral: [],
+    };
+    expect(() => assertNoBlockedDestroy(ctx(planned, ["*"]))).not.toThrow();
+    expect(() => assertNoBlockedDestroy(ctx(planned, ["aws_db_instance.*"]))).toThrow(
+      /DESTROY or REPLACE/,
+    );
+  });
+
+  it("a non-matching allowlist still blocks", () => {
+    const planned = {
+      stateful: [{ address: "aws_db_instance.main", action: "delete", type: "aws_db_instance" }],
+      ephemeral: [],
+    };
+    expect(() => assertNoBlockedDestroy(ctx(planned, ["aws_s3_bucket.other"]))).toThrow(
+      /aws_db_instance\.main/,
+    );
+  });
+
+  it("the empty-stateful early return skips the gate entirely (no ok-log)", () => {
+    const infoSpy = vi.spyOn(log, "info").mockImplementation(() => {});
+    try {
+      assertNoBlockedDestroy(ctx({ stateful: [], ephemeral: [] }));
+      expect(infoSpy).not.toHaveBeenCalled();
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+});
+
+describe("run-start baseline resolution (branch vs detached head)", () => {
+  it("resolves a branch head via its name and pins {log: false} on both git calls", () => {
+    gitStub({ diffNames: "main.tf\n" });
+    enforceRemediationPaths(gitCtx({}));
+    expect(shellMock).toHaveBeenCalledWith("git", ["rev-parse", "main"], { log: false });
+    expect(shellMock).toHaveBeenCalledWith("git", ["diff", "--name-only", "base-sha", "HEAD"], {
+      log: false,
+    });
+  });
+
+  it("resolves a detached head via its sha", () => {
+    gitStub({ diffNames: "main.tf\n" });
+    const ctx = {
+      toolState: {
+        selectedMode: REMEDIATE_MODE,
+        initialHead: { kind: "detached", sha: "abc123" },
+      },
+      payload: {},
+      tmpdir: "",
+    } as unknown as ToolContext;
+    enforceRemediationPaths(ctx);
+    expect(shellMock).toHaveBeenCalledWith("git", ["rev-parse", "abc123"], { log: false });
+  });
+
+  it("trims whitespace-padded filenames from git output before matching", () => {
+    gitStub({ diffNames: "  main.tf  \n\n  modules/net/vpc.tf\n" });
+    expect(() => enforceRemediationPaths(gitCtx({}))).not.toThrow();
+  });
+});
+
+describe("scanDiffForSecrets line attribution (§2.8)", () => {
+  it("tracks multi-digit hunk starts and advances only on added/context lines", () => {
+    const d = [
+      "+++ b/main.tf",
+      "@@ -50,4 +100,5 @@",
+      " context line",
+      '-password = "old"',
+      '+password = "new1"',
+      " another context",
+      '+api_key = "literalvalue"',
+    ].join("\n");
+    const hits = scanDiffForSecrets(d);
+    expect(hits.map((h) => ({ file: h.file, line: h.line }))).toEqual([
+      { file: "main.tf", line: 101 },
+      { file: "main.tf", line: 103 },
+    ]);
+  });
+
+  it("attributes a /dev/null new-side header as (deleted)", () => {
+    // git never emits added lines under /dev/null, but the parser is pure and
+    // fed external text — pin the labeling rather than leave it dead.
+    const d = ["+++ /dev/null", "@@ -1,1 +0,0 @@", '+password = "x"'].join("\n");
+    const hits = scanDiffForSecrets(d);
+    expect(hits[0]?.file).toBe("(deleted)");
+  });
+
+  it("strips CRLF from header and content lines", () => {
+    const d = ["+++ b/main.tf\r", "@@ -0,0 +1 @@\r", '+password = "x"\r'].join("\n");
+    const hits = scanDiffForSecrets(d);
+    expect(hits[0]?.file).toBe("main.tf");
+  });
+});
+
+describe("scanWithGitleaks subprocess contract", () => {
+  it("does not spawn gitleaks at all when the input is off", () => {
+    gitStub({ diff: ["+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.b"].join("\n") });
+    assertNoSecretsInDiff(gitCtx({}));
+    expect(spawnSyncMock).not.toHaveBeenCalled();
+    // the diff itself is read with logging suppressed (restricted surface)
+    expect(shellMock).toHaveBeenCalledWith("git", ["diff", "base-sha", "HEAD"], { log: false });
+  });
+
+  it("runs from payload.cwd (falling back to process.cwd()) with the capped buffer", () => {
+    gitStub({ diff: ["+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.b"].join("\n") });
+    const warnSpy = vi.spyOn(log, "warning").mockImplementation(() => {});
+    try {
+      assertNoSecretsInDiff(gitCtx({ payload: { gitleaks: true } }));
+      expect(spawnSyncMock).toHaveBeenCalledWith(
+        "gitleaks",
+        expect.arrayContaining(["detect"]),
+        expect.objectContaining({
+          cwd: process.cwd(),
+          encoding: "utf-8",
+          maxBuffer: 64 * 1024 * 1024,
+        }),
+      );
+      // ENOENT (default stub) → the "not installed" degrade message
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("not installed"));
+
+      assertNoSecretsInDiff(gitCtx({ payload: { gitleaks: true, cwd: "/custom/dir" } }));
+      expect(spawnSyncMock).toHaveBeenLastCalledWith(
+        "gitleaks",
+        expect.anything(),
+        expect.objectContaining({ cwd: "/custom/dir" }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("distinguishes a non-ENOENT spawn failure in the degrade message", () => {
+    gitStub({ diff: ["+++ b/main.tf", "@@ -0,0 +1 @@", "+  bucket = var.b"].join("\n") });
+    spawnSyncMock.mockImplementation(() => ({
+      error: new Error("EACCES: permission denied"),
+      status: null,
+      stdout: "",
+      stderr: "",
+    }));
+    const warnSpy = vi.spyOn(log, "warning").mockImplementation(() => {});
+    try {
+      assertNoSecretsInDiff(gitCtx({ payload: { gitleaks: true } }));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("could not run"));
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("not installed"));
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+});
+
 describe("parseGitleaksReport (§2.8 — optional gitleaks engine)", () => {
   it("maps gitleaks findings to SecretHit with a gitleaks: rule prefix", () => {
     const report = JSON.stringify([
@@ -507,6 +694,12 @@ describe("parseGitleaksReport (§2.8 — optional gitleaks engine)", () => {
   it("defaults missing fields rather than throwing", () => {
     expect(parseGitleaksReport(JSON.stringify([{}]))).toEqual([
       { file: "(unknown)", line: 0, rule: "gitleaks:secret" },
+    ]);
+  });
+
+  it("treats EMPTY-string fields as missing (not as a real file/rule)", () => {
+    expect(parseGitleaksReport(JSON.stringify([{ File: "", RuleID: "", StartLine: 2 }]))).toEqual([
+      { file: "(unknown)", line: 2, rule: "gitleaks:secret" },
     ]);
   });
 });

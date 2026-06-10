@@ -41,6 +41,7 @@ query ($owner: String!, $name: String!, $prNumber: Int!) {
               reactionGroups {
                 content
                 reactors(first: 10) {
+                  totalCount
                   nodes {
                     ... on Actor { login }
                   }
@@ -72,7 +73,7 @@ export type ReviewThreadComment = {
   } | null;
   reactionGroups: Array<{
     content: string;
-    reactors: { nodes: Array<{ login: string } | null> | null } | null;
+    reactors: { totalCount?: number; nodes: Array<{ login: string } | null> | null } | null;
   }> | null;
 };
 
@@ -308,6 +309,24 @@ function threadHasThumbsUpFrom(thread: ReviewThread, username: string): boolean 
 }
 
 /**
+ * §5.7 — render 👍/👎 totals as a `reactions=` tag attribute so the agent sees
+ * human feedback on its findings inline with the thread (a 👎 on a terramend
+ * root comment is false-positive signal; see the IncrementalReview prompt).
+ * Only the thumbs contents — the other six reaction types carry no
+ * accept/reject semantics — and only when at least one is nonzero, so the
+ * common no-reaction case adds zero tokens.
+ */
+export function formatReactionCounts(comment: ReviewThreadComment): string {
+  const count = (content: string): number =>
+    comment.reactionGroups?.find((g) => g.content === content)?.reactors?.totalCount ?? 0;
+  const up = count("THUMBS_UP");
+  const down = count("THUMBS_DOWN");
+  if (up === 0 && down === 0) return "";
+  const parts = [up > 0 ? `👍${up}` : null, down > 0 ? `👎${down}` : null].filter(Boolean);
+  return ` reactions=${parts.join(",")}`;
+}
+
+/**
  * formats thread blocks into markdown with TOC and line numbers.
  * extracted for testability.
  */
@@ -408,7 +427,7 @@ export function buildThreadBlocks(
       const marker = isTargetReview ? " *" : "";
 
       block.push(
-        `\`\`\`\`comment author=${author} id=${comment.fullDatabaseId ?? "unknown"} review=${comment.pullRequestReview?.databaseId ?? "unknown"} thread=${thread.id}${marker}`,
+        `\`\`\`\`comment author=${author} id=${comment.fullDatabaseId ?? "unknown"} review=${comment.pullRequestReview?.databaseId ?? "unknown"} thread=${thread.id}${formatReactionCounts(comment)}${marker}`,
       );
       block.push(comment.body || "(no comment body)");
       block.push("````");

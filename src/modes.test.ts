@@ -7,6 +7,7 @@ import {
   PR_SUMMARY_FORMAT,
   REMEDIATION_PR_FORMAT,
 } from "#app/modes";
+import { FINDING_VERIFICATION_PASS, REVIEW_FINDING_PRECEDENTS } from "#app/reviewQuality";
 
 const EXPECTED_MODE_NAMES = [
   "Build",
@@ -54,6 +55,30 @@ describe("computeModes", () => {
     const byName = new Map(computeModes("opencode").map((m) => [m.name, m]));
     expect(byName.get("Remediate")?.prompt).toContain(REMEDIATION_PR_FORMAT);
     expect(byName.get("GenerateTerraform")?.prompt).toContain(REMEDIATION_PR_FORMAT);
+  });
+
+  it("embeds the FP precedents and verification pass into both review modes, and only those", () => {
+    for (const mode of computeModes("opencode")) {
+      const prompt = mode.prompt ?? "";
+      if (mode.name === "Review" || mode.name === "IncrementalReview") {
+        expect(prompt).toContain(REVIEW_FINDING_PRECEDENTS);
+        expect(prompt).toContain(FINDING_VERIFICATION_PASS);
+        // The verification step tells the orchestrator to include the
+        // precedents "below" verbatim in each dispatch — the precedents block
+        // must actually come after it for that pointer to hold.
+        expect(prompt.indexOf(FINDING_VERIFICATION_PASS)).toBeLessThan(
+          prompt.indexOf(REVIEW_FINDING_PRECEDENTS),
+        );
+        // The audit-trail block the verification pass references must exist
+        // in the body format the prompt ends with.
+        expect(prompt).toContain("Suppressed findings");
+      } else {
+        // The FP filter is review-specific; leaking it into Build/Remediate
+        // prompts would burn context and misdirect those modes.
+        expect(prompt).not.toContain(REVIEW_FINDING_PRECEDENTS);
+        expect(prompt).not.toContain(FINDING_VERIFICATION_PASS);
+      }
+    }
   });
 });
 

@@ -8,6 +8,9 @@ export default defineConfig({
       "**/node_modules/**",
       "**/.temp/**",
       "**/.pnpm-store/**",
+      // Stryker copies the whole repo (tests included) into per-run sandboxes;
+      // sweeping them re-runs every suite N extra times against stale code.
+      "**/.stryker-tmp/**",
       // *.main.test.ts files run only on main (e.g. catalog drift against
       // models.dev + OpenRouter). run them via `pnpm test:catalog`, which
       // points at vitest.main.config.ts.

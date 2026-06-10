@@ -8,6 +8,7 @@ import { reportProgress } from "#app/mcp/comment";
 import { startInstallation } from "#app/mcp/dependencies";
 import { startMcpHttpServer, type ToolContext } from "#app/mcp/server";
 import { computeModes } from "#app/modes";
+import { mergeReviewModeInstructions } from "#app/reviewQuality";
 import { initToolState } from "#app/toolState";
 import {
   type ActivityTimeout,
@@ -347,7 +348,12 @@ export async function main(): Promise<MainResult> {
       postCheckoutScript: runContext.repoSettings.postCheckoutScript,
       prepushScript: runContext.repoSettings.prepushScript,
       prApproveEnabled: runContext.repoSettings.prApproveEnabled,
-      modeInstructions: runContext.repoSettings.modeInstructions,
+      // §5.5 — workflow-file review policy / FP precedents compose with the
+      // backend-provided per-mode instructions (both owner-controlled).
+      modeInstructions: mergeReviewModeInstructions(runContext.repoSettings.modeInstructions, {
+        reviewInstructions: payload.reviewInstructions,
+        fpFilteringInstructions: payload.fpFilteringInstructions,
+      }),
       toolState,
       runId: runInfo.runId,
       mcpServerUrl: "",

@@ -33,3 +33,18 @@ minimumReleaseAgeExclude:
   - '@anthropic-ai/claude-code-win32-arm64@2.1.170'
   - '@anthropic-ai/claude-code-win32-x64@2.1.170'
   - '@anthropic-ai/claude-code@2.1.170'
+  - '@opencode-ai/sdk@1.17.3'
+  - fastmcp@4.1.0
+  - opencode-ai@1.17.3
+  - opencode-darwin-arm64@1.17.3
+  - opencode-darwin-x64-baseline@1.17.3
+  - opencode-darwin-x64@1.17.3
+  - opencode-linux-arm64-musl@1.17.3
+  - opencode-linux-arm64@1.17.3
+  - opencode-linux-x64-baseline-musl@1.17.3
+  - opencode-linux-x64-baseline@1.17.3
+  - opencode-linux-x64-musl@1.17.3
+  - opencode-linux-x64@1.17.3
+  - opencode-windows-arm64@1.17.3
+  - opencode-windows-x64-baseline@1.17.3
+  - opencode-windows-x64@1.17.3

@@ -104,6 +104,19 @@ describe("selectFallbackModelIfNeeded", () => {
     expect(result).toEqual({ kind: "use-resolved" });
   });
 
+  it("the no-slash skip holds on its own (opencode agent, key present)", () => {
+    // distinguishes the raw-ID guard from the claude-agent guard right after
+    // it: with agentName "opencode" + a present key, deleting the no-slash
+    // check would mis-route this to `unavailable` and fail the run.
+    const result = selectFallbackModelIfNeeded({
+      resolvedModel: "amazon.titan-text-express-v1",
+      authorized: empty,
+      providerKeyPresent: true,
+      agentName: "opencode",
+    });
+    expect(result).toEqual({ kind: "use-resolved" });
+  });
+
   it("uses the resolved model when stored minimax-m2.5-free resolves to big-pickle", () => {
     const result = selectFallbackModelIfNeeded({
       resolvedModel: resolveCliModel("opencode/minimax-m2.5-free"),
@@ -172,6 +185,14 @@ describe("buildUnavailableModelError", () => {
       authorized: new Set(["anthropic/claude-opus-4-8"]),
     });
     expect(msg).toContain("  - anthropic/claude-opus-4-8");
+  });
+
+  it("lists the authorized models sorted, not in Set insertion order", () => {
+    const msg = buildUnavailableModelError({
+      model: "google/gemini-3.5-flash-lite",
+      authorized: new Set(["google/z-model", "google/a-model"]),
+    });
+    expect(msg.indexOf("google/a-model")).toBeLessThan(msg.indexOf("google/z-model"));
   });
 
   it("handles an empty authorized set without throwing", () => {

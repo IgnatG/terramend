@@ -65,6 +65,12 @@ inputs:
   terratest:
     description: "Terraform generation: set 'true' to scaffold a Go Terratest smoke test + a native *.tftest.hcl test when generating a reusable module (via the scaffold_terratest tool). Both plan the module directly (no examples/ fixture). Opt-in and plan-only (never applies). Enabling it widens allowed_paths to permit the test files. Default: false."
     required: false
+  review_instructions:
+    description: "Review modes: org-specific review policy appended to the Review/IncrementalReview guidance (IncrementalReview inherits Review's). Inline text — use a YAML block scalar (|) for multi-line policy. Composes with (does not replace) repo-level mode instructions from Terramend settings. Default: none."
+    required: false
+  fp_filtering_instructions:
+    description: "Review modes: org-specific false-positive precedents appended to the built-in Finding precedents (e.g. 'we terminate TLS at the ALB — don't flag plain HTTP on target groups'). Travels verbatim into every adversarial-verification dispatch. Inline text; use a YAML block scalar (|) for multi-line. Default: none."
+    required: false
   token:
     description: "GitHub-provided token with job-scoped permissions. Do not set this unless you know what you are doing."
     required: false
@@ -73,6 +79,10 @@ inputs:
 outputs:
   result:
     description: "It's set when the prompt explicitly requests it and is required when output_schema is provided; use it to capture actionable output for the next workflow step."
+  findings-count:
+    description: "Number of concerns the deterministic Terraform scan reported (post scope/severity filtering). Unset when no scan ran this run; '0' when the scan came back clean — so a workflow gate can tell 'clean' from 'not scanned'."
+  findings-sarif-path:
+    description: "Absolute path to the SARIF 2.1.0 file with the scan's reported concerns (terramend.sarif in the workspace) — upload it with github/codeql-action/upload-sarif or actions/upload-artifact. Unset when no scan ran."
 
 runs:
   using: "node24"

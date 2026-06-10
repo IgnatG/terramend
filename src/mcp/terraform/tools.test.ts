@@ -639,6 +639,16 @@ describe("TerraformEmitSarifTool", () => {
     });
   });
 
+  it("records the emitted path in toolState so the end-of-run emit defers to it", async () => {
+    const cwd = makeDir({ "main.tf": "x\n" });
+    dispatch = fmtOnly();
+    const ctx = makeCtx(cwd);
+
+    await runTool(TerraformEmitSarifTool(ctx), { output_path: "custom.sarif" });
+
+    expect(ctx.toolState.emittedSarifPath).toBe(join(cwd, "custom.sarif"));
+  });
+
   it("resolves a relative output_path against the workspace and an absolute one as-is", async () => {
     const cwd = makeDir({ "main.tf": "x\n" });
     dispatch = fmtOnly();

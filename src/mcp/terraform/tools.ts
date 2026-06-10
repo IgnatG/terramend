@@ -124,6 +124,10 @@ export function TerraformScanTool(ctx: ToolContext) {
         .filter(inScope)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
 
+      // the reported (post-filter) set — read at end-of-run by
+      // finalizeSuccessRun to emit the SARIF artifact + findings outputs (§5.4).
+      ctx.toolState.lastScanConcerns = all;
+
       // §3.11 grouping mode: by-file (default, smaller per-PR blast radius) or
       // by-rule (one PR per rule across all files — for sweeping low-risk rules).
       const grouping = group_by ?? "file";
@@ -448,6 +452,9 @@ export function TerraformEmitSarifTool(ctx: ToolContext) {
           `could not write SARIF to ${target}: ${e instanceof Error ? e.message : String(e)}`,
         );
       }
+      // record the agent-emitted path so the end-of-run findings-output safety
+      // net (finalizeSuccessRun) defers to this file instead of rewriting it.
+      ctx.toolState.emittedSarifPath = target;
       log.info(`» terraform_emit_sarif: ${concerns.length} result(s) → ${target}`);
       return toolOk({
         sarif_path: target,

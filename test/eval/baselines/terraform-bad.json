@@ -1,0 +1,46 @@
+{
+  "target": "fixtures/terraform-bad",
+  "scanners": [
+    "terraform-fmt",
+    "terraform-validate",
+    "tflint"
+  ],
+  "findings": [
+    {
+      "source": "tflint",
+      "rule_id": "tflint:terraform_required_version",
+      "file": "main.tf",
+      "line": 1,
+      "severity": "medium",
+      "evidence": "terraform \"required_version\" attribute is required",
+      "id": "074bc5eccf6a"
+    },
+    {
+      "source": "tflint",
+      "rule_id": "tflint:terraform_required_providers",
+      "file": "main.tf",
+      "line": 16,
+      "severity": "medium",
+      "evidence": "Missing version constraint for provider \"aws\" in `required_providers`",
+      "id": "b58361db8c38"
+    },
+    {
+      "source": "tflint",
+      "rule_id": "tflint:terraform_unused_declarations",
+      "file": "main.tf",
+      "line": 11,
+      "severity": "medium",
+      "evidence": "variable \"unused\" is declared but not used",
+      "id": "c5b4c0a6ff0e"
+    },
+    {
+      "source": "terraform-fmt",
+      "rule_id": "terraform-fmt:unformatted",
+      "file": "main.tf",
+      "line": null,
+      "severity": "low",
+      "evidence": "File does not match `terraform fmt` canonical style.",
+      "id": "889a9c06cb9e"
+    }
+  ]
+}

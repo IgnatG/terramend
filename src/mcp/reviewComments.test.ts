@@ -17,6 +17,7 @@ import {
   buildThreadBlocks,
   countLines,
   type FormatReviewDataInput,
+  formatReactionCounts,
   formatReviewData,
   formatReviewThreads,
   GetReviewCommentsTool,
@@ -507,5 +508,42 @@ describe("formatReviewThreads", () => {
     // line numbers are 1-based: lines[9] is line 10.
     expect(lines[9]).toBe("## a.ts:1");
     expect(lines[12]).toBe("## b.ts:2");
+  });
+});
+
+describe("formatReactionCounts", () => {
+  const reacted = (groups: Array<{ content: string; total: number }>): ReviewThreadComment =>
+    comment({
+      reactionGroups: groups.map((g) => ({
+        content: g.content,
+        reactors: { totalCount: g.total, nodes: [] },
+      })),
+    });
+
+  it("renders thumbs counts and omits the tag when there are none", () => {
+    expect(formatReactionCounts(comment())).toBe("");
+    expect(formatReactionCounts(reacted([{ content: "THUMBS_UP", total: 0 }]))).toBe("");
+    expect(
+      formatReactionCounts(
+        reacted([
+          { content: "THUMBS_UP", total: 2 },
+          { content: "THUMBS_DOWN", total: 1 },
+          // non-thumbs reactions carry no accept/reject semantics - ignored.
+          { content: "ROCKET", total: 5 },
+        ]),
+      ),
+    ).toBe(" reactions=\u{1F44D}2,\u{1F44E}1");
+    expect(formatReactionCounts(reacted([{ content: "THUMBS_DOWN", total: 3 }]))).toBe(
+      " reactions=\u{1F44E}3",
+    );
+  });
+
+  it("lands in the comment tag line of a thread block", () => {
+    const t = thread({
+      comments: { nodes: [reacted([{ content: "THUMBS_DOWN", total: 1 }])] },
+    });
+    const blocks = buildThreadBlocks([t], new Map(), TARGET_REVIEW_ID);
+    const tagLine = blocks[0]?.content.find((l) => l.startsWith("````comment"));
+    expect(tagLine).toContain("reactions=\u{1F44E}1");
   });
 });
