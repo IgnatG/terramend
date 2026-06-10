@@ -5,12 +5,29 @@ on:
     branches: [main] # so the CI badge reflects main's health
   pull_request:
 
+# Least-privilege default token: this job only reads the checkout. Set here at
+# top level so the read-only scope applies even if the repo default is "read and
+# write".
+permissions:
+  contents: read
+
+# Cancel a superseded run on the same ref — a new push/PR-update makes the
+# in-flight CI obsolete, so don't burn a runner finishing it. (Releases use the
+# opposite policy; see release-please.yml.)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # don't leave the runner token in .git/config for the rest of the job
+          # (no step here pushes; the install/test steps shouldn't see it).
+          persist-credentials: false
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:

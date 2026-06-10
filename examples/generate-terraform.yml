@@ -39,7 +39,8 @@ jobs:
         with:
           mode: generateterraform
           prompt: ${{ inputs.requirement }}
-          push: enabled
+          # feature-branch push only — enough to open the generated-code PR.
+          push: restricted
           # Prefer these vetted modules over hand-rolled resources:
           # module_catalogue: |
           #   terraform-aws-modules/vpc/aws ~> 5.0

@@ -32,6 +32,13 @@ on:
 permissions:
   contents: read # only for this repo's checkout step; fixture auth uses GH_TOKEN below
 
+# A newer push to main (or re-dispatch) supersedes an in-flight security run;
+# cancel the stale one. The newest run always completes, so the regression gate
+# still covers the latest commit on the protected branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # Free, keyless OpenCode-gateway model — no provider API key required. If this
   # alias is ever retired, `opencode/mimo-v2-pro-free` is an equivalent free
@@ -53,7 +60,18 @@ jobs:
         # `runtest <test> <agent>` invocation and documents the runner.
         agent: [opencode]
         test: [fs-exfil, token-exfil, restricted]
-    env:
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      # Fixture-repo auth is scoped to the test step only — keeping the PAT out
+      # of the dependency-install env (a malicious build script can't read it).
       # Fixture repo: terramend/test-repo must have at least one commit on main —
       # the push tests create branches/tags off it and assert main-push is blocked,
       # which all fail nonsensically on an empty (unborn-HEAD) repository.
@@ -64,16 +82,9 @@ jobs:
       # backend, and setup.ts clones the fixture with it. We deliberately do NOT
       # set GITHUB_TOKEN — the default runner token is scoped to this repo only
       # and setup.ts prefers it over GH_TOKEN, which would 404 the fixture clone.
-      GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
-        with:
-          node-version: "24"
-          cache: "pnpm"
-      - run: pnpm install --frozen-lockfile
       - run: pnpm runtest ${{ matrix.test }} ${{ matrix.agent }}
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
 
   push-protection:
     # Push / branch-protection enforcement. Tagged "agnostic" in the harness, so
@@ -84,17 +95,20 @@ jobs:
       fail-fast: false
       matrix:
         test: [push-restricted, push-disabled, push-enabled]
-    env:
-      # See sandbox-isolation above: GH_TOKEN = fine-grained PAT (TEST_REPO_TOKEN)
-      # with Contents:R/W on terramend/test-repo. The push tests need write access
-      # to create/delete the throwaway branches they assert on.
-      GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: "24"
           cache: "pnpm"
       - run: pnpm install --frozen-lockfile
+      # See sandbox-isolation above: GH_TOKEN = fine-grained PAT (TEST_REPO_TOKEN)
+      # with Contents:R/W on terramend/test-repo, scoped to this step only so it
+      # never enters the dependency-install env. The push tests need write access
+      # to create/delete the throwaway branches they assert on.
       - run: pnpm runtest ${{ matrix.test }}
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}

@@ -56,13 +56,23 @@ RUN mkdir -p /etc/apt/keyrings \
 # and tests have terraform/tflint/trivy/checkov on PATH. The tools degrade
 # gracefully (reported "skipped") when absent, so this block is only required
 # for the local/dogfood path, not for the action to load.
+# Versions are pinned and the terraform zip is checksum-verified against
+# HashiCorp's published SHA256SUMS. tflint/trivy are installed via their upstream
+# scripts pinned to a RELEASE TAG (not master/main) so a compromise of the
+# upstream default branch can't inject code that runs as root at build time.
+# (This is the local dogfood image only — see the SECURITY BOUNDARY NOTE below —
+# but pinning costs nothing and keeps the build reproducible.)
 RUN ARCH="$(dpkg --print-architecture)" \
     && TF_VERSION=1.9.8 \
+    && TFLINT_REF=v0.52.0 \
+    && TRIVY_REF=v0.55.0 \
     && curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_${ARCH}.zip" -o /tmp/terraform.zip \
+    && curl -fsSL "https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_SHA256SUMS" -o /tmp/terraform.sums \
+    && (cd /tmp && grep "terraform_${TF_VERSION}_linux_${ARCH}.zip" terraform.sums | sha256sum -c -) \
     && unzip -q /tmp/terraform.zip -d /usr/local/bin \
-    && rm /tmp/terraform.zip \
-    && curl -fsSL https://raw.githubusercontent.com/terraform-linters/tflint/master/install_linux.sh | bash \
-    && curl -fsSL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin \
+    && rm /tmp/terraform.zip /tmp/terraform.sums \
+    && curl -fsSL "https://raw.githubusercontent.com/terraform-linters/tflint/${TFLINT_REF}/install_linux.sh" | bash \
+    && curl -fsSL "https://raw.githubusercontent.com/aquasecurity/trivy/${TRIVY_REF}/contrib/install.sh" | sh -s -- -b /usr/local/bin \
     && apt-get update -qq \
     && apt-get install -qq -y --no-install-recommends python3-pip \
     && pip3 install --no-cache-dir --break-system-packages checkov \

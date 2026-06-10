@@ -1,7 +1,7 @@
 // @ts-check
 
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { build } from "esbuild";
-import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
 
@@ -28,7 +28,7 @@ const stripShebangPlugin = {
             ? content.slice(content.indexOf("\n") + 1)
             : content;
           writeFileSync(outputFile, withoutShebang);
-        } catch (error) {
+        } catch {
           // File might not exist, ignore
         }
       }

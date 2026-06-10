@@ -18,8 +18,10 @@ inputs:
   cwd:
     description: "Working directory for the agent (defaults to GITHUB_WORKSPACE)"
     required: false
+    # NOTE: the effective default is resolved in code (src/utils/payload.ts) as
+    # `restricted`, NOT enabled — keep this description in sync with that.
   push:
-    description: "Git push permission: disabled (read-only), restricted (push feature branches only — blocks pushes to the default branch, branch deletion, and tag pushes), or enabled (full push access). Default: enabled"
+    description: "Git push permission: disabled (read-only), restricted (push feature branches only — blocks pushes to the default branch, branch deletion, and tag pushes), or enabled (full push access). Default: restricted (safe by default; opt into 'enabled' only when a run must push to protected refs)."
     required: false
   shell:
     description: "Shell permission: disabled, restricted (filters secrets from env vars), or enabled. Public repos default to restricted for security; private repos default to enabled."

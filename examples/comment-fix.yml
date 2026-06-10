@@ -44,7 +44,10 @@ jobs:
           mode: remediate
           # Pass the comment through — Terramend reads the `@terramend fix …` scope.
           prompt: ${{ github.event.comment.body }}
-          push: enabled
+          # restricted: feature-branch push only — enough to open a PR. The
+          # comment body is untrusted text passed through as the prompt, so keep
+          # the blast radius narrow (no direct default-branch pushes).
+          push: restricted
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}

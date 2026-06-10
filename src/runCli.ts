@@ -19,7 +19,12 @@ interface RuntimeContext {
 }
 
 const NPM_REGISTRY = "https://registry.npmjs.org";
-const FALLBACK_PACKAGE_SPEC = `terramend@^${actionPackageJson.version}`;
+// Pin the EXACT version baked into this action ref, not a `^` range. A consumer
+// who SHA-pins `uses: terramend/terramend@<sha>` is pinning this file; resolving
+// `^x.y.z` at runtime would silently run a newer npm publish than the pinned
+// ref, so a single malicious/compromised publish would reach every consumer
+// despite their pin. Exact-pinning makes the executed code match the vetted ref.
+const FALLBACK_PACKAGE_SPEC = `terramend@${actionPackageJson.version}`;
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

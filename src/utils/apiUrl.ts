@@ -4,6 +4,17 @@ function isLocalUrl(url: URL): boolean {
   return url.hostname === "localhost" || url.hostname === "127.0.0.1";
 }
 
+// The Terramend JWT (apiToken) and codex write-back secret travel as
+// `Authorization: Bearer` to this host. Pin it to a known allowlist so a
+// misconfigured/hostile `API_URL` can't redirect those bearer credentials to
+// an attacker-controlled host (https alone is not enough — it must be the right
+// host). localhost stays exempt for local dev.
+function isAllowedApiHost(url: URL): boolean {
+  if (isLocalUrl(url)) return true;
+  const host = url.hostname.toLowerCase();
+  return host === "terramend.dev" || host.endsWith(".terramend.com");
+}
+
 /**
  * resolve the Terramend API base URL.
  *
@@ -13,12 +24,19 @@ function isLocalUrl(url: URL): boolean {
  * enforces https:// for non-local URLs to prevent cleartext credential transmission.
  */
 export function getApiUrl(): string {
-  const raw = process.env.API_URL || "https://terramend.com";
+  const raw = process.env.API_URL || "https://terramend.dev";
   const parsed = new URL(raw);
 
   if (parsed.protocol !== "https:" && !isLocalUrl(parsed)) {
     throw new Error(
       `API_URL must use https:// (got ${parsed.protocol}). only localhost is exempt.`,
+    );
+  }
+
+  if (!isAllowedApiHost(parsed)) {
+    throw new Error(
+      `API_URL host '${parsed.hostname}' is not allowed. ` +
+        `Bearer credentials are only sent to terramend.dev (or a *.terramend.com host) or localhost.`,
     );
   }
 

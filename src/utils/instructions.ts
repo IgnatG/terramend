@@ -75,13 +75,25 @@ function buildRuntimeContext(ctx: InstructionsContext): string {
   return toonEncode(filtered);
 }
 
+// Untrusted event content (PR/issue titles, bodies, and the user prompt) is
+// embedded into the prompt below fixed `************* SECTION *************`
+// banners. A crafted value carrying its own run of asterisks could spoof a
+// higher-priority banner (e.g. a fake SYSTEM block) — prompt injection via
+// delimiter confusion. Collapse any run of 4+ asterisks to the markdown
+// bold-italic max (3) so untrusted text can never reproduce a banner; normal
+// emphasis (`*`, `**`, `***`) is unaffected.
+function neutralizeDelimiters(text: string): string {
+  return text.replace(/\*{4,}/g, "***");
+}
+
 function buildEventTitle(event: PayloadEvent): string {
   const trimmedTitle = typeof event.title === "string" ? event.title.trim() : "";
   if (!trimmedTitle) return "";
 
   const prefix = event.issue_number ? `${event.is_pr ? "PR" : "Issue"} #${event.issue_number}` : "";
+  const safeTitle = neutralizeDelimiters(trimmedTitle);
 
-  return prefix ? `${prefix} ("${trimmedTitle}")` : `("${trimmedTitle}")`;
+  return prefix ? `${prefix} ("${safeTitle}")` : `("${safeTitle}")`;
 }
 
 function buildEventMetadata(event: PayloadEvent): string {
@@ -164,13 +176,13 @@ function buildTaskSection(ctx: PromptContext): string {
   const previousRunsNote = ctx.payload.previousRunsNote?.trim() ?? "";
 
   if (ctx.userQuoted) {
-    const parts = [ctx.userQuoted, previousRunsNote].filter(Boolean);
+    const parts = [neutralizeDelimiters(ctx.userQuoted), previousRunsNote].filter(Boolean);
     return `************* YOUR TASK *************
 
 ${parts.join("\n\n")}`;
   }
 
-  const eventInstructions = ctx.payload.eventInstructions ?? "";
+  const eventInstructions = neutralizeDelimiters(ctx.payload.eventInstructions ?? "");
   if (eventInstructions || previousRunsNote) {
     const parts = [ctx.eventTitle, eventInstructions, previousRunsNote].filter(Boolean);
     return `************* YOUR TASK *************

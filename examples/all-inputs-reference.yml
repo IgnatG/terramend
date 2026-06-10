@@ -50,7 +50,7 @@ jobs:
           cwd: "" # working dir (default: the repo root / GITHUB_WORKSPACE)
 
           # ── permissions ──────────────────────────────────────────────────────
-          push: enabled # disabled (read-only) | restricted (feature branches only) | enabled
+          push: restricted # disabled (read-only) | restricted (feature branches only, the default) | enabled (full push, incl. default branch)
           shell: restricted # disabled | restricted (strips secrets from child env) | enabled
           token: ${{ github.token }} # the GitHub token used to push + open the PR
 

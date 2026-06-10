@@ -43,9 +43,17 @@ jobs:
       # ./policy. Without it, policy_check just degrades green (skipped).
       - name: Install conftest
         run: |
+          set -euo pipefail
           CONFTEST_VERSION=0.56.0
-          curl -sSL "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" \
-            | sudo tar xz -C /usr/local/bin conftest
+          base="https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}"
+          file="conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSL -o "$file" "$base/$file"
+          # verify against the release checksums before extracting as root —
+          # don't pipe an unverified download straight into `sudo tar`.
+          curl -sSL -o checksums.txt "$base/checksums.txt"
+          grep " $file\$" checksums.txt | sha256sum -c -
+          sudo tar xz -C /usr/local/bin -f "$file" conftest
+          rm -f "$file" checksums.txt
 
       # Plan-only cloud credentials via OIDC (AWS shown). The role is read-only +
       # state-backend access ONLY — terraform plan never mutates infrastructure.
@@ -64,7 +72,8 @@ jobs:
             SARIF report of the scan so findings appear in the Security tab.
           severity_threshold: medium
           max_prs: "1"
-          push: enabled
+          # feature-branch push only — enough to open the remediation PR.
+          push: restricted
           autonomy_threshold: high # escalate high/critical security fixes to needs-human
           # allow_replace: ""       # resource addresses permitted to be destroyed/replaced
           # cost_increase_block_usd: "25"  # escalate big spend increases (needs infracost)

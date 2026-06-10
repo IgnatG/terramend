@@ -27,6 +27,14 @@ type SafeGitSubcommand = "fetch" | "push";
 type GitAuthOptions = {
   token: string;
   cwd?: string;
+  // when true (the default), this invocation runs with `core.hooksPath=/dev/null`
+  // so a repo-/agent-planted git hook (e.g. a `pre-push` written into
+  // `.git/hooks` or via an agent-set `core.hooksPath`) cannot fire while
+  // GIT_ASKPASS is live and read the installation token back out of the askpass
+  // script. Callers pass `false` only when the operator has granted full trust
+  // (shell: enabled), where honoring repo hooks (e.g. git-lfs pre-push upload)
+  // is intended and the agent could read the token through its shell anyway.
+  disableHooks?: boolean;
 };
 
 type GitResult = {
@@ -122,7 +130,10 @@ export async function $git(
   const scriptPath = authServer.writeAskpassScript(code);
 
   // -c flags override local .git/config — defense-in-depth against
-  // agent-set config that could spawn subprocesses before ASKPASS runs
+  // agent-set config that could spawn subprocesses before ASKPASS runs.
+  // a command-line `-c` wins over any value the agent may have written into
+  // .git/config (e.g. via the MCP `git config` tool in restricted mode), which
+  // is why hook neutralization belongs here and not only at setup.
   const fullArgs = [
     "-c",
     "core.fsmonitor=false",
@@ -132,6 +143,11 @@ export async function $git(
     "protocol.file.allow=never",
     "-c",
     "core.sshCommand=ssh",
+    // neutralize git hooks for this authenticated call unless the caller opted
+    // out (shell: enabled). a planted `pre-push`/`pre-receive` would otherwise
+    // run in the action process with GIT_ASKPASS set and could exfiltrate the
+    // token by invoking the askpass script itself.
+    ...(options.disableHooks === false ? [] : ["-c", "core.hooksPath=/dev/null"]),
     subcommand,
     ...args,
   ];

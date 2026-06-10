@@ -53,7 +53,11 @@ jobs:
           path-to-signatures: signatures/version1/cla.json
           path-to-document: https://github.com/terramend/terramend/blob/main/CLA.md
           branch: cla-signatures
-          allowlist: dependabot[bot],github-actions[bot],*[bot]
+          # Exact bots only — NOT a `*[bot]` wildcard, which would exempt every
+          # third-party GitHub App that happens to author a PR from signing the
+          # CLA. dependabot covers dep bumps; github-actions covers release-please
+          # (it authors its release PR as github-actions[bot]).
+          allowlist: dependabot[bot],github-actions[bot]
           # This action locks a PR's conversation on merge by DEFAULT
           # (lock-pullrequest-aftermerge=true). That breaks release-please, which
           # comments on its release PR after merge — a locked thread fails the

@@ -21,6 +21,7 @@
  * so `finalizeAgentResult` can render the terminal `AgentResult.success =
  * false` — that state cannot be set from a stdout-only hook.
  */
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import {
   buildLearningsReflectionPrompt,
@@ -33,6 +34,12 @@ import { log } from "#app/utils/cli";
 
 export interface GateServerHandle {
   url: string;
+  // bearer token the Stop hook must present. Passed to the agent process via a
+  // `_TOKEN`-suffixed env var so filterEnv() strips it from the agent's shell
+  // sandbox — only the real Stop hook (a child of the agent process, inheriting
+  // its full env) can read it. Without this, any loopback caller (incl. the
+  // agent) could poison the retry budget by hitting GET /gates.
+  token: string;
   [Symbol.asyncDispose]: () => Promise<void>;
 }
 
@@ -40,11 +47,18 @@ export async function startGateServer(ctx: AgentRunContext): Promise<GateServerH
   let blockCount = 0;
   let reflectionDelivered = false;
   let summaryStaleNudged = false;
+  const token = randomUUID();
 
   const server = createServer((req, res) => {
     void (async () => {
       if (req.method !== "GET" || req.url !== "/gates") {
         res.writeHead(404).end();
+        return;
+      }
+      // Authenticate before reading state or mutating counters — an unauthorized
+      // request must not consume the retry budget.
+      if (req.headers.authorization !== `Bearer ${token}`) {
+        res.writeHead(403).end();
         return;
       }
       try {
@@ -102,6 +116,7 @@ export async function startGateServer(ctx: AgentRunContext): Promise<GateServerH
 
   return {
     url,
+    token,
     [Symbol.asyncDispose]: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

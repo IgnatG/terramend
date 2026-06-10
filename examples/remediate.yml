@@ -51,7 +51,10 @@ jobs:
           prompt: "Bring this repository's Terraform up to best practice."
           severity_threshold: ${{ inputs.severity_threshold || 'medium' }}
           max_prs: ${{ inputs.max_prs || '1' }}
-          push: enabled
+          # restricted = push feature branches only (enough to open a PR); the
+          # default branch, tag pushes, and branch deletes stay blocked. Only use
+          # `enabled` if a run must push to a protected ref.
+          push: restricted
           # protected_paths: "**/prod/**,**/state/**"  # never auto-modify these
         env:
           # BYOK — supply the key for your provider (Anthropic shown).

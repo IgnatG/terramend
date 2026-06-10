@@ -14,30 +14,45 @@ on:
 permissions:
   contents: read
 
+# A re-dispatch on the same ref cancels the previous in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   terramend:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write
       contents: read
+      # id-token: write   # uncomment ONLY if you use the cloud plan gate
+      #                    # (OIDC role assumption). Off by default so a run
+      #                    # can't mint OIDC tokens it doesn't need.
     steps:
       - name: Checkout code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 1
+          # the action does its own scoped git auth; don't leave the workflow
+          # token in .git/config.
+          persist-credentials: false
       - name: Run agent
-        uses: terramend/terramend@main
+        # Pin to a release tag (auto-updates within the major) or, for stricter
+        # supply-chain control, a full commit SHA. NEVER use @main: it is a
+        # mutable ref, so a compromise of the branch would run arbitrary code
+        # here with the secret(s) below.
+        uses: terramend/terramend@v0
         with:
           prompt: ${{ inputs.prompt }}
         env:
-          # Model provider keys — keep the ONE you use, comment out the rest.
-          # Add any other secrets your run needs here (e.g. cloud credentials
-          # for terraform_plan; prefer OIDC role assumption over static keys).
+          # Model provider key — set the ONE for the provider you use and delete
+          # the rest. Add any other secrets your run needs here (e.g. cloud
+          # credentials for terraform_plan; prefer OIDC role assumption over
+          # static keys). Supplying keys you don't use only widens exposure.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+          # DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # MOONSHOT_API_KEY: ${{ secrets.MOONSHOT_API_KEY }}
+          # OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}

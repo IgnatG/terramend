@@ -45,7 +45,11 @@ export type GitAuthServer = {
 };
 
 function revokeGitHubToken(token: string): void {
-  fetch("https://api.github.com/installation/token", {
+  // honor GITHUB_API_URL so the tamper-trap revocation also works on GitHub
+  // Enterprise Server (where the API host is not api.github.com); falls back to
+  // public GitHub otherwise. Mirrors src/utils/token.ts.
+  const apiBase = process.env.GITHUB_API_URL || "https://api.github.com";
+  fetch(`${apiBase}/installation/token`, {
     method: "DELETE",
     headers: {
       Authorization: `Bearer ${token}`,

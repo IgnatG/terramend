@@ -880,6 +880,10 @@ const MANAGED_SETTINGS_PATH = `${MANAGED_SETTINGS_DIR}/managed-settings.json`;
  * non-CI local dev paths that don't install managed settings either).
  */
 const STOP_HOOK_GATE_URL_ENV = "TERRAMEND_GATE_URL";
+// `_TOKEN` suffix is intentional: filterEnv() strips it from the agent's shell
+// sandbox, so only the Stop hook (a child of this process) can authenticate to
+// the gate server. See gateServer.ts.
+const STOP_HOOK_GATE_TOKEN_ENV = "TERRAMEND_GATE_TOKEN";
 
 /**
  * managed Stop hook. swaps the old `--resume <sessionId>` follow-up
@@ -902,9 +906,10 @@ function buildStopHookScript(): string {
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     `url="\${${STOP_HOOK_GATE_URL_ENV}:-}"`,
+    `tok="\${${STOP_HOOK_GATE_TOKEN_ENV}:-}"`,
     'if [ -z "$url" ]; then exit 0; fi',
     "cat >/dev/null",
-    'response=$(curl -fsS --max-time 30 "$url" 2>/dev/null || printf \'{"block":false}\')',
+    'response=$(curl -fsS --max-time 30 -H "Authorization: Bearer $tok" "$url" 2>/dev/null || printf \'{"block":false}\')',
     'block=$(printf "%s" "$response" | jq -r ".block // false")',
     'if [ "$block" != "true" ]; then exit 0; fi',
     'reason=$(printf "%s" "$response" | jq -r ".reason // \\"\\"")',
@@ -1149,7 +1154,11 @@ export const claude = agent({
       label: "Terramend",
       cmd: cliPath,
       cwd: repoDir,
-      env: { ...env, [STOP_HOOK_GATE_URL_ENV]: gateServer.url },
+      env: {
+        ...env,
+        [STOP_HOOK_GATE_URL_ENV]: gateServer.url,
+        [STOP_HOOK_GATE_TOKEN_ENV]: gateServer.token,
+      },
       todoTracker: ctx.todoTracker,
       onActivityTimeout: ctx.onActivityTimeout,
       onToolUse: ctx.onToolUse,

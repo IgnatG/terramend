@@ -237,11 +237,11 @@ const TRANSIENT_RETRY_DELAYS_MS = [2000, 5000];
  * only push_branch retried, so a tag push or branch delete that happened to
  * hit an un-replicated edge failed outright even though the token was valid.
  */
-async function pushWithRetry(args: string[], token: string): Promise<void> {
+async function pushWithRetry(args: string[], token: string, disableHooks: boolean): Promise<void> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= TRANSIENT_RETRY_DELAYS_MS.length; attempt++) {
     try {
-      await $git("push", args, { token });
+      await $git("push", args, { token, disableHooks });
       if (attempt > 0) log.info(`push succeeded on attempt ${attempt + 1}`);
       return;
     } catch (err) {
@@ -398,7 +398,7 @@ export function PushBranchTool(ctx: ToolContext) {
       // transient — it surfaces here so we can render the integrate-and-retry
       // recovery the agent needs.
       try {
-        await pushWithRetry(pushArgs, ctx.gitToken);
+        await pushWithRetry(pushArgs, ctx.gitToken, ctx.payload.shell !== "enabled");
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (classifyPushError(msg) === "concurrent-push") {
@@ -844,7 +844,11 @@ export function DeleteBranchTool(ctx: ToolContext) {
       // branches and tags; a tag-only match would silently remove the tag.
       // rejectSpecialRef guarantees branchName is a bare name, so the
       // branchName construction here can't collide with user-supplied refs.
-      await pushWithRetry(["origin", "--delete", `refs/heads/${params.branchName}`], ctx.gitToken);
+      await pushWithRetry(
+        ["origin", "--delete", `refs/heads/${params.branchName}`],
+        ctx.gitToken,
+        ctx.payload.shell !== "enabled",
+      );
       log.info(`» deleted branch ${params.branchName}`);
       return { success: true, deleted: params.branchName };
     }),
@@ -873,7 +877,7 @@ export function PushTagsTool(ctx: ToolContext) {
 
       validateTagName(params.tag);
       const pushArgs = [...(params.force ? ["-f"] : []), "origin", `refs/tags/${params.tag}`];
-      await pushWithRetry(pushArgs, ctx.gitToken);
+      await pushWithRetry(pushArgs, ctx.gitToken, ctx.payload.shell !== "enabled");
       log.info(`» pushed tag ${params.tag}`);
       return { success: true, tag: params.tag };
     }),

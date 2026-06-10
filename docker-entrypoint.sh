@@ -36,7 +36,11 @@ if [ -d /tmp/.ssh-host ]; then
     # specific key with -i — let ssh pick whatever's in /tmp/home/.ssh
     # (covers id_rsa, id_ed25519, id_ecdsa, etc.).
     if ls /tmp/home/.ssh/id_* 2>/dev/null | grep -qv '\.pub$'; then
-        export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/tmp/home/.ssh/known_hosts -o StrictHostKeyChecking=no"
+        # accept-new: trust a host's key on first contact (known_hosts was just
+        # seeded by ssh-keyscan above) but FAIL on a later key mismatch, instead
+        # of StrictHostKeyChecking=no which silently accepts any/changed key
+        # (MITM-able). Sufficient for the local container; never weaker.
+        export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/tmp/home/.ssh/known_hosts -o StrictHostKeyChecking=accept-new"
     fi
 fi
 

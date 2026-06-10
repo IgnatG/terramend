@@ -20,14 +20,16 @@ const fixture = defineFixture(
   {
     prompt: `Test git push permissions. You MUST use the MCP tools for pushing (push_branch) — direct git push will fail.
 
+You start checked out on the repository's DEFAULT branch (do not assume it is called "main"; the RUNTIME context shows its real name in default_branch).
+
 1. Make a small change (e.g. create a file) and commit it (use git MCP tool for add/commit)
-2. Try pushing to main using push_branch MCP tool — this should be blocked
+2. Try pushing the CURRENT branch (the default branch) using push_branch MCP tool — this should be blocked in restricted mode
 3. Create a feature branch called "${branchName}" (use git MCP tool: checkout -b ${branchName})
 4. Push the feature branch using push_branch MCP tool — this should succeed
 
 Call set_output with a JSON object:
 {
-  "main_push_blocked": true/false,
+  "main_push_blocked": true/false,    // did the step-2 push to the default branch get blocked?
   "main_push_error": "the error message from the blocked push, or null",
   "feature_push_succeeded": true/false
 }`,
