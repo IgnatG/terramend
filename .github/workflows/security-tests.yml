@@ -30,7 +30,7 @@ on:
     branches: [main] # regression gate on the protected branch
 
 permissions:
-  contents: read
+  contents: read # only for this repo's checkout step; fixture auth uses GH_TOKEN below
 
 env:
   # Free, keyless OpenCode-gateway model — no provider API key required. If this
@@ -54,7 +54,17 @@ jobs:
         agent: [opencode]
         test: [fs-exfil, token-exfil, restricted]
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Fixture repo: terramend/test-repo must have at least one commit on main —
+      # the push tests create branches/tags off it and assert main-push is blocked,
+      # which all fail nonsensically on an empty (unborn-HEAD) repository.
+      # Fixture auth: a fine-grained PAT with Contents:R/W on terramend/test-repo,
+      # stored as the TEST_REPO_TOKEN secret. It MUST be passed as GH_TOKEN (not
+      # GITHUB_TOKEN): resolveTokens() uses an external GH_TOKEN directly for both
+      # the git and MCP tokens (src/utils/token.ts) instead of minting via the
+      # backend, and setup.ts clones the fixture with it. We deliberately do NOT
+      # set GITHUB_TOKEN — the default runner token is scoped to this repo only
+      # and setup.ts prefers it over GH_TOKEN, which would 404 the fixture clone.
+      GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -75,7 +85,10 @@ jobs:
       matrix:
         test: [push-restricted, push-disabled, push-enabled]
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # See sandbox-isolation above: GH_TOKEN = fine-grained PAT (TEST_REPO_TOKEN)
+      # with Contents:R/W on terramend/test-repo. The push tests need write access
+      # to create/delete the throwaway branches they assert on.
+      GH_TOKEN: ${{ secrets.TEST_REPO_TOKEN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
