@@ -185,7 +185,7 @@ Inline comments use the same severity framing as body \`### \` sections, scaled 
 // and a reviewer can scan it top-to-bottom in seconds.
 export const REMEDIATION_PR_FORMAT = `### Remediation PR format
 
-**Minimum (ALWAYS include, even under tight budget):** a one-paragraph plain-English summary of *what was wrong and what you changed*, then a \`## What changed\` list with one *Was / Changed / Safe because* note per concern, then the \`## Validation (✗ → ✓)\` list. If you produce nothing else, produce these three — a PR a human can't understand from its body alone has failed its job. Everything below enriches this minimum; it does not replace it.
+**Minimum (ALWAYS include, even under tight budget):** a one-paragraph plain-English summary of *what was wrong and what you changed*, then a \`## What changed\` list with one *Was / Changed / Safe because* note per concern, then the \`## Validation\` list. If you produce nothing else, produce these three — a PR a human can't understand from its body alone has failed its job. Everything below enriches this minimum; it does not replace it.
 
 Build the PR body in this EXACT order. Every line is backed by a tool result — never write a status you didn't get from a tool. Omit a whole section only when its tool didn't run (e.g. no plan without cloud creds); never fabricate it. Keep a blank line between every block-level element (GitHub needs it to render).
 
@@ -223,19 +223,19 @@ One \`### \` subsection per resolved concern (or one per rule for a by-rule grou
 
 Lead each heading with a severity emoji (🚨 critical · ⚠️ high · 🔒 security · ℹ️ low/info). Backtick-wrap every identifier. No raw diff dumps — the Files tab shows the diff.
 
-#### 4. \`## Validation (✗ → ✓)\`
+#### 4. \`## Validation\`
 
-Built ONLY from \`terraform_verify_remediation\`'s result — this is the proof, not a self-report. One line per id in \`resolved\`, then any still-open id honestly:
+Built ONLY from \`terraform_verify_remediation\`'s result — this is the proof, not a self-report. One ✅ line per id in \`resolved\`, then any still-open id honestly:
 
 \`\`\`
-## Validation (✗ → ✓)
+## Validation
 
-- ✗ → ✓ \\\`trivy:AVD-AWS-0088\\\` resolved
-- ✗ → ✓ \\\`checkov:CKV_AWS_19\\\` resolved
+- ✅ \\\`trivy:AVD-AWS-0088\\\` resolved
+- ✅ \\\`checkov:CKV_AWS_19\\\` resolved
 - ⚠️ still open: \\\`tflint:...\\\` — {why it couldn't be cleared}
 \`\`\`
 
-**Resolved XOR still-open — never both.** Each concern appears on exactly one line: an \`id\` in the tool's \`resolved\` set gets a \`✗ → ✓ … resolved\` line; an \`id\` in \`remaining\` gets a \`⚠️ still open: …\` line. NEVER write \`✗ → ✓ … re-flagged\` / \`✗ → ✓ … still open\` or otherwise mark an unresolved concern with the ✗→✓ symbol — that is a false attestation and the single worst thing this body can do. A concern is ✓ only if the tool returned its id in \`resolved\`; if it's in \`remaining\`, it is still-open, full stop.
+**Resolved XOR still-open — never both.** Each concern appears on exactly one line: an \`id\` in the tool's \`resolved\` set gets a \`✅ … resolved\` line (the green check means cleared); an \`id\` in \`remaining\` gets a \`⚠️ still open: …\` line. NEVER put a ✅ on an unresolved concern (no \`✅ … re-flagged\`, no \`✅ … still open\`) — that is a false attestation and the single worst thing this body can do. A concern earns its ✅ only if the tool returned its id in \`resolved\`; if it's in \`remaining\`, it is still-open, full stop.
 
 If \`has_regressions\` is true, add a \`> [!CAUTION]\` **Regression** callout listing each id in the tool's \`regressions\` set BEFORE this list, and ensure the \`needs-human\` label is set. \`regressions\` are concerns the fix genuinely INTRODUCED (a new \`rule\`+\`file\` not present before) — they are computed line-independently, so a pre-existing concern that merely moved lines is NOT a regression; do not relabel a \`remaining\` concern as a regression.
 
@@ -639,6 +639,43 @@ ${REVIEW_FINDING_PRECEDENTS}
 ${PR_SUMMARY_FORMAT}`,
     },
     {
+      name: "SummarizePr",
+      description:
+        "Summarize a pull request's changes in a single structured comment — what it does, the key changes, and any areas worth a closer look. Does NOT review, approve, or change code (use Review for a verdict).",
+      prompt: `### Checklist
+
+This mode posts ONE plain-English summary of what a PR does — an orientation aid, not a verdict. Do NOT approve, request changes, leave inline review comments, or modify any code. If a real review is wanted, that's the Review mode.
+
+1. **task list**: create your task list for this run as your first action.
+
+2. **checkout**: call \`${t("checkout_pr")}\` — this returns PR metadata and a \`diffPath\`. Read the diff TOC so you understand the scope.
+
+3. **Terraform anchor (when relevant)**: call \`${t("terraform_change_summary")}\` — it returns the DETERMINISTIC Terraform block changes (resource/module/data/variable/output addresses ADDED and REMOVED, plus the Terraform files touched) vs the base. It degrades green (\`ok: false\`) when git can't resolve the base — run \`${t("git_fetch")}\` on the base ref first and retry — or when the PR has no Terraform changes (then it's a general summary). Use its counts as the factual backbone of the Terraform part of your summary instead of counting by eye.
+
+4. **read for intent**: read the \`diffPath\` (and related files as needed) to understand WHAT the PR does and WHY — not just the mechanics. Pull as much context as you need; you are the synthesizer.
+
+5. **post the summary**: call \`${t("create_issue_comment")}\` ONCE on the PR with a structured summary in this shape (omit a section when it has nothing):
+
+   \`\`\`
+   ## Summary
+   {1–2 sentences: what this PR does and why, in plain English.}
+
+   ### Key changes
+   - **{short title}** — {one sentence}; backtick-wrap files/identifiers you name.
+   - ...
+
+   ### Terraform changes
+   {only when terraform_change_summary returned data — e.g. "Adds \\\`module.vpc\\\` and \\\`aws_s3_bucket.logs\\\`; removes \\\`aws_launch_configuration.web\\\`; edits 3 files." Use its real addresses/counts.}
+
+   ### Worth a closer look (optional)
+   - {non-blocking observations a reviewer might want to focus on — risk areas, sequencing, things the diff implies but doesn't address. Phrase as orientation, not findings — this is not a review.}
+   \`\`\`
+
+   Keep it scannable: lead with intent, alternate prose with structure, backtick-wrap identifiers, no raw diff dumps, no \`+N/-M\` stats. NEVER fabricate a change — every claim must be in the diff (the Terraform counts come from the tool).
+
+6. **finalize**: call \`${t("report_progress")}\` with a one-line note that the summary was posted (or the exact error if the comment failed). Do NOT call \`${t("create_pull_request_review")}\` — this mode summarizes, it does not review.`,
+    },
+    {
       name: "Plan",
       description:
         "Create plans, break down tasks, outline steps, analyze requirements, understand scope of work, or provide task breakdowns",
@@ -708,9 +745,30 @@ ${PR_SUMMARY_FORMAT}`,
    - Call \`${t("report_progress")}\` with a summary of what was resolved (or the exact push error if push failed)`,
     },
     {
+      name: "Assess",
+      description:
+        "Read-only Terraform best-practice ASSESSMENT: scan with the deterministic check tools, map findings to compliance controls, and report the posture (clean / advisory / action-required) — without modifying any Terraform or opening a PR.",
+      prompt: `### Checklist
+
+This mode is **read-only** — the Assess half of Terramend's one-engine-two-modes design. It reports posture; it never fixes. Do NOT edit Terraform, commit, push, or open a PR/issue in this mode. If the findings warrant a fix, say so and recommend re-running in \`remediate\` mode.
+
+1. **task list**: create your task list for this run as your first action.
+
+2. **assess**: call \`${t("terraform_assess")}\`. It runs the scanners and returns a deterministic \`scorecard\` (overall \`posture\`, \`by_severity\` counts, \`top_risks\`, and an indicative compliance-crosswalk summary) plus a ready-to-post \`markdown\` report. This is the core deliverable — built from tool results, not your own judgement.
+
+3. **optional lenses** (fold each into the report only when it actually ran):
+   - \`${t("infracost_diff")}\` — current monthly cost (auto-skips without \`INFRACOST_API_KEY\`/the CLI).
+   - \`${t("terraform_version_currency")}\` — provider/module pins that are outdated or unpinned.
+   - \`${t("terraform_emit_sarif")}\` — when the workflow has a SARIF upload step, emit \`terramend.sarif\` so every concern also lands in the repo's Security tab (read-only, complementary).
+
+4. **report**: call \`${t("report_progress")}\` once with the assessment. Use the \`markdown\` from \`${t("terraform_assess")}\` as the base (it carries the posture banner, severity counts, top risks, and the indicative-crosswalk note verbatim — do not soften or inflate it), then append one-line **Cost** / **Version currency** notes if those lenses ran. If \`${t("set_output")}\` is available (standalone runs), also emit the structured result (\`posture\`, \`total\`, \`by_severity\`, the touched \`frameworks\`) so a CI step can gate on \`posture\`.
+
+5. **guardrails**: never modify \`*.tf\`/\`*.tfvars\`, never push, never open a PR or issue. The assessment is the only deliverable.`,
+    },
+    {
       name: "Remediate",
       description:
-        "Bring a repository's Terraform up to best practice: scan with the deterministic check tools, then open one scoped, reviewable PR per concern that fixes it and proves it fixed (✗→✓).",
+        "Bring a repository's Terraform up to best practice: scan with the deterministic check tools, then open one scoped, reviewable PR per concern that fixes it and proves each fix by re-scanning (✅).",
       prompt: `### Checklist
 
 1. **task list**: create your task list for this run as your first action.
@@ -730,6 +788,8 @@ ${PR_SUMMARY_FORMAT}`,
    **Grouping & batching (§3.11 / §3.10)**: groups default to one-per-file. When a single rule dominates across many files (e.g. "add \`tags\` everywhere"), re-scan with \`group_by: "rule"\` so it becomes ONE coherent group/PR instead of many. The scan's \`batch_plan\` tells you which low-risk groups are \`batchable\` (combine them into the single \`batch_plan.batch_branch\` PR when \`max_prs\` would otherwise be exceeded) and which are \`isolated\` (each gets its own PR for independent review/revert). Still honour \`max_prs\` and never batch a \`needs-human\` group.
 
    **Comment command (§3.12)**: when this run was triggered by a \`@terramend fix …\` comment, the triggering body is in your prompt — honour the requested scope INSTEAD of "highest-severity group": \`fix #<concern-id>\` → act only on the group containing that concern id; \`fix all <severity>-severity\` → set the scan \`severity_threshold\` to that level and act on those groups (up to \`max_prs\`); \`fix <file>.tf\` → act on that file's group; \`fix all\` → act on the highest-severity groups up to \`max_prs\`. If the comment isn't a recognised fix command, fall back to the default scope. A **strategy suffix** — \`fix #<concern-id> with strategy B\` (or a bare \`strategy B\` reply on a proposal thread) — additionally tells you **which** fix to apply: see §26 in step 4.
+
+   **Bulk remediation (§37 — \`fix rule <rule-id>\` / \`fix all rule <rule-id>\`)**: a request to fix ONE scanner rule everywhere it fires (e.g. \`@terramend fix rule CKV_AWS_23\` — "add a description to every security group", or \`fix rule terraform_required_version\`). Re-scan with \`group_by: "rule"\` (§3.11) so that rule becomes ONE group spanning every file, then act on the single group whose \`rule_ids\` include \`<rule-id>\` — apply the SAME minimal fix at every site in its \`files\` and open ONE coherent PR (not one per file). This is the sweep path; still honour \`max_prs\` and never batch a \`needs-human\` group. Cite each fixed site in the PR body.
 
 4. **for the chosen group**:
    - **base branch**: this run's base branch is resolved deterministically — \`${t("create_pull_request")}\` targets the \`base_branch\` input if set, else the repository's default branch (\`main\`, or \`master\`). You do not choose it; just **omit** the \`base\` argument when opening the PR (below) and it is filled in.
@@ -753,7 +813,7 @@ ${PR_SUMMARY_FORMAT}`,
      - **full plan (\`plan_text\`, §1.2)**: when present, attach it to the PR body as a collapsed \`<details><summary>Plan</summary>\\n\\n\\\`\\\`\\\`\\n…\\n\\\`\\\`\\\`\\n</details>\` block so a reviewer can see the exact planned change without re-running it.
    - **commit + push**: \`git add\` only the file you changed, commit with a message naming the file and the key rules (e.g. \`fix(tf): harden main.tf — S3 encryption + block public access\`), then \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
    - **open PR — with a COMPLETE body (MANDATORY)**: \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above). The PR body is the primary deliverable a human reviews — open the PR **with a full body**, never a placeholder you intend to fill in later. At an absolute minimum the body MUST explain, in plain English: (a) **what was wrong** — each concern by \`rule_id\` + its \`evidence\`; and (b) **what you changed** to fix each one, and why it's safe. Build it with the **Remediation PR format** at the end of this checklist (status banner → title + badges → \`## What changed\` with the §5.17 *Was / Changed / Safe because* note per concern). ⚠️ \`${t("report_progress")}\` writes the GitHub Actions **job summary**, which is NOT the PR body — a good job summary does **not** substitute for a complete PR body. If you only have time/budget for one, the PR body wins.
-   - **prove it (✗→✓)**: call \`${t("terraform_verify_remediation")}\` with the group's \`concern_ids\`. It re-runs the scanners and returns the authoritative \`resolved\` / \`remaining\` sets and a \`verified\` flag — this is the proof, do NOT eyeball a scan or self-report. Then \`${t("update_pull_request_body")}\` to add a "Validation" section built **from that result**: one \`✗ → ✓ <rule_id> resolved\` line per id in \`resolved\`, and list every id in \`remaining\` honestly as still-open. Never mark a concern ✓ unless the tool returned it in \`resolved\`. Act on two more fields it returns:
+   - **prove it (re-scan)**: call \`${t("terraform_verify_remediation")}\` with the group's \`concern_ids\`. It re-runs the scanners and returns the authoritative \`resolved\` / \`remaining\` sets and a \`verified\` flag — this is the proof, do NOT eyeball a scan or self-report. Then \`${t("update_pull_request_body")}\` to add a "Validation" section built **from that result**: one \`✅ <rule_id> resolved\` line per id in \`resolved\`, and list every id in \`remaining\` honestly as still-open. Never put a ✅ on a concern unless the tool returned it in \`resolved\`. Act on two more fields it returns:
      - **regressions (§1.4)**: when \`has_regressions\` is true, the fix INTRODUCED new concerns (listed in \`regressions\`) that weren't there before — it traded one defect for another. Add a prominent **⚠️ Regression** callout listing them, add the \`needs-human\` label (\`${t("add_labels")}\`), and prefer reworking the fix to remove the regression before relying on the PR.
      - **confidence (§5.19)**: render the returned \`confidence\` (high/medium/low) as a one-line badge in the PR body (e.g. \`Confidence: high\`) with its \`confidence_reasons\`. It is computed deterministically from the verification evidence (verified + no regressions + plan idempotency + blast radius + cost) — report it verbatim, do NOT inflate it.
    - **per-finding explanation (§5.17)**: in the PR body, give each resolved concern a short three-line note — **Was** (what the scanner flagged, from its \`evidence\`), **Changed** (what your fix did), **Safe because** (why it's correct/non-breaking) — and hyperlink the \`rule_id\` to its documentation. The scan output carries a \`doc_url\` per concern (and \`doc_urls\` per group); use it, falling back to the concern's \`remediation_hint\` when no \`doc_url\` is present.
@@ -763,7 +823,7 @@ ${PR_SUMMARY_FORMAT}`,
 
 5. **guardrails** (always): one scoped PR per group, never a mega-PR spanning multiple files; **never auto-merge** and always leave the PR for human review; never modify files outside \`*.tf\` / \`*.tfvars\`.
 
-6. **finalize**: call \`${t("report_progress")}\` once with a summary — which file/group was fixed, the PR link, and the ✗→✓ result (or the exact tool error if push/PR creation failed).
+6. **finalize**: call \`${t("report_progress")}\` once with a summary — which file/group was fixed, the PR link, and the validation result (resolved ✅ / still-open) (or the exact tool error if push/PR creation failed).
 
    **SARIF for code-scanning (optional, §3.5)**: when the workflow has a SARIF upload step (it grants \`security-events: write\` and runs \`github/codeql-action/upload-sarif\` on a \`terramend.sarif\`), call \`${t("terraform_emit_sarif")}\` once at the end so the full scan also lands in the repo's Security tab — complementary to the fix PR, not a replacement for it.
 
@@ -830,7 +890,7 @@ ${REMEDIATION_PR_FORMAT}`,
 
 8. **finalize**:
    - confirm a clean working tree (only your new \`*.tf\`/\`*.tfvars\` files), then push via \`${t("push_branch")}\` (same push/prepush guidance as Build mode in *SYSTEM*).
-   - open a PR via \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above). Use the **Remediation PR format** conventions (the same status banner + badge row + \`## What changed\` shape, and the body-wide rules) ADAPTED for generation: the body states the requirement, what was generated, the key best-practice choices (security defaults, parameters, modules, pinned versions) and any assumptions; the badge row carries \`Plan\`/\`Cost\` when those tools ran; and in place of the \`## Validation (✗ → ✓)\` section put a \`## Validation\` line stating \`terraform_validate\` passed and \`terraform_scan\` is clean (self-scan: 0 concerns).
+   - open a PR via \`${t("create_pull_request")}\` (omit \`base\` — it resolves to the run's base branch above). Use the **Remediation PR format** conventions (the same status banner + badge row + \`## What changed\` shape, and the body-wide rules) ADAPTED for generation: the body states the requirement, what was generated, the key best-practice choices (security defaults, parameters, modules, pinned versions) and any assumptions; the badge row carries \`Plan\`/\`Cost\` when those tools ran; and in place of the \`## Validation\` proof list put a \`## Validation\` line stating \`terraform_validate\` passed and \`terraform_scan\` is clean (self-scan: 0 concerns).
    - **never auto-merge** — leave the PR for human review.
    - call \`${t("report_progress")}\` once with the PR link (or the exact tool error if push/PR creation failed).
 
@@ -883,4 +943,8 @@ export const NON_COMMITTING_MODES: ReadonlySet<string> = new Set([
   "Review",
   "IncrementalReview",
   "Plan",
+  // read-only assessment — reports posture via report_progress, never touches the tree.
+  "Assess",
+  // §36 — posts a summary COMMENT, never commits to the working tree.
+  "SummarizePr",
 ]);

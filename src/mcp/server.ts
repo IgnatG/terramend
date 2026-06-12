@@ -5,6 +5,8 @@ import { createServer } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { FastMCP, type Tool } from "fastmcp";
 import { type AgentId, terramendMcpName } from "#app/external";
+import { TerraformAssessTool } from "#app/mcp/assess";
+import { TerraformChangeSummaryTool } from "#app/mcp/changeSummary";
 import { CheckoutPrTool } from "#app/mcp/checkout";
 import { GetCheckSuiteLogsTool } from "#app/mcp/checkSuite";
 import {
@@ -166,6 +168,7 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     PullRequestInfoTool(ctx),
     CommitInfoTool(ctx),
     CheckoutPrTool(ctx),
+    TerraformChangeSummaryTool(ctx),
     GetReviewCommentsTool(ctx),
     ListPullRequestReviewsTool(ctx),
     ResolveReviewThreadTool(ctx),
@@ -177,6 +180,7 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     // Terraform best-practice check tools (read-only). Always available so the
     // Remediate / GenerateTerraform modes can scan + gate without extra perms.
     TerraformScanTool(ctx),
+    TerraformAssessTool(ctx),
     TerraformValidateTool(ctx),
     TerraformVerifyRemediationTool(ctx),
     InfracostDiffTool(ctx),

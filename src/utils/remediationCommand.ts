@@ -24,6 +24,9 @@ export type RemediationCommand =
   | { kind: "concern"; concernRef: string; strategy?: string }
   | { kind: "severity"; severity: Severity }
   | { kind: "file"; file: string }
+  // §37 bulk remediation — sweep ONE scanner rule across every file it fires in
+  // (one coherent PR via by-rule grouping). e.g. `@terramend fix rule CKV_AWS_23`.
+  | { kind: "rule"; ruleId: string }
   // §26 — a bare strategy pick (e.g. an in-thread reply to a proposal); the
   // concern is resolved from the comment thread the run was triggered on.
   | { kind: "strategy"; strategy: string }
@@ -70,6 +73,14 @@ export function parseRemediationCommand(body: string | undefined): RemediationCo
   // capture (the lower-casing happens per match).
   const afterMention = body.slice(body.search(MENTION));
   const isSeverity = (s: string): s is Severity => (SEVERITIES as readonly string[]).includes(s);
+
+  // §37 bulk — `fix rule <rule-id>` / `fix all rule <rule-id>`. Checked FIRST and
+  // gated on the explicit `rule` keyword so a scanner rule id (`CKV_AWS_23`,
+  // `terraform_required_version`, `trivy:AVD-AWS-0088`) is never confused with a
+  // severity word, a filename, or a hex concern id. Rule ids are case-significant
+  // — kept verbatim. The fix sweeps that ONE rule across every file it fires in.
+  const rule = afterMention.match(/\bfix\s+(?:all\s+)?rule\s+([A-Za-z][A-Za-z0-9_.:-]+)\b/i);
+  if (rule) return { kind: "rule", ruleId: rule[1]! };
 
   // `fix all <sev>[-severity]` / `fix all` — but a NON-severity word after "all"
   // (prose like "fix all the bugs") is NOT the command: fall through rather than

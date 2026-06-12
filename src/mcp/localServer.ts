@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FastMCP, type Tool } from "fastmcp";
 import { terramendMcpName } from "#app/external";
+import { TerraformAssessTool } from "#app/mcp/assess";
 import type { LocalToolContext } from "#app/mcp/localContext";
 import { ModuleExtractionCandidatesTool } from "#app/mcp/moduleExtraction";
 import {
@@ -77,6 +78,7 @@ export function buildLocalContext(options: LocalMcpOptions): LocalToolContext {
 export function buildLocalTools(ctx: LocalToolContext): Tool<any, any>[] {
   return [
     TerraformScanTool(ctx),
+    TerraformAssessTool(ctx),
     TerraformValidateTool(ctx),
     TerraformVerifyRemediationTool(ctx),
     TerraformPlanTool(ctx),

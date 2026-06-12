@@ -14,9 +14,11 @@ const EXPECTED_MODE_NAMES = [
   "AddressReviews",
   "Review",
   "IncrementalReview",
+  "SummarizePr",
   "Plan",
   "Fix",
   "ResolveConflicts",
+  "Assess",
   "Remediate",
   "RefreshRemediation",
   "GenerateTerraform",
@@ -96,7 +98,13 @@ describe("static mode exports", () => {
   });
 
   it("NON_COMMITTING_MODES only names real built-in modes", () => {
-    expect([...NON_COMMITTING_MODES].sort()).toEqual(["IncrementalReview", "Plan", "Review"]);
+    expect([...NON_COMMITTING_MODES].sort()).toEqual([
+      "Assess",
+      "IncrementalReview",
+      "Plan",
+      "Review",
+      "SummarizePr",
+    ]);
     for (const mode of NON_COMMITTING_MODES) {
       expect(BUILTIN_MODE_NAMES).toContain(mode);
     }

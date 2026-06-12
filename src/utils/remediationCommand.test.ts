@@ -95,6 +95,38 @@ describe("parseRemediationCommand (§3.12)", () => {
   });
 });
 
+describe("parseRemediationCommand — bulk remediation (§37)", () => {
+  it("parses `fix rule <rule-id>` into a rule command, preserving case", () => {
+    expect(parseRemediationCommand("@terramend fix rule CKV_AWS_23")).toEqual({
+      kind: "rule",
+      ruleId: "CKV_AWS_23",
+    });
+    expect(parseRemediationCommand("@terramend fix rule terraform_required_version")).toEqual({
+      kind: "rule",
+      ruleId: "terraform_required_version",
+    });
+  });
+
+  it("parses `fix all rule <rule-id>` and namespaced rule ids", () => {
+    expect(parseRemediationCommand("hey @terramend fix all rule CKV2_AWS_6 please")).toEqual({
+      kind: "rule",
+      ruleId: "CKV2_AWS_6",
+    });
+    expect(parseRemediationCommand("@terramend fix rule trivy:AVD-AWS-0130")).toEqual({
+      kind: "rule",
+      ruleId: "trivy:AVD-AWS-0130",
+    });
+  });
+
+  it("does not mistake the `rule` sweep for a severity / file / concern command", () => {
+    // a rule id is not hex, not a severity word, not a *.tf file.
+    const cmd = parseRemediationCommand("@terramend fix rule CKV_AWS_8");
+    expect(cmd).toEqual({ kind: "rule", ruleId: "CKV_AWS_8" });
+    // prose 'the rule about X' has a word between fix and rule → not a command.
+    expect(parseRemediationCommand("@terramend please fix the rule about tags")).toBeNull();
+  });
+});
+
 describe("parseRemediationCommand — strategy selection (§26)", () => {
   it("attaches a strategy label to a `fix #<id>` command (letter, upper-normalised)", () => {
     expect(parseRemediationCommand("@terramend fix #3a9f1c2 with strategy B")).toEqual({
