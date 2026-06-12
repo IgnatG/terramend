@@ -253,6 +253,13 @@ mid-remediation just to "improve" things — using a module is right when
 *generating* new infra or when the fix is genuinely a module swap; for a one-line
 security fix on an existing raw resource, fix the resource in place.
 
+When the **`terraform` MCP server** is registered (the `terraform_mcp` input),
+prefer querying it for the current module version and provider argument shapes
+over recalling them from memory — registry knowledge moves faster than any
+training data, and a fix written against a remembered-but-renamed argument
+breaks `plan`. Without it, `terraform_version_currency` (versions) and
+`terraform_provider_schema` (installed-provider arguments) are the fallbacks.
+
 ### Authoring a reusable module (standard layout)
 
 When you GENERATE a reusable module, follow the conventional layout real module

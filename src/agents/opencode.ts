@@ -97,6 +97,7 @@ import { installCodexAuth } from "#app/utils/codexHome";
 import { findProviderErrorMatch } from "#app/utils/providerErrors";
 import { installBundledSkills } from "#app/utils/skills";
 import { trackChild, untrackChild } from "#app/utils/subprocess";
+import { resolveTerraformMcp, TERRAFORM_MCP_SERVER_NAME } from "#app/utils/terraformMcp";
 import type { TodoTracker } from "#app/utils/todoTracking";
 import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
 
@@ -105,6 +106,10 @@ const installCli = () => installOpencodeCli({ binPath: "bin/opencode.exe" });
 // ── config ─────────────────────────────────────────────────────────────────────
 
 export function buildSecurityConfig(ctx: AgentRunContext, model: string | undefined): string {
+  // P2.2 — opt-in second server: HashiCorp's terraform-mcp-server (registry
+  // toolset, docker stdio) for live module/provider knowledge.
+  const terraformMcp = resolveTerraformMcp(ctx.payload);
+  if (terraformMcp.kind === "docker_missing") log.info(`» ${terraformMcp.note}`);
   const config: OpenCodeConfig = {
     permission: {
       bash: "deny",
@@ -122,6 +127,15 @@ export function buildSecurityConfig(ctx: AgentRunContext, model: string | undefi
       // `rm` guidance is gone, but the spurious aborts shouldn't happen either).
       // server-side cap is 600s (`checkout_pr` `timeoutMs`).
       [terramendMcpName]: { type: "remote", url: ctx.mcpServerUrl, timeout: 300_000 },
+      ...(terraformMcp.kind === "available"
+        ? {
+            [TERRAFORM_MCP_SERVER_NAME]: {
+              type: "local",
+              command: [terraformMcp.command, ...terraformMcp.args],
+              enabled: true,
+            },
+          }
+        : {}),
     },
     agent: (() => {
       const cfg = buildReviewerAgentConfig(model);

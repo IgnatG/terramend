@@ -12,6 +12,7 @@ import {
   runClaude,
   stripProviderPrefix,
   tailLines,
+  writeMcpConfig,
 } from "#app/agents/claude";
 import { startGateServer } from "#app/agents/gateServer";
 import { finalizeAgentResult } from "#app/agents/postRun";
@@ -55,6 +56,15 @@ vi.mock("#app/agents/postRun", () => ({
 }));
 // skills install shells out to npx.
 vi.mock("#app/utils/skills", () => ({ installBundledSkills: vi.fn() }));
+// terraform-mcp-server resolution probes for docker — pin it per test via the
+// mutable state (a plain closure, so mock resets can't wipe the default).
+const terraformMcpState = vi.hoisted(() => ({
+  resolution: { kind: "disabled" } as { kind: string; command?: string; args?: string[] },
+}));
+vi.mock("#app/utils/terraformMcp", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/terraformMcp")>();
+  return { ...actual, resolveTerraformMcp: () => terraformMcpState.resolution };
+});
 
 const execFileSyncMock = vi.mocked(execFileSync);
 const spawnMock = vi.mocked(spawn);
@@ -81,6 +91,55 @@ function denyRules(settings: Record<string, unknown>): string[] {
   const permissions = settings.permissions as { deny: string[] };
   return permissions.deny;
 }
+
+describe("writeMcpConfig", () => {
+  function writeConfigIn(dir: string): Record<string, Record<string, unknown>> {
+    const ctx = {
+      tmpdir: dir,
+      mcpServerUrl: "http://127.0.0.1:7777/mcp",
+      payload: { terraformMcp: false },
+    } as unknown as AgentRunContext;
+    const path = writeMcpConfig(ctx);
+    return (
+      JSON.parse(readFileSync(path, "utf8")) as {
+        mcpServers: Record<string, Record<string, unknown>>;
+      }
+    ).mcpServers;
+  }
+
+  it("writes only the terramend HTTP server by default", () => {
+    const dir = mkdtempSync(join(tmpdir(), "terramend-mcpconf-"));
+    try {
+      const servers = writeConfigIn(dir);
+      expect(servers).toEqual({
+        terramend: { type: "http", url: "http://127.0.0.1:7777/mcp" },
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds the terraform stdio server when terraform-mcp resolves available (P2.2)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "terramend-mcpconf-"));
+    terraformMcpState.resolution = {
+      kind: "available",
+      command: "docker",
+      args: ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:0.5.2", "--toolsets=registry"],
+    };
+    try {
+      const servers = writeConfigIn(dir);
+      expect(servers.terraform).toEqual({
+        type: "stdio",
+        command: "docker",
+        args: ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:0.5.2", "--toolsets=registry"],
+      });
+      expect(servers.terramend).toEqual({ type: "http", url: "http://127.0.0.1:7777/mcp" });
+    } finally {
+      terraformMcpState.resolution = { kind: "disabled" };
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("CLAUDE_EXEC_TOOL_DENY_RULES", () => {
   it("covers every native exec tool at top level and inside Agent(...) subagents", () => {

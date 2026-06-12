@@ -63,6 +63,7 @@ import {
   spawn,
   TailBuffer,
 } from "#app/utils/subprocess";
+import { resolveTerraformMcp, TERRAFORM_MCP_SERVER_NAME } from "#app/utils/terraformMcp";
 import { ThinkingTimer } from "#app/utils/timer";
 import type { TodoTracker } from "#app/utils/todoTracking";
 import { getDevDependencyVersion } from "#app/utils/version";
@@ -111,15 +112,28 @@ const CLAUDE_DISALLOWED_TOOLS = CLAUDE_EXEC_TOOL_DENY_RULES.join(",");
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
-function writeMcpConfig(ctx: AgentRunContext): string {
+export function writeMcpConfig(ctx: AgentRunContext): string {
   const configDir = join(ctx.tmpdir, ".claude");
   mkdirSync(configDir, { recursive: true });
   const configPath = join(configDir, "mcp.json");
+  // P2.2 — opt-in second server: HashiCorp's terraform-mcp-server (registry
+  // toolset, docker stdio) for live module/provider knowledge.
+  const terraformMcp = resolveTerraformMcp(ctx.payload);
+  if (terraformMcp.kind === "docker_missing") log.info(`» ${terraformMcp.note}`);
   writeFileSync(
     configPath,
     JSON.stringify({
       mcpServers: {
         [terramendMcpName]: { type: "http", url: ctx.mcpServerUrl },
+        ...(terraformMcp.kind === "available"
+          ? {
+              [TERRAFORM_MCP_SERVER_NAME]: {
+                type: "stdio",
+                command: terraformMcp.command,
+                args: terraformMcp.args,
+              },
+            }
+          : {}),
       },
     }),
   );

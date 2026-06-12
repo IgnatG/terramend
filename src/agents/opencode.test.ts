@@ -78,6 +78,15 @@ vi.mock("#app/utils/codexHome", async (importOriginal) => {
 });
 // skills install writes into the fake HOME.
 vi.mock("#app/utils/skills", () => ({ installBundledSkills: vi.fn() }));
+// terraform-mcp-server resolution probes for docker — pin it per test via the
+// mutable state (a plain closure, so mock resets can't wipe the default).
+const terraformMcpState = vi.hoisted(() => ({
+  resolution: { kind: "disabled" } as { kind: string; command?: string; args?: string[] },
+}));
+vi.mock("#app/utils/terraformMcp", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#app/utils/terraformMcp")>();
+  return { ...actual, resolveTerraformMcp: () => terraformMcpState.resolution };
+});
 // child tracking installs process-wide signal handlers.
 vi.mock("#app/utils/subprocess", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#app/utils/subprocess")>();
@@ -93,13 +102,16 @@ const installCodexAuthMock = vi.mocked(installCodexAuth);
 const MCP_URL = "http://127.0.0.1:7777/mcp";
 
 function makeCtx(): AgentRunContext {
-  // buildSecurityConfig only reads ctx.mcpServerUrl.
-  return { mcpServerUrl: MCP_URL } as unknown as AgentRunContext;
+  // buildSecurityConfig reads ctx.mcpServerUrl + ctx.payload (terraform_mcp).
+  return { mcpServerUrl: MCP_URL, payload: { terraformMcp: false } } as unknown as AgentRunContext;
 }
 
 interface ParsedSecurityConfig {
   permission: Record<string, string>;
-  mcp: Record<string, { type: string; url: string; timeout: number }>;
+  mcp: Record<
+    string,
+    { type: string; url?: string; timeout?: number; command?: string[]; enabled?: boolean }
+  >;
   agent: Record<string, { mode?: string; prompt?: string }>;
   provider: Record<string, { npm?: string; models?: Record<string, unknown> }>;
   model?: string;
@@ -126,6 +138,37 @@ describe("buildSecurityConfig", () => {
   it("injects the terramend MCP server with the extended tool timeout", () => {
     const config = parseConfig(undefined);
     expect(config.mcp.terramend).toEqual({ type: "remote", url: MCP_URL, timeout: 300_000 });
+  });
+
+  it("omits the terraform MCP server by default", () => {
+    expect(parseConfig(undefined).mcp.terraform).toBeUndefined();
+  });
+
+  it("registers the terraform MCP server as a local stdio command when available (P2.2)", () => {
+    terraformMcpState.resolution = {
+      kind: "available",
+      command: "docker",
+      args: ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:0.5.2", "--toolsets=registry"],
+    };
+    try {
+      const config = parseConfig(undefined);
+      expect(config.mcp.terraform).toEqual({
+        type: "local",
+        command: [
+          "docker",
+          "run",
+          "-i",
+          "--rm",
+          "hashicorp/terraform-mcp-server:0.5.2",
+          "--toolsets=registry",
+        ],
+        enabled: true,
+      });
+      // the terramend server is unaffected by the second registration.
+      expect(config.mcp.terramend).toEqual({ type: "remote", url: MCP_URL, timeout: 300_000 });
+    } finally {
+      terraformMcpState.resolution = { kind: "disabled" };
+    }
   });
 
   it("registers the reviewer subagent", () => {

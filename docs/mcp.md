@@ -56,10 +56,26 @@ For live **registry knowledge** (module/provider docs, current argument shapes) 
 [terraform-mcp-server](https://github.com/hashicorp/terraform-mcp-server) alongside:
 
 ```sh
-claude mcp add terraform -- docker run -i --rm hashicorp/terraform-mcp-server
+claude mcp add terraform -- docker run -i --rm hashicorp/terraform-mcp-server:0.5.2 --toolsets=registry
 ```
 
 The pairing is deliberate: **terramend** answers questions about *your workspace* (findings,
 structure, verification); **terraform-mcp-server** answers questions about *the ecosystem*
 (which registry module, which provider arguments). Together they cover the module-aware
 best-practice loop from the IDE.
+
+### In the GitHub Action
+
+The same pairing is available to the remediation agent itself — set the `terraform_mcp` input:
+
+```yaml
+- uses: terramend/terramend@v0
+  with:
+    mode: remediate
+    terraform_mcp: "true"   # needs docker on the runner (ubuntu-latest has it)
+```
+
+The action registers the server as a second MCP endpoint next to terramend's, running the
+**version-pinned** image with the read-only `registry` toolset only — no TFE operations, no
+TFE token. When docker is absent the run continues with a log note (degrade-green), falling
+back to `terraform_version_currency` / `terraform_provider_schema` for registry knowledge.

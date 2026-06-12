@@ -65,6 +65,9 @@ inputs:
   terratest:
     description: "Terraform generation: set 'true' to scaffold a Go Terratest smoke test + a native *.tftest.hcl test when generating a reusable module (via the scaffold_terratest tool). Both plan the module directly (no examples/ fixture). Opt-in and plan-only (never applies). Enabling it widens allowed_paths to permit the test files. Default: false."
     required: false
+  terraform_mcp:
+    description: "Terraform remediation/generation: set 'true' to give the agent live Terraform Registry knowledge (current module versions, provider argument shapes) via HashiCorp's terraform-mcp-server, run as a version-pinned Docker image with the read-only registry toolset only. Requires docker on the runner; degrades green with a log note when absent. Default: false."
+    required: false
   review_instructions:
     description: "Review modes: org-specific review policy appended to the Review/IncrementalReview guidance (IncrementalReview inherits Review's). Inline text — use a YAML block scalar (|) for multi-line policy. Composes with (does not replace) repo-level mode instructions from Terramend settings. Default: none."
     required: false

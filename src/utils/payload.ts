@@ -70,6 +70,7 @@ export const Inputs = type({
   "cost_increase_block_usd?": type.string.or("undefined"),
   "module_catalogue?": type.string.or("undefined"),
   "terratest?": type.string.or("undefined"),
+  "terraform_mcp?": type.string.or("undefined"),
   "review_instructions?": type.string.or("undefined"),
   "fp_filtering_instructions?": type.string.or("undefined"),
 });
@@ -131,6 +132,7 @@ function resolveNonPromptInputs() {
     cost_increase_block_usd: core.getInput("cost_increase_block_usd") || undefined,
     module_catalogue: core.getInput("module_catalogue") || undefined,
     terratest: core.getInput("terratest") || undefined,
+    terraform_mcp: core.getInput("terraform_mcp") || undefined,
     review_instructions: core.getInput("review_instructions") || undefined,
     fp_filtering_instructions: core.getInput("fp_filtering_instructions") || undefined,
   });
@@ -319,6 +321,11 @@ export function resolvePayload(
     // `*.tftest.hcl` (both plan the module directly) when generating a reusable
     // module; also widens the push allow-list so the test files can be written.
     terratest: parseBooleanInput(inputs.terratest),
+    // P2.2 — opt in to HashiCorp's terraform-mcp-server as a second MCP server
+    // for the agent (live Terraform Registry knowledge: current module versions
+    // and provider argument shapes). Requires docker on the runner; degrades
+    // green with a note when absent. See utils/terraformMcp.ts.
+    terraformMcp: parseBooleanInput(inputs.terraform_mcp),
     // §3.12 — a `@terramend fix …` command parsed from the triggering comment
     // body (the prompt), scoping the run to a specific concern/severity/file.
     // null when the prompt isn't a recognised command.
