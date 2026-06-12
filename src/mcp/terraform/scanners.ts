@@ -807,3 +807,45 @@ export function computeRegressions(
   }
   return [...regressions].sort();
 }
+
+/**
+ * Line-INDEPENDENT ✗→✓ partition (the integrity-preserving replacement for the
+ * raw-id `computeRemediationVerdict` when scan context is available). Each
+ * requested entry carries its display `id` and its `key` (see `concernKeyOf`);
+ * a concern is `remaining` iff its KEY still appears in the re-scan, else
+ * `resolved`. Because a fix that shifts lines keeps the same (source|rule|file)
+ * key, an unfixed concern can no longer be mis-reported as resolved. Pure.
+ */
+export function partitionByKey(
+  requested: { id: string; key: string }[],
+  currentKeys: Set<string>,
+): RemediationVerdict {
+  const resolved: string[] = [];
+  const remaining: string[] = [];
+  for (const r of requested) {
+    if (currentKeys.has(r.key)) remaining.push(r.id);
+    else resolved.push(r.id);
+  }
+  return { verified: remaining.length === 0, resolved, remaining };
+}
+
+/**
+ * Line-INDEPENDENT regression set: one representative current concern id per KEY
+ * present in the re-scan but absent from the pre-fix baseline keys. A pre-existing
+ * concern that merely shifted to a new line (same key) is NOT a regression — only
+ * a genuinely new (rule, file) defect is. Replaces the raw-id `computeRegressions`
+ * for the integrity path. Pure; returns sorted ids for a stable PR body.
+ */
+export function regressionIdsByKey(
+  current: { id: string; key: string }[],
+  baselineKeys: Set<string>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const c of current) {
+    if (baselineKeys.has(c.key) || seen.has(c.key)) continue;
+    seen.add(c.key);
+    out.push(c.id);
+  }
+  return out.sort();
+}

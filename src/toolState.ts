@@ -125,6 +125,12 @@ export interface ToolState {
   // terraform_verify_remediation to compute §1.4 regressions = current −
   // baseline (concern ids the fix INTRODUCED). undefined until the first scan.
   baselineConcernIds?: string[];
+  // §27/enterprise-integrity — the LINE-INDEPENDENT keys (concernKeyOf) of the
+  // same full pre-fix baseline. terraform_verify_remediation diffs on these, not
+  // raw ids, so a fix that SHIFTS lines (almost every fix) can't make an unfixed
+  // concern look resolved nor a pre-existing one look like a regression. Set
+  // alongside baselineConcernIds by terraform_scan / read_findings.
+  baselineConcernKeys?: string[];
   // the most recent terraform_scan's reported concern set (post scope/severity
   // filtering — what the run acted on). read at end-of-run by
   // finalizeSuccessRun to emit the SARIF artifact + findings-count output

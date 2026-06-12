@@ -44,6 +44,8 @@ import {
   collectProviderRequirements,
   computeRegressions,
   computeRemediationVerdict,
+  partitionByKey,
+  regressionIdsByKey,
   runScanners,
   scanFmt,
   scanTflint,
@@ -51,6 +53,7 @@ import {
 } from "#app/mcp/terraform/scanners";
 import {
   type Concern,
+  concernKeyOf,
   dedupe,
   isTerraformConcern,
   resolveRoots,
@@ -115,12 +118,14 @@ export function TerraformScanTool(ctx: LocalToolContext) {
           ? true
           : changed.has(c.location.file.replace(/\\/g, "/").replace(/^\.\//, ""));
 
-      // §1.4 baseline: the full, severity-unfiltered concern-id set, captured
-      // BEFORE any fix and computed identically to verify's `current` set so the
-      // later regression diff (current − baseline) is apples-to-apples.
-      ctx.toolState.baselineConcernIds = dedupe(outcomes.flatMap((o) => o.concerns)).map(
-        (c) => c.id,
-      );
+      // §1.4 baseline: the full, severity-unfiltered concern set, captured BEFORE
+      // any fix and computed identically to verify's `current` set so the later
+      // regression diff is apples-to-apples. We store BOTH the line-pinned ids and
+      // the line-independent keys (concernKeyOf) — verify diffs on the keys so a
+      // line-shifting fix can't fabricate a resolution or a regression.
+      const fullBaseline = dedupe(outcomes.flatMap((o) => o.concerns));
+      ctx.toolState.baselineConcernIds = fullBaseline.map((c) => c.id);
+      ctx.toolState.baselineConcernKeys = fullBaseline.map((c) => concernKeyOf(c));
 
       const all = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
         .filter(isTerraformConcern)
@@ -295,21 +300,51 @@ export function TerraformVerifyRemediationTool(ctx: LocalToolContext) {
     execute: execute(async ({ concern_ids }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
       const outcomes = runScanners(cwd);
-      const currentIds = dedupe(outcomes.flatMap((o) => o.concerns)).map((c) => c.id);
-      const current = new Set(currentIds);
-      const verdict = computeRemediationVerdict(concern_ids, current);
+      const currentConcerns = dedupe(outcomes.flatMap((o) => o.concerns));
+      const currentIds = currentConcerns.map((c) => c.id);
+      // line-INDEPENDENT keys: verify on (source|rule|file), not the line-pinned
+      // id, so a fix that shifts lines (almost every fix) can't make an unfixed
+      // concern look resolved nor a pre-existing one look like a regression.
+      const currentKeys = new Set(currentConcerns.map((c) => concernKeyOf(c)));
 
-      // §1.4 — concern ids the fix INTRODUCED (present now, absent from the
-      // pre-fix baseline). Only computable when terraform_scan captured a
-      // baseline this run; absent that, regressions are reported as unknown
-      // rather than falsely empty.
-      const baseline = ctx.toolState.baselineConcernIds;
-      const regressions = baseline ? computeRegressions(baseline, currentIds) : [];
-      const regressionsKnown = baseline !== undefined;
+      // Map each requested id → its key via the original scan's concerns
+      // (lastScanConcerns). Ids we can't key-map (verify called without a prior
+      // scan this run — e.g. a bare findings.json) fall back to exact-id matching.
+      const keyById = new Map(
+        (ctx.toolState.lastScanConcerns ?? []).map((c) => [c.id, concernKeyOf(c)] as const),
+      );
+      const keyed: { id: string; key: string }[] = [];
+      const unkeyed: string[] = [];
+      for (const id of concern_ids) {
+        const key = keyById.get(id);
+        if (key !== undefined) keyed.push({ id, key });
+        else unkeyed.push(id);
+      }
+      const keyedVerdict = partitionByKey(keyed, currentKeys);
+      const fallbackVerdict = computeRemediationVerdict(unkeyed, new Set(currentIds));
+      const resolved = [...keyedVerdict.resolved, ...fallbackVerdict.resolved];
+      const remaining = [...keyedVerdict.remaining, ...fallbackVerdict.remaining];
+      const verified = remaining.length === 0;
+
+      // §1.4 — concerns the fix INTRODUCED, on the SAME line-independent key basis
+      // (a pre-existing concern that merely shifted lines is NOT a regression).
+      // Prefer baseline keys; fall back to the legacy raw-id diff only when keys
+      // weren't captured (no scan this run) — then report as unknown if neither is.
+      const baselineKeys = ctx.toolState.baselineConcernKeys;
+      const baselineIds = ctx.toolState.baselineConcernIds;
+      const regressions = baselineKeys
+        ? regressionIdsByKey(
+            currentConcerns.map((c) => ({ id: c.id, key: concernKeyOf(c) })),
+            new Set(baselineKeys),
+          )
+        : baselineIds
+          ? computeRegressions(baselineIds, currentIds)
+          : [];
+      const regressionsKnown = baselineKeys !== undefined || baselineIds !== undefined;
 
       // §5.19 — deterministic confidence from the evidence on hand.
       const confidence = computeConfidence({
-        verified: verdict.verified,
+        verified,
         regressionCount: regressions.length,
         idempotent: ctx.toolState.lastIdempotent,
         blastTier: ctx.toolState.lastBlastTier,
@@ -318,17 +353,17 @@ export function TerraformVerifyRemediationTool(ctx: LocalToolContext) {
 
       const ran = outcomes.filter((o) => o.ran).map((o) => o.source);
       log.info(
-        `» terraform_verify_remediation: ${verdict.resolved.length}/${concern_ids.length} resolved` +
-          ` (${verdict.remaining.length} still present` +
+        `» terraform_verify_remediation: ${resolved.length}/${concern_ids.length} resolved` +
+          ` (${remaining.length} still present` +
           (regressionsKnown ? `, ${regressions.length} regression(s)` : "") +
           `) — confidence: ${confidence.level} — from [${ran.join(", ")}]`,
       );
       return toolOk({
-        verified: verdict.verified,
-        resolved_count: verdict.resolved.length,
-        remaining_count: verdict.remaining.length,
-        resolved: verdict.resolved,
-        remaining: verdict.remaining,
+        verified,
+        resolved_count: resolved.length,
+        remaining_count: remaining.length,
+        resolved,
+        remaining,
         // §1.4 regression guard
         has_regressions: regressions.length > 0,
         regressions,
@@ -816,8 +851,11 @@ export function ReadFindingsTool(ctx: LocalToolContext) {
       const minRank = SEVERITY_RANK[threshold];
 
       // §1.4 baseline — same role as terraform_scan's, so a regression check
-      // after a reviewer-sourced fix has a baseline to diff against.
-      ctx.toolState.baselineConcernIds = dedupe(parsed).map((c) => c.id);
+      // after a reviewer-sourced fix has a baseline to diff against. Store ids +
+      // line-independent keys (verify diffs on the keys).
+      const fullBaseline = dedupe(parsed);
+      ctx.toolState.baselineConcernIds = fullBaseline.map((c) => c.id);
+      ctx.toolState.baselineConcernKeys = fullBaseline.map((c) => concernKeyOf(c));
 
       const all = sortConcerns(dedupe(parsed))
         .filter(isTerraformConcern)

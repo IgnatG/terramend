@@ -20,6 +20,7 @@ import {
   computeCostDelta,
   computeRegressions,
   computeRemediationVerdict,
+  concernKeyOf,
   groupConcerns,
   groupConcernsByRule,
   isPureMovePlan,
@@ -39,10 +40,12 @@ import {
   parseTflintOutput,
   parseTrivyOutput,
   parseValidateOutput,
+  partitionByKey,
   planBatches,
   preventiveControlFor,
   type RootPlan,
   rebaseConcern,
+  regressionIdsByKey,
   resolveRoots,
   resourceTypeOf,
   ruleDocUrl,
@@ -1232,6 +1235,111 @@ describe("computeRegressions (§1.4)", () => {
 
   it("treats an empty baseline as everything-new", () => {
     expect(computeRegressions([], ["a", "b"])).toEqual(["a", "b"]);
+  });
+});
+
+describe("concernKeyOf (line-independent identity — verification integrity)", () => {
+  const at = (line: number | null): Pick<Concern, "source" | "rule_id" | "location"> => ({
+    source: "checkov",
+    rule_id: "checkov:CKV_AWS_23",
+    location: { file: "main.tf", line },
+  });
+
+  it("is the SAME for the same rule+file at different lines (the core property)", () => {
+    // this is what makes ✗→✓ verification survive a line-shifting fix.
+    expect(concernKeyOf(at(76))).toBe(concernKeyOf(at(95)));
+    expect(concernKeyOf(at(76))).toBe(concernKeyOf(at(null)));
+  });
+
+  it("differs when the rule or the file differs", () => {
+    expect(concernKeyOf(at(10))).not.toBe(
+      concernKeyOf({
+        source: "checkov",
+        rule_id: "checkov:CKV_AWS_8",
+        location: { file: "main.tf", line: 10 },
+      }),
+    );
+    expect(concernKeyOf(at(10))).not.toBe(
+      concernKeyOf({
+        source: "checkov",
+        rule_id: "checkov:CKV_AWS_23",
+        location: { file: "vars.tf", line: 10 },
+      }),
+    );
+  });
+
+  it("ignores the `source:` rule prefix so it matches the id's bare-rule normalization", () => {
+    const withPrefix = concernKeyOf({
+      source: "trivy",
+      rule_id: "trivy:AVD-AWS-0130",
+      location: { file: "main.tf", line: 5 },
+    });
+    const bare = concernKeyOf({
+      source: "trivy",
+      rule_id: "AVD-AWS-0130",
+      location: { file: "main.tf", line: 5 },
+    });
+    expect(withPrefix).toBe(bare);
+  });
+});
+
+describe("partitionByKey (✗→✓ on line-independent keys)", () => {
+  it("marks a concern RESOLVED only when its key is gone from the re-scan", () => {
+    const v = partitionByKey(
+      [
+        { id: "id-imds", key: "k-imds" },
+        { id: "id-cidr", key: "k-cidr" },
+      ],
+      new Set(["k-cidr"]), // imds key gone (fixed), cidr key still present
+    );
+    expect(v.resolved).toEqual(["id-imds"]);
+    expect(v.remaining).toEqual(["id-cidr"]);
+    expect(v.verified).toBe(false);
+  });
+
+  it("the regression-bug scenario: a line-SHIFTED unfixed concern is NOT falsely resolved", () => {
+    // The fix added lines above an unfixed concern, so its id changed (line 76 →
+    // 95) but its KEY (source|rule|file) is stable. Requesting the old id with the
+    // old key, and the re-scan still carrying that key, must report it REMAINING.
+    const v = partitionByKey([{ id: "id-line76", key: "k-cidr" }], new Set(["k-cidr"]));
+    expect(v.resolved).toEqual([]);
+    expect(v.remaining).toEqual(["id-line76"]);
+  });
+});
+
+describe("regressionIdsByKey (§1.4 on line-independent keys)", () => {
+  it("does NOT flag a pre-existing concern that merely shifted lines", () => {
+    // baseline had key k-cidr; after the fix it's still present (at a new line/id)
+    // — same key, so NOT a regression (the raw-id diff would have flagged it).
+    const regressions = regressionIdsByKey(
+      [{ id: "id-line95", key: "k-cidr" }],
+      new Set(["k-cidr"]),
+    );
+    expect(regressions).toEqual([]);
+  });
+
+  it("flags a genuinely new (rule, file) defect the fix introduced", () => {
+    const regressions = regressionIdsByKey(
+      [
+        { id: "id-old", key: "k-old" },
+        { id: "id-new", key: "k-new" },
+      ],
+      new Set(["k-old"]),
+    );
+    expect(regressions).toEqual(["id-new"]);
+  });
+
+  it("returns one representative id per new key (dedups by key) and sorts", () => {
+    const regressions = regressionIdsByKey(
+      [
+        { id: "id-b", key: "k-new" },
+        { id: "id-a", key: "k-new" },
+        { id: "id-z", key: "k-other" },
+      ],
+      new Set<string>(),
+    );
+    // one id per new key, sorted; k-new keeps its FIRST-seen id (id-b)
+    expect(regressions).toEqual(["id-b", "id-z"]);
   });
 });
 

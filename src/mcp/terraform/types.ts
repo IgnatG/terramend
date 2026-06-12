@@ -80,6 +80,30 @@ export function concernId(
 }
 
 /**
+ * A LINE-INDEPENDENT identity for a concern — which rule fires in which file,
+ * ignoring the exact line. Two instances of the same rule in the same file at
+ * different lines share a key.
+ *
+ * The full content `id` keys on the line so it's unique per instance (right for
+ * SARIF alerts + branch naming), but that makes it UNSTABLE under a fix: almost
+ * every fix adds or removes lines, shifting every concern below it to a new line
+ * → a new id. If ✗→✓ verification compared raw ids, a shifted-but-unfixed concern
+ * would look RESOLVED (old id gone) and simultaneously look like a REGRESSION
+ * (new id appeared) — a false attestation either way. `terraform_verify_remediation`
+ * compares on this key instead, so a line shift can't fabricate a resolution or a
+ * regression. Derived identically to `id` minus the line (same bare-rule
+ * normalization) so keys match across the original scan and the re-scan.
+ */
+export function concernKeyOf(c: Pick<Concern, "source" | "rule_id" | "location">): string {
+  const prefix = `${c.source}:`;
+  const bareRule = c.rule_id.startsWith(prefix) ? c.rule_id.slice(prefix.length) : c.rule_id;
+  return createHash("sha1")
+    .update(`${c.source}|${bareRule}|${c.location.file}`)
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/**
  * Normalize a scanner-reported path to a repo-relative POSIX path. Each scanner
  * reports the file differently — tflint gives `main.tf` (relative), trivy a
  * scan-dir-relative `Target`, terraform an absolute path (`/repo/main.tf` or
