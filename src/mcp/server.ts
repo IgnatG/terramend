@@ -37,6 +37,7 @@ import {
   TerraformModuleGraphTool,
   TerraformModuleInterfaceTool,
 } from "#app/mcp/modules";
+import { TerraformModuleTestsTool } from "#app/mcp/moduleTests";
 import { SetOutputTool } from "#app/mcp/output";
 import { PolicyCheckTool } from "#app/mcp/policy";
 import { CreatePullRequestTool, UpdatePullRequestBodyTool } from "#app/mcp/pr";
@@ -52,6 +53,7 @@ import { TerraformRootsTool } from "#app/mcp/roots";
 import { SelectModeTool } from "#app/mcp/selectMode";
 import { addTools } from "#app/mcp/shared";
 import { KillBackgroundTool, ShellTool } from "#app/mcp/shell";
+import { ClosePullRequestTool, ListRemediationPrsTool } from "#app/mcp/staleFix";
 import {
   InfracostDiffTool,
   ReadFindingsTool,
@@ -184,6 +186,7 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     ListModulesTool(ctx),
     TerraformModuleGraphTool(ctx),
     TerraformModuleInterfaceTool(ctx),
+    TerraformModuleTestsTool(ctx),
     ModuleExtractionCandidatesTool(ctx),
     TerraformProviderSchemaTool(ctx),
     TerraformRootsTool(ctx),
@@ -217,6 +220,10 @@ function buildOrchestratorTools(ctx: ToolContext, outputSchema?: JsonSchema): To
     DeleteBranchTool(ctx),
     CreatePullRequestTool(ctx),
     UpdatePullRequestBodyTool(ctx),
+    // §27 stale-fix self-healing — list open remediation PRs + close a redundant
+    // one. Orchestrator-only (close is a write; the sweep is an orchestrator job).
+    ListRemediationPrsTool(ctx),
+    ClosePullRequestTool(ctx),
   ];
 }
 

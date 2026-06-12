@@ -24,6 +24,7 @@ describe("buildLocalTools", () => {
       "terraform_emit_sarif",
       "terraform_module_graph",
       "terraform_module_interface",
+      "terraform_module_tests",
       "terraform_plan",
       "terraform_provider_schema",
       "terraform_roots",

@@ -18,6 +18,7 @@ const EXPECTED_MODE_NAMES = [
   "Fix",
   "ResolveConflicts",
   "Remediate",
+  "RefreshRemediation",
   "GenerateTerraform",
   "Task",
 ];

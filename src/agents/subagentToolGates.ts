@@ -43,6 +43,8 @@ export const SUBAGENT_DENIED_TOOLS = [
   // GitHub PR state mutation
   "create_pull_request",
   "update_pull_request_body",
+  // §27 — closes a (remediation) PR; a state-changing PR mutation.
+  "close_pull_request",
 
   // GitHub comment / issue mutation
   "create_issue",

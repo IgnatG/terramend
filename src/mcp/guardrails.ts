@@ -15,6 +15,10 @@ import { $ } from "#app/utils/shell";
 
 export const REMEDIATE_MODE = "Remediate";
 export const GENERATE_MODE = "GenerateTerraform";
+/** §27 — the stale-fix self-healing sweep re-derives + force-updates remediation
+ * PRs, so it writes Terraform and pushes exactly like Remediate and is bounded by
+ * the same guardrails. */
+export const REFRESH_REMEDIATION_MODE = "RefreshRemediation";
 
 /** default paths these modes may modify/create: Terraform sources only. */
 export const DEFAULT_ALLOWED_PATHS = ["**/*.tf", "**/*.tfvars"] as const;
@@ -32,7 +36,11 @@ export const TERRATEST_ALLOWED_PATHS = [
 ] as const;
 
 /** modes whose pushes/PRs are bounded by these guardrails. */
-const GUARDED_MODES: ReadonlySet<string> = new Set([REMEDIATE_MODE, GENERATE_MODE]);
+const GUARDED_MODES: ReadonlySet<string> = new Set([
+  REMEDIATE_MODE,
+  GENERATE_MODE,
+  REFRESH_REMEDIATION_MODE,
+]);
 
 function isGuardedMode(ctx: ToolContext): boolean {
   return ctx.toolState.selectedMode !== undefined && GUARDED_MODES.has(ctx.toolState.selectedMode);

@@ -28,6 +28,7 @@ import {
   TerraformModuleGraphTool,
   TerraformModuleInterfaceTool,
 } from "#app/mcp/modules";
+import { TerraformModuleTestsTool } from "#app/mcp/moduleTests";
 import { TerraformProviderSchemaTool } from "#app/mcp/providerSchema";
 import { TerraformRootsTool } from "#app/mcp/roots";
 import {
@@ -86,6 +87,7 @@ export function buildLocalTools(ctx: LocalToolContext): Tool<any, any>[] {
     ListModulesTool(ctx),
     TerraformModuleGraphTool(ctx),
     TerraformModuleInterfaceTool(ctx),
+    TerraformModuleTestsTool(ctx),
     ModuleExtractionCandidatesTool(ctx),
     TerraformProviderSchemaTool(ctx),
     TerraformRootsTool(ctx),
