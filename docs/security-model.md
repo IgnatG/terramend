@@ -57,22 +57,27 @@ The GitHub write tools are therefore bound, in code, to what the run is actually
   may only act on the issue/PR that **triggered** the run, or one the run **opened itself**
   (`create_pull_request` / `create_issue`). A merely *checked-out* PR does not widen write scope — see
   `src/mcp/scope.ts`. This mirrors the cross-PR clobber guard already enforced at `push_branch`.
+- **Editing a comment is bound too.** `edit_issue_comment` takes a repo-global comment id, so it resolves
+  the comment to its issue/PR first and applies the same scope check — an injected agent can't overwrite a
+  comment on an unrelated issue/PR.
 - **Issue/PR creation is a write.** `create_pull_request` and `create_issue` are refused under
   `push: disabled` (read-only access), the same as `push_branch`.
 
-## Known hardening backlog
+## MCP transport authentication
 
-Tracked gaps with a planned mitigation — documented here so they can be scheduled, not silently carried:
+The in-process MCP server is bound to `127.0.0.1` on an ephemeral port (`src/mcp/server.ts`) and lives
+only for the run, but loopback + ephemerality alone are not an access control. The server therefore
+requires a **per-run bearer token**:
 
-- **The in-process MCP HTTP endpoint is unauthenticated.** During a run the action starts a FastMCP
-  server bound to `127.0.0.1` on an ephemeral port (`src/mcp/server.ts`) that the coding agent connects
-  to. It is reachable only from loopback and lives only for the run, but it has **no per-request auth**:
-  any process that can run code on the same runner (most realistically a malicious dependency
-  `postinstall`, which executes in `shell: restricted` runs) could scan the local port range, speak MCP,
-  and drive privileged tools — `push_branch`, `create_pull_request` — using the server's
-  already-loaded installation token, *without ever needing the token itself*. This side-steps the ASKPASS
-  design that otherwise keeps that token out of child processes.
-  - **Current mitigations:** loopback-only bind, ephemeral port, server lifetime bounded to the run.
-  - **Planned fix:** mint a per-run bearer token, inject it into the agent's MCP client config, and reject
-    unauthenticated requests via a FastMCP `authenticate` hook. Tracked separately because it changes how
-    the agent's MCP client is configured.
+- A random token is minted when the server starts and enforced by a FastMCP `authenticate` hook
+  (constant-time compare) at **session creation** — a caller without the token can't open a session, let
+  alone call a tool. This closes the side door where a co-located process on the runner (most realistically
+  a malicious dependency `postinstall` in a `shell: restricted` run) could scan the loopback port range,
+  speak MCP, and drive privileged tools (`push_branch`, `create_pull_request`) using the server's
+  already-loaded installation token *without ever holding the token* — the gap that would otherwise
+  side-step the ASKPASS design.
+- The token reaches each agent's MCP client **out-of-band**, never as a readable on-disk secret: Claude
+  Code receives it via `${TERRAMEND_MCP_TOKEN}` env-expansion in `.mcp.json` (the file holds only the
+  placeholder; the value lives in the agent process env, which `filterEnv()` strips from the MCP shell
+  sandbox), and opencode receives it inside `OPENCODE_CONFIG_CONTENT` (delivered by env var, not a file).
+  In both cases a sandboxed/co-located process can read neither the config file nor the token.

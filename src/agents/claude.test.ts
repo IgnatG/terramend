@@ -112,7 +112,12 @@ describe("writeMcpConfig", () => {
     try {
       const servers = writeConfigIn(dir);
       expect(servers).toEqual({
-        terramend: { type: "http", url: "http://127.0.0.1:7777/mcp" },
+        terramend: {
+          type: "http",
+          url: "http://127.0.0.1:7777/mcp",
+          // env-expansion placeholder — Claude Code resolves ${VAR} from its env.
+          headers: { Authorization: "Bearer ${TERRAMEND_MCP_TOKEN}" },
+        },
       });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -133,7 +138,11 @@ describe("writeMcpConfig", () => {
         command: "docker",
         args: ["run", "-i", "--rm", "hashicorp/terraform-mcp-server:0.5.2", "--toolsets=registry"],
       });
-      expect(servers.terramend).toEqual({ type: "http", url: "http://127.0.0.1:7777/mcp" });
+      expect(servers.terramend).toEqual({
+        type: "http",
+        url: "http://127.0.0.1:7777/mcp",
+        headers: { Authorization: "Bearer ${TERRAMEND_MCP_TOKEN}" },
+      });
     } finally {
       terraformMcpState.resolution = { kind: "disabled" };
       rmSync(dir, { recursive: true, force: true });
@@ -803,6 +812,7 @@ describe("claude.run", () => {
       payload: {},
       resolvedModel: "anthropic/claude-opus-4-6",
       mcpServerUrl: "http://127.0.0.1:7777/mcp",
+      mcpServerToken: "test-mcp-token",
       tmpdir: dir,
       instructions: {
         full: "fix the bug",
@@ -873,11 +883,12 @@ describe("claude.run", () => {
     const mcpConfigPath = args[args.indexOf("--mcp-config") + 1] ?? "";
     expect(mcpConfigPath).toBe(join(ctx.tmpdir, ".claude", "mcp.json"));
     const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, "utf-8")) as {
-      mcpServers: Record<string, { type: string; url: string }>;
+      mcpServers: Record<string, { type: string; url: string; headers?: Record<string, string> }>;
     };
     expect(mcpConfig.mcpServers.terramend).toEqual({
       type: "http",
       url: "http://127.0.0.1:7777/mcp",
+      headers: { Authorization: "Bearer ${TERRAMEND_MCP_TOKEN}" },
     });
 
     // flag settings + pretool gate script + stop hook all land in tmpdir
@@ -890,6 +901,9 @@ describe("claude.run", () => {
     const env = opts.env ?? {};
     expect(env.TERRAMEND_GATE_URL).toBe("http://127.0.0.1:9999/gates");
     expect(env.TERRAMEND_GATE_TOKEN).toBe("gate-token");
+    // the MCP bearer token is delivered via env so Claude Code can expand
+    // ${TERRAMEND_MCP_TOKEN} in the mcp.json Authorization header.
+    expect(env.TERRAMEND_MCP_TOKEN).toBe("test-mcp-token");
     expect(env.HOME).toBe(ctx.tmpdir);
     expect(env.PWD).toBe(process.cwd());
     expect(env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined();

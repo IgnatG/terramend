@@ -73,6 +73,7 @@ vi.mock("#app/mcp/dependencies", () => ({ startInstallation: vi.fn() }));
 vi.mock("#app/mcp/server", () => ({
   startMcpHttpServer: vi.fn(async () => ({
     url: "http://127.0.0.1:7777/mcp",
+    token: "mcp-token",
     [Symbol.asyncDispose]: vi.fn(async () => {}),
   })),
 }));
@@ -727,6 +728,7 @@ describe("main – agent run plumbing", () => {
     const dispose = vi.fn(async () => {});
     vi.mocked(startMcpHttpServer).mockResolvedValueOnce({
       url: "http://127.0.0.1:7777/mcp",
+      token: "mcp-token",
       [Symbol.asyncDispose]: dispose,
     });
     agent = makeAgent("opencode", async (params) => {
@@ -749,6 +751,7 @@ describe("main – agent run plumbing", () => {
     dispose.mockRejectedValueOnce(new Error("already closed"));
     vi.mocked(startMcpHttpServer).mockResolvedValueOnce({
       url: "http://127.0.0.1:7777/mcp",
+      token: "mcp-token",
       [Symbol.asyncDispose]: dispose,
     });
     agent = makeAgent("opencode", async (params) => {

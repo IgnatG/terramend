@@ -325,18 +325,21 @@ function capOutput(output: string): string {
 }
 
 // detect `git` as a command invocation in any position a shell would start a new
-// command: at the start, after a separator (`;`, `&`, `|`, newline), or inside a
-// subshell / command substitution (`(`, backtick, `$(`). Optional leading
-// `sudo`. Matches `git` only when followed by whitespace or end-of-string, so it
-// never fires on `.gitignore`, `digit`, `legit`, etc.
+// command: at the start, after a separator (`;`, `&`, `|`, newline, carriage
+// return), or inside a subshell / command substitution / brace group (`(`,
+// backtick, `$(`, `{`). Tolerates one or more launcher prefixes
+// (`sudo`/`env`/`command`/`exec`/`nohup`). Matches `git` only when followed by
+// whitespace or end-of-string, so it never fires on `.gitignore`, `digit`,
+// `legit`, `git-lfs`, etc.
 //
 // NOTE: this is a UX redirect to the dedicated git tools, NOT a security
 // boundary — in restricted mode the shell runs in a stripped, token-free sandbox
 // with `.git` mounted read-only, so a `git` the agent slips past this still has
-// no credentials and can't tamper with repo config. Hardened past the original
-// `[;&|]`-only form so the redirect isn't trivially defeated by a newline or a
-// `$(git …)`.
-const GIT_INVOCATION = /(?:^|\$\(|[\n;&|`(])\s*(?:sudo\s+)?git(?:\s|$)/;
+// no credentials and can't tamper with repo config. The detection is kept broad
+// so the redirect isn't trivially defeated, but it is NOT relied on to contain a
+// hostile `git` — that is the sandbox's job.
+const GIT_INVOCATION =
+  /(?:^|\$\(|[\n\r;&|`({])\s*(?:(?:sudo|env|command|exec|nohup)\s+)*git(?:\s|$)/;
 
 function isGitCommand(command: string): boolean {
   return GIT_INVOCATION.test(command.trim());

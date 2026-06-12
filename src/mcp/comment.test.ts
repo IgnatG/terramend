@@ -249,6 +249,56 @@ describe("EditCommentTool", () => {
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("API down");
   });
+
+  it("refuses to edit a comment on an issue/PR outside the run's scope", async () => {
+    const getComment = vi.fn(async () => ({
+      data: { issue_url: "https://api.github.com/repos/octo/repo/issues/6" },
+    }));
+    const updateComment = vi.fn();
+    const ctx = {
+      octokit: { rest: { issues: { getComment, updateComment } } },
+      repo: { owner: "octo", name: "repo" },
+      payload: { event: { trigger: "pull_request_opened", issue_number: 5 } },
+      toolState: { createdTargets: new Set<number>() },
+      runId: 1,
+      apiToken: "jwt",
+      tmpdir: "/tmp",
+    } as unknown as ToolContext;
+
+    const result = await runTool(EditCommentTool(ctx), { commentId: 999, body: "x" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/scoped to #5; refusing to edit a comment on #6/);
+    expect(updateComment).not.toHaveBeenCalled();
+  });
+
+  it("allows editing a comment that belongs to the run's scoped issue", async () => {
+    const getComment = vi.fn(async () => ({
+      data: { issue_url: "https://api.github.com/repos/octo/repo/issues/5" },
+    }));
+    const updateComment = vi.fn(async () => ({
+      data: {
+        id: 101,
+        html_url: "https://gh/comment/101",
+        body: "updated",
+        updated_at: "2026-06-10T00:00:00Z",
+      },
+    }));
+    const ctx = {
+      octokit: { rest: { issues: { getComment, updateComment } } },
+      repo: { owner: "octo", name: "repo" },
+      payload: { event: { trigger: "pull_request_opened", issue_number: 5 } },
+      toolState: { createdTargets: new Set<number>() },
+      runId: 1,
+      apiToken: "jwt",
+      tmpdir: "/tmp",
+    } as unknown as ToolContext;
+
+    const result = await runTool(EditCommentTool(ctx), { commentId: 101, body: "x" });
+
+    expect(result.isError).toBeUndefined();
+    expect(updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 101 }));
+  });
 });
 
 describe("ReplyToReviewCommentTool", () => {

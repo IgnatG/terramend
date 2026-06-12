@@ -1,5 +1,6 @@
 // this must be imported first
 import "#app/mcp/arkConfig";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { FastMCP, type Tool } from "fastmcp";
@@ -87,6 +88,14 @@ export interface ToolContext {
   toolState: ToolState;
   runId: number | undefined;
   mcpServerUrl: string;
+  // per-run bearer token the agent's MCP client must present (Authorization:
+  // Bearer <token>) to reach this server. Closes the unauthenticated-localhost
+  // side door: a co-located process on the runner (e.g. a malicious dependency
+  // postinstall) that scans the loopback port range can no longer drive
+  // privileged tools without the token. Minted in startMcpHttpServer; delivered
+  // to each agent's MCP config out-of-band (env-expanded header for Claude,
+  // OPENCODE_CONFIG_CONTENT for opencode) so it never lands in a readable file.
+  mcpServerToken: string;
   tmpdir: string;
   // repo-level OSS flag + account-level billing plan. together they decide
   // whether terramend is paying for marginal infra — see `isInfraCovered` in
@@ -217,14 +226,48 @@ type McpStartResult = {
   port: number;
 };
 
+/**
+ * Build the FastMCP `authenticate` hook that enforces the per-run bearer token.
+ *
+ * The streamable-HTTP transport invokes this at session creation, so a caller
+ * without the token can't even open a session (let alone call a tool). On a
+ * valid token it returns a truthy session object; otherwise it throws and the
+ * transport rejects the connection. The token is compared with a
+ * length-then-constant-time check to avoid leaking it via timing.
+ */
+function buildAuthenticate(token: string) {
+  const expected = `Bearer ${token}`;
+  return async (request: import("node:http").IncomingMessage): Promise<{ authorized: true }> => {
+    const header = request.headers.authorization;
+    const provided = Array.isArray(header) ? header[0] : header;
+    if (!provided || !timingSafeEqualStr(provided, expected)) {
+      throw new Error("Unauthorized: missing or invalid MCP bearer token");
+    }
+    return { authorized: true };
+  };
+}
+
+/** constant-time string compare (length-guarded) so a wrong token can't be
+ * recovered byte-by-byte via response timing. */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
 async function tryStartMcpServer(
   ctx: ToolContext,
   tools: Tool<any, any>[],
   port: number,
+  token: string,
 ): Promise<McpStartResult | null> {
   const server = new FastMCP({
     name: terramendMcpName,
     version: packageJson.version as `${number}.${number}.${number}`,
+    authenticate: buildAuthenticate(token),
   });
   addTools(ctx, server, tools);
 
@@ -252,13 +295,17 @@ async function tryStartMcpServer(
   }
 }
 
-async function selectMcpPort(ctx: ToolContext, tools: Tool<any, any>[]): Promise<McpStartResult> {
+async function selectMcpPort(
+  ctx: ToolContext,
+  tools: Tool<any, any>[],
+  token: string,
+): Promise<McpStartResult> {
   let lastError: unknown = null;
 
   const requestedPort = readEnvPort();
   if (requestedPort !== null) {
     if (await isPortAvailable(requestedPort)) {
-      const requestedResult = await tryStartMcpServer(ctx, tools, requestedPort);
+      const requestedResult = await tryStartMcpServer(ctx, tools, requestedPort, token);
       if (requestedResult) {
         return requestedResult;
       }
@@ -274,7 +321,7 @@ async function selectMcpPort(ctx: ToolContext, tools: Tool<any, any>[]): Promise
       if (!(await isPortAvailable(port))) {
         continue;
       }
-      const result = await tryStartMcpServer(ctx, tools, port);
+      const result = await tryStartMcpServer(ctx, tools, port, token);
       if (result) {
         return result;
       }
@@ -328,13 +375,17 @@ type McpHttpServerOptions = {
 export async function startMcpHttpServer(
   ctx: ToolContext,
   options?: McpHttpServerOptions,
-): Promise<{ url: string; [Symbol.asyncDispose]: () => Promise<void> }> {
+): Promise<{ url: string; token: string; [Symbol.asyncDispose]: () => Promise<void> }> {
+  // per-run bearer token. minted here (not in process.env) and returned so the
+  // caller can hand it to the agent's MCP client out-of-band; see ToolContext.
+  const token = randomUUID();
   const tools = buildOrchestratorTools(ctx, options?.outputSchema);
-  const startResult = await selectMcpPort(ctx, tools);
+  const startResult = await selectMcpPort(ctx, tools, token);
 
   let disposed = false;
   return {
     url: startResult.url,
+    token,
     [Symbol.asyncDispose]: async () => {
       if (disposed) return;
       disposed = true;

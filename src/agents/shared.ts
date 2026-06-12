@@ -117,6 +117,19 @@ export interface AgentResult {
 }
 
 /**
+ * Env var that carries the per-run MCP bearer token to BOTH agent harnesses,
+ * which reference it from their MCP client config so the on-disk/in-config form
+ * holds only a placeholder, never the raw token:
+ *   - Claude Code expands `${TERRAMEND_MCP_TOKEN}` in .mcp.json headers.
+ *   - opencode expands `{env:TERRAMEND_MCP_TOKEN}` in remote-MCP headers.
+ * The `_TOKEN` suffix also makes filterEnv() strip it from the MCP shell
+ * sandbox. Set only on the agent/server spawn env (never process.env), so a
+ * co-located dependency-install subprocess never inherits it. See
+ * ToolContext.mcpServerToken and gateServer.ts for the same pattern.
+ */
+export const MCP_SERVER_TOKEN_ENV = "TERRAMEND_MCP_TOKEN";
+
+/**
  * Context passed to agent.run() and threaded through the post-run loop.
  *
  * design rule: this is the single object that flows through the harness and
@@ -130,6 +143,10 @@ export interface AgentRunContext {
   payload: ResolvedPayload;
   resolvedModel?: string | undefined;
   mcpServerUrl: string;
+  /** per-run bearer token the agent's MCP client presents to mcpServerUrl. See
+   * ToolContext.mcpServerToken — delivered to the client config out-of-band so
+   * it never lands in a readable file. */
+  mcpServerToken: string;
   tmpdir: string;
   /** harness-owned secret paths that agent filesystem tools must never read. */
   secretDenyPaths?: string[] | undefined;

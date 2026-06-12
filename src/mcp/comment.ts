@@ -119,12 +119,50 @@ export const EditComment = type({
   body: type.string.describe("the new comment body content"),
 });
 
+/** parse the issue/PR number a comment belongs to from its API `issue_url`
+ * (`https://api.github.com/repos/o/r/issues/123`). undefined when unparseable. */
+function issueNumberFromUrl(url: string | undefined): number | undefined {
+  const m = url?.match(/\/issues\/(\d+)(?:$|[/?#])/);
+  return m ? Number(m[1]) : undefined;
+}
+
+/**
+ * SECURITY: bind edit_issue_comment to the run's scoped issue/PR. A comment id
+ * is repo-global, so resolve it to the issue/PR it lives on first (an injected
+ * agent must not be able to overwrite a comment on an UNRELATED issue/PR).
+ * Skips for standalone runs and, deliberately, fails OPEN when the lookup can't
+ * determine the issue — editing a comment is reversible and low-risk, so a
+ * transient API/permission hiccup must not block a legitimate edit. A definite
+ * out-of-scope match still throws.
+ */
+async function assertCommentInScope(ctx: ToolContext, commentId: number): Promise<void> {
+  if (ctx.payload?.event?.issue_number === undefined) return;
+  let issueNumber: number | undefined;
+  try {
+    const { data } = await ctx.octokit.rest.issues.getComment({
+      owner: ctx.repo.owner,
+      repo: ctx.repo.name,
+      comment_id: commentId,
+    });
+    issueNumber = issueNumberFromUrl(data.issue_url);
+  } catch (e) {
+    log.debug(
+      `edit_issue_comment scope lookup failed (allowing): ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return;
+  }
+  if (issueNumber !== undefined) {
+    assertTargetInScope(ctx, issueNumber, "edit a comment on");
+  }
+}
+
 export function EditCommentTool(ctx: ToolContext) {
   return tool({
     name: "edit_issue_comment",
     description: "Edit a GitHub issue comment by its ID",
     parameters: EditComment,
     execute: execute(async ({ commentId, body }) => {
+      await assertCommentInScope(ctx, commentId);
       const bodyWithFooter = addFooter(ctx, body);
 
       const result = await ctx.octokit.rest.issues.updateComment({

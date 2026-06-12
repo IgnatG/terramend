@@ -357,6 +357,7 @@ export async function main(): Promise<MainResult> {
       toolState,
       runId: runInfo.runId,
       mcpServerUrl: "",
+      mcpServerToken: "",
       tmpdir,
       oss: runContext.oss,
       plan: runContext.plan,
@@ -364,6 +365,7 @@ export async function main(): Promise<MainResult> {
     };
     await using mcpHttpServer = await startMcpHttpServer(toolContext, { outputSchema });
     toolContext.mcpServerUrl = mcpHttpServer.url;
+    toolContext.mcpServerToken = mcpHttpServer.token;
     log.info(`» MCP server started at ${mcpHttpServer.url}`);
     timer.checkpoint("mcpServer");
 
@@ -547,6 +549,7 @@ export async function main(): Promise<MainResult> {
       payload,
       resolvedModel,
       mcpServerUrl: mcpHttpServer.url,
+      mcpServerToken: mcpHttpServer.token,
       tmpdir,
       // TERRAMEND_DATA_DIR (/var/lib/terramend) holds codex auth.json + any
       // future terramend-managed on-disk secrets. bash via MCP tmpfs-overlays

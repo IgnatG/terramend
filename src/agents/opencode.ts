@@ -86,6 +86,7 @@ import {
   agent,
   logTokenTable,
   MAX_STDERR_LINES,
+  MCP_SERVER_TOKEN_ENV,
 } from "#app/agents/shared";
 import { terramendMcpName } from "#app/external";
 import { BEDROCK_MODEL_ID_ENV } from "#app/models";
@@ -126,7 +127,16 @@ export function buildSecurityConfig(ctx: AgentRunContext, model: string | undefi
       // deleting live git locks (the corruption in #860/#864 — the dangerous
       // `rm` guidance is gone, but the spurious aborts shouldn't happen either).
       // server-side cap is 600s (`checkout_pr` `timeoutMs`).
-      [terramendMcpName]: { type: "remote", url: ctx.mcpServerUrl, timeout: 300_000 },
+      // Authorization carries the per-run MCP bearer token. opencode expands
+      // `{env:VAR}` in remote-MCP header values (opencode.ai/docs/mcp-servers),
+      // so the config holds only the placeholder; the raw token reaches the
+      // opencode server via MCP_SERVER_TOKEN_ENV on its spawn env (below).
+      [terramendMcpName]: {
+        type: "remote",
+        url: ctx.mcpServerUrl,
+        headers: { Authorization: `Bearer {env:${MCP_SERVER_TOKEN_ENV}}` },
+        timeout: 300_000,
+      },
       ...(terraformMcp.kind === "available"
         ? {
             [TERRAFORM_MCP_SERVER_NAME]: {
@@ -1071,6 +1081,10 @@ export const opencode = agent({
       PWD: repoDir,
       OPENCODE_CONFIG_CONTENT: buildSecurityConfig(ctx, model),
       OPENCODE_PERMISSION: permissionOverride,
+      // the opencode server expands {env:TERRAMEND_MCP_TOKEN} in the MCP header
+      // from here; set only on this spawn env (not process.env) so the MCP shell
+      // sandbox + any dependency-install subprocess never inherit it.
+      [MCP_SERVER_TOKEN_ENV]: ctx.mcpServerToken,
       GOOGLE_GENERATIVE_AI_API_KEY:
         process.env.GOOGLE_GENERATIVE_AI_API_KEY || process.env.GEMINI_API_KEY,
     };

@@ -140,6 +140,11 @@ describe("shell tool git-command rejection", () => {
       "(git status)",
       "echo $(git rev-parse HEAD)",
       "echo `git log -1`",
+      // further-hardened shapes: brace group, carriage return, launcher prefixes
+      "{ git push; }",
+      "echo hi\rgit push",
+      "env git push",
+      "command git commit -m x",
     ]) {
       const result = await runTool(tool, { command, description: "d" });
       expect(result.isError).toBe(true);

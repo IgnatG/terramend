@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRemediationCommand } from "#app/utils/remediationCommand";
+import { parseRemediationCommand, STRATEGY_REPLY_HINT } from "#app/utils/remediationCommand";
 
 describe("parseRemediationCommand (§3.12)", () => {
   it("returns null when the body has no mention", () => {
@@ -91,6 +91,73 @@ describe("parseRemediationCommand (§3.12)", () => {
     expect(parseRemediationCommand("@terramend fix #deadbeef please")).toEqual({
       kind: "concern",
       concernRef: "deadbeef",
+    });
+  });
+});
+
+describe("parseRemediationCommand — strategy selection (§26)", () => {
+  it("attaches a strategy label to a `fix #<id>` command (letter, upper-normalised)", () => {
+    expect(parseRemediationCommand("@terramend fix #3a9f1c2 with strategy B")).toEqual({
+      kind: "concern",
+      concernRef: "3a9f1c2",
+      strategy: "B",
+    });
+    expect(parseRemediationCommand("@terramend fix #3a9f1c2 using strategy a")).toEqual({
+      kind: "concern",
+      concernRef: "3a9f1c2",
+      strategy: "A",
+    });
+  });
+
+  it("accepts `option` / `approach` and a digit label", () => {
+    expect(parseRemediationCommand("@terramend fix #deadbeef option 2")).toEqual({
+      kind: "concern",
+      concernRef: "deadbeef",
+      strategy: "2",
+    });
+    expect(parseRemediationCommand("@terramend fix #deadbeef approach C")).toEqual({
+      kind: "concern",
+      concernRef: "deadbeef",
+      strategy: "C",
+    });
+  });
+
+  it("leaves strategy unset on a plain `fix #<id>`", () => {
+    const result = parseRemediationCommand("@terramend fix #3a9f1c2");
+    expect(result).toEqual({ kind: "concern", concernRef: "3a9f1c2" });
+    expect((result as { strategy?: string }).strategy).toBeUndefined();
+  });
+
+  it("reads a bare strategy reply (concern comes from the thread)", () => {
+    expect(parseRemediationCommand("@terramend strategy B")).toEqual({
+      kind: "strategy",
+      strategy: "B",
+    });
+    expect(parseRemediationCommand("@terramend let's go with option 3")).toEqual({
+      kind: "strategy",
+      strategy: "3",
+    });
+  });
+
+  it("keeps an explicit #<id> when a strategy reply names one without `fix`", () => {
+    expect(parseRemediationCommand("@terramend apply strategy A to #deadbeef")).toEqual({
+      kind: "concern",
+      concernRef: "deadbeef",
+      strategy: "A",
+    });
+  });
+
+  it("does not read prose as a strategy pick", () => {
+    expect(parseRemediationCommand("@terramend this is a solid strategy overall")).toBeNull();
+    expect(parseRemediationCommand("@terramend what's the best approach here?")).toBeNull();
+  });
+
+  it("round-trips the canonical reply hint through the parser", () => {
+    const replied = STRATEGY_REPLY_HINT.replace("<concern-id>", "3a9f1c2").replace("<A|B|C>", "B");
+    expect(parseRemediationCommand(replied)).toEqual({
+      kind: "concern",
+      concernRef: "3a9f1c2",
+      strategy: "B",
     });
   });
 });

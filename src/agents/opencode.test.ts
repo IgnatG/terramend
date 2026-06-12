@@ -100,10 +100,15 @@ const runPostRunRetryLoopMock = vi.mocked(runPostRunRetryLoop);
 const installCodexAuthMock = vi.mocked(installCodexAuth);
 
 const MCP_URL = "http://127.0.0.1:7777/mcp";
+const MCP_TOKEN = "test-mcp-token";
 
 function makeCtx(): AgentRunContext {
-  // buildSecurityConfig reads ctx.mcpServerUrl + ctx.payload (terraform_mcp).
-  return { mcpServerUrl: MCP_URL, payload: { terraformMcp: false } } as unknown as AgentRunContext;
+  // buildSecurityConfig reads ctx.mcpServerUrl + ctx.mcpServerToken + ctx.payload.
+  return {
+    mcpServerUrl: MCP_URL,
+    mcpServerToken: MCP_TOKEN,
+    payload: { terraformMcp: false },
+  } as unknown as AgentRunContext;
 }
 
 interface ParsedSecurityConfig {
@@ -135,9 +140,15 @@ describe("buildSecurityConfig", () => {
     });
   });
 
-  it("injects the terramend MCP server with the extended tool timeout", () => {
+  it("injects the terramend MCP server with the extended tool timeout and bearer auth", () => {
     const config = parseConfig(undefined);
-    expect(config.mcp.terramend).toEqual({ type: "remote", url: MCP_URL, timeout: 300_000 });
+    expect(config.mcp.terramend).toEqual({
+      type: "remote",
+      url: MCP_URL,
+      // env-expansion placeholder — opencode resolves {env:VAR} from its env.
+      headers: { Authorization: "Bearer {env:TERRAMEND_MCP_TOKEN}" },
+      timeout: 300_000,
+    });
   });
 
   it("omits the terraform MCP server by default", () => {
@@ -165,7 +176,12 @@ describe("buildSecurityConfig", () => {
         enabled: true,
       });
       // the terramend server is unaffected by the second registration.
-      expect(config.mcp.terramend).toEqual({ type: "remote", url: MCP_URL, timeout: 300_000 });
+      expect(config.mcp.terramend).toEqual({
+        type: "remote",
+        url: MCP_URL,
+        headers: { Authorization: "Bearer {env:TERRAMEND_MCP_TOKEN}" },
+        timeout: 300_000,
+      });
     } finally {
       terraformMcpState.resolution = { kind: "disabled" };
     }
@@ -1205,6 +1221,7 @@ describe("opencode.run", () => {
       payload: {},
       resolvedModel: "anthropic/claude-opus-4-7",
       mcpServerUrl: MCP_URL,
+      mcpServerToken: MCP_TOKEN,
       tmpdir: dir,
       instructions: {
         full: "do the task",
@@ -1316,11 +1333,16 @@ describe("opencode.run", () => {
     expect(spawnOptions.cwd).toBe(process.cwd());
     expect(spawnOptions.env.HOME).toBe(ctx.tmpdir);
     expect(spawnOptions.env.PWD).toBe(process.cwd());
+    // the MCP bearer token reaches the opencode server via env so it can expand
+    // {env:TERRAMEND_MCP_TOKEN} in the remote-MCP Authorization header.
+    expect(spawnOptions.env.TERRAMEND_MCP_TOKEN).toBe(MCP_TOKEN);
     const securityConfig = JSON.parse(
       spawnOptions.env.OPENCODE_CONFIG_CONTENT ?? "{}",
     ) as ParsedSecurityConfig;
     expect(securityConfig.model).toBe("anthropic/claude-opus-4-7");
     expect(securityConfig.permission.bash).toBe("deny");
+    // the config header is only the placeholder — the raw token is never in it.
+    expect(JSON.stringify(securityConfig.mcp ?? {})).not.toContain(MCP_TOKEN);
     const permission = JSON.parse(spawnOptions.env.OPENCODE_PERMISSION ?? "{}") as {
       external_directory: Record<string, string>;
     };

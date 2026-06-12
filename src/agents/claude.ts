@@ -42,6 +42,7 @@ import {
   agent,
   logTokenTable,
   MAX_STDERR_LINES,
+  MCP_SERVER_TOKEN_ENV,
 } from "#app/agents/shared";
 import { terramendMcpName } from "#app/external";
 import {
@@ -112,6 +113,12 @@ const CLAUDE_DISALLOWED_TOOLS = CLAUDE_EXEC_TOOL_DENY_RULES.join(",");
 
 // ── config ─────────────────────────────────────────────────────────────────────
 
+// Claude Code expands `${VAR}` in .mcp.json values, including HTTP-server
+// `headers` (code.claude.com/docs/en/mcp-configuration "Environment variable
+// expansion"), so the on-disk mcp.json carries only this placeholder — never the
+// raw token, which travels via MCP_SERVER_TOKEN_ENV on the agent's spawn env.
+const TERRAMEND_MCP_AUTH_HEADER = `Bearer \${${MCP_SERVER_TOKEN_ENV}}`;
+
 export function writeMcpConfig(ctx: AgentRunContext): string {
   const configDir = join(ctx.tmpdir, ".claude");
   mkdirSync(configDir, { recursive: true });
@@ -124,7 +131,11 @@ export function writeMcpConfig(ctx: AgentRunContext): string {
     configPath,
     JSON.stringify({
       mcpServers: {
-        [terramendMcpName]: { type: "http", url: ctx.mcpServerUrl },
+        [terramendMcpName]: {
+          type: "http",
+          url: ctx.mcpServerUrl,
+          headers: { Authorization: TERRAMEND_MCP_AUTH_HEADER },
+        },
         ...(terraformMcp.kind === "available"
           ? {
               [TERRAFORM_MCP_SERVER_NAME]: {
@@ -1213,6 +1224,10 @@ export const claude = agent({
         ...env,
         [STOP_HOOK_GATE_URL_ENV]: gateServer.url,
         [STOP_HOOK_GATE_TOKEN_ENV]: gateServer.token,
+        // the MCP client (this Claude process) expands ${TERRAMEND_MCP_TOKEN}
+        // in mcp.json headers from here; filterEnv() strips it from the MCP
+        // shell sandbox so a sandboxed command can't read it.
+        [MCP_SERVER_TOKEN_ENV]: ctx.mcpServerToken,
       },
       todoTracker: ctx.todoTracker,
       onActivityTimeout: ctx.onActivityTimeout,

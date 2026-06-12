@@ -39,6 +39,7 @@ function makeCtx(overrides: CtxOverrides = {}): ToolContext {
     toolState: initToolState({ progressComment: undefined }),
     runId: undefined,
     mcpServerUrl: "",
+    mcpServerToken: "",
     tmpdir: tmpdir(),
     oss: false,
     plan: "none",
@@ -94,6 +95,50 @@ describe("startMcpHttpServer", () => {
     // the port is actually listening — a GET reaches the http-stream transport
     const res = await fetch(handle.url);
     expect(res.status).toBeGreaterThanOrEqual(200);
+  });
+
+  it("requires the per-run bearer token to open a session", async () => {
+    handle = await startMcpHttpServer(makeCtx());
+    expect(handle.token).toMatch(/[0-9a-f-]{16,}/i);
+
+    const initBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "test", version: "0" },
+      },
+    });
+    const baseHeaders = {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    };
+
+    // no Authorization header → the transport rejects before a session opens.
+    const unauth = await fetch(handle.url, {
+      method: "POST",
+      headers: baseHeaders,
+      body: initBody,
+    });
+    expect(unauth.status).toBe(401);
+
+    // wrong token → still rejected.
+    const wrong = await fetch(handle.url, {
+      method: "POST",
+      headers: { ...baseHeaders, authorization: "Bearer not-the-token" },
+      body: initBody,
+    });
+    expect(wrong.status).toBe(401);
+
+    // correct token → not rejected with 401 (the session proceeds).
+    const authed = await fetch(handle.url, {
+      method: "POST",
+      headers: { ...baseHeaders, authorization: `Bearer ${handle.token}` },
+      body: initBody,
+    });
+    expect(authed.status).not.toBe(401);
   });
 
   it("registers orchestrator tools including push/PR and standalone set_output", async () => {
