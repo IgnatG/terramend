@@ -1,6 +1,6 @@
 {
   "name": "terramend",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "GitHub Action that remediates Terraform to best practices and opens one scoped pull request per concern.",
   "keywords": [
     "github-actions",
