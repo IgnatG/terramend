@@ -106,6 +106,16 @@ export function toRepoRelative(raw: string | undefined, cwd: string): string {
 export type RunResult = { status: number; stdout: string; stderr: string; missing: boolean };
 
 /**
+ * Hard wall-clock cap on any single scanner/terraform invocation. Bounds a hung
+ * subprocess (e.g. `terraform init`/`plan` stalling on a private registry, a
+ * tflint plugin fetch that never returns) so it can't block the run forever.
+ * Generous (5 min) so it only ever fires on a genuine hang, never a slow-but-
+ * progressing plan. A timeout surfaces as a non-zero/`-1` status the caller
+ * already treats as "this scanner did not produce results".
+ */
+export const SUBPROCESS_TIMEOUT_MS = 300_000;
+
+/**
  * Run a scanner without throwing. Terraform tools exit non-zero when they FIND
  * issues, so a non-zero status is normal, not an error. `missing` is set when
  * the binary isn't on PATH (ENOENT) — the scanner then degrades to "skipped"
@@ -130,8 +140,12 @@ export function run(
     env: resolveEnv(extraEnv ?? "restricted") as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 64 * 1024 * 1024,
+    timeout: SUBPROCESS_TIMEOUT_MS,
   });
   if (result.error) {
+    // ENOENT = binary absent (degrade to "skipped"); a timeout (ETIMEDOUT, or a
+    // SIGTERM kill on timeout) is a real failure surfaced as status -1, which the
+    // scanner callers already treat as "no results from this tool".
     const missing = (result.error as NodeJS.ErrnoException).code === "ENOENT";
     return { status: -1, stdout: "", stderr: result.error.message, missing };
   }
@@ -148,6 +162,13 @@ export type ScannerOutcome = {
   ran: boolean;
   skipped_reason?: string;
   concerns: Concern[];
+  /**
+   * For `terraform validate` only: count of roots where terraform RAN but its
+   * `-json` output could not be parsed (a real CLI-level failure, not a missing
+   * binary). Lets the validate tool report `passed` as fail-closed instead of
+   * silently treating an un-validated root as clean. Undefined/0 elsewhere.
+   */
+  unvalidated?: number;
 };
 
 export function skipped(source: Concern["source"], reason: string): ScannerOutcome {

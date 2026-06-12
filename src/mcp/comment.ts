@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { assertTargetInScope } from "#app/mcp/scope";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import { getApiUrl } from "#app/utils/apiUrl";
@@ -65,6 +66,7 @@ export function CreateCommentTool(ctx: ToolContext) {
       "For progress/plan updates on the current run use report_progress instead — plan output (initial post AND revisions) is always posted via report_progress, never via this tool.",
     parameters: Comment,
     execute: execute(async ({ issueNumber, body, type: commentType }) => {
+      assertTargetInScope(ctx, issueNumber, "comment on");
       const bodyWithFooter = addFooter(ctx, body);
 
       const result = await ctx.octokit.rest.issues.createComment({
@@ -489,6 +491,7 @@ export function ReplyToReviewCommentTool(ctx: ToolContext) {
       "Call exactly ONCE per parent comment you address in AddressReviews mode — duplicate calls with the same body are a no-op. Keep replies extremely brief (1 sentence max).",
     parameters: ReplyToReviewComment,
     execute: execute(async ({ pull_number, comment_id, body }) => {
+      assertTargetInScope(ctx, pull_number, "reply to a review comment on");
       const bodyWithFooter = addFooter(ctx, body);
 
       // guard against duplicate reply submissions in the same session.

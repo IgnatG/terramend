@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { type } from "arktype";
 import type { LocalToolContext } from "#app/mcp/localContext";
 import { execute, tool } from "#app/mcp/shared";
+import { SUBPROCESS_TIMEOUT_MS } from "#app/mcp/terraform/types";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
 
@@ -98,6 +99,9 @@ export function loadProvidersSchema(cwd: string): ProvidersSchema | null {
     env: resolveEnv("restricted") as NodeJS.ProcessEnv,
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 256 * 1024 * 1024,
+    // bound a hung `terraform providers schema` (e.g. provider plugin install
+    // stalling on the network); a timeout surfaces as r.error → null schema.
+    timeout: SUBPROCESS_TIMEOUT_MS,
   });
   if (r.error || r.status !== 0 || !r.stdout?.trim()) {
     schemaCache.set(cwd, null);

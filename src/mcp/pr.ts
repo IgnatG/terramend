@@ -1,5 +1,6 @@
 import { type } from "arktype";
 import { assertUnderPrCap, recordRemediationPrOpened } from "#app/mcp/guardrails";
+import { assertTargetInScope, recordCreatedTarget } from "#app/mcp/scope";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import { buildTerramendFooter, stripExistingFooter } from "#app/utils/buildTerramendFooter";
@@ -92,6 +93,7 @@ export function UpdatePullRequestBodyTool(ctx: ToolContext) {
     description: "Update the body/description of an existing pull request",
     parameters: UpdatePullRequestBody,
     execute: execute(async (params) => {
+      assertTargetInScope(ctx, params.pull_number, "update the body of");
       const bodyWithFooter = buildPrBodyWithFooter(ctx, params.body);
 
       const result = await ctx.octokit.rest.pulls.update({
@@ -119,6 +121,16 @@ export function CreatePullRequestTool(ctx: ToolContext) {
     description: "Create a pull request from the current branch",
     parameters: PullRequest,
     execute: execute(async (params) => {
+      // permission gate: opening a PR is a repo write. `push: disabled` means the
+      // repository is configured for read-only access, so block it here the same
+      // way push_branch/create_issue do — an injected or read-only-intended agent
+      // must not be able to open PRs.
+      if (ctx.payload.push === "disabled") {
+        throw new Error(
+          "Creating a pull request is disabled. This repository is configured for read-only access (push: disabled).",
+        );
+      }
+
       // Remediate-mode guardrail: stop at the configured max_prs. No-op otherwise.
       assertUnderPrCap(ctx);
 
@@ -138,6 +150,10 @@ export function CreatePullRequestTool(ctx: ToolContext) {
         draft: params.draft ?? false,
       });
       log.info(`» created pull request #${result.data.number} (id ${result.data.id})`);
+
+      // record so the agent may update THIS PR's body / comment on it later even
+      // though its number differs from the run's triggering issue_number.
+      recordCreatedTarget(ctx, result.data.number);
 
       // best-effort: request review from the user who triggered the workflow
       const reviewer = ctx.payload.triggerer;

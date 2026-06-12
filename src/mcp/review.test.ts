@@ -918,4 +918,19 @@ describe("CreatePullRequestReviewTool", () => {
     const result = await runTool(CreatePullRequestReviewTool(ctx), params);
     expect(result).toMatchObject({ success: true, reviewId: 50 });
   });
+
+  it("refuses to submit/approve a review on a PR outside the run's scope", async () => {
+    const createReview = vi.fn();
+    const ctx = makeCtx({
+      payload: { event: { trigger: "pull_request_opened", is_pr: true, issue_number: 5 } },
+      toolState: { createdTargets: new Set<number>() },
+      octokit: { rest: { pulls: { createReview } } },
+    });
+
+    await expect(
+      runTool(CreatePullRequestReviewTool(ctx), { pull_number: 6, approved: true, body: "lgtm" }),
+    ).rejects.toThrow(/scoped to #5; refusing to submit a review on #6/);
+    // the guard fires before any GitHub call — no review is ever created.
+    expect(createReview).not.toHaveBeenCalled();
+  });
 });

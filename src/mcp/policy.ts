@@ -4,6 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { type } from "arktype";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool, toolOk, toolSkip } from "#app/mcp/shared";
+import { SUBPROCESS_TIMEOUT_MS } from "#app/mcp/terraform/types";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
 
@@ -155,6 +156,8 @@ export function PolicyCheckTool(ctx: ToolContext) {
         env: resolveEnv("restricted") as NodeJS.ProcessEnv,
         stdio: ["ignore", "pipe", "pipe"],
         maxBuffer: 64 * 1024 * 1024,
+        // bound a hung conftest (e.g. a policy that pulls a remote bundle).
+        timeout: SUBPROCESS_TIMEOUT_MS,
       });
       if (r.error && (r.error as NodeJS.ErrnoException).code === "ENOENT") {
         return toolSkip(

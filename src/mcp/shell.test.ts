@@ -135,12 +135,32 @@ describe("shell tool git-command rejection", () => {
       "ls; git checkout main",
       "true && git commit -m x",
       "false || sudo git rebase",
+      // hardened shapes: newline-separated, subshell, and command substitution
+      "echo hi\ngit push",
+      "(git status)",
+      "echo $(git rev-parse HEAD)",
+      "echo `git log -1`",
     ]) {
       const result = await runTool(tool, { command, description: "d" });
       expect(result.isError).toBe(true);
       expect(textOf(result)).toContain("git commands are not allowed");
     }
     expect(cp.spawn).not.toHaveBeenCalled();
+  });
+
+  it("does not reject benign commands that merely contain the substring 'git'", async () => {
+    const shell = await loadShell();
+    const { ctx } = makeCtx();
+    const proc = new FakeProc();
+    cp.spawn.mockReturnValue(proc);
+    const resultP = runTool(shell.ShellTool(ctx), {
+      command: "echo digit && echo legit",
+      description: "d",
+    });
+    proc.stdout.emit("data", Buffer.from("digit\nlegit\n"));
+    proc.emit("exit", 0);
+    const result = await resultP;
+    expect(result.isError).toBeUndefined();
   });
 
   it("does not reject git as part of another word", async () => {

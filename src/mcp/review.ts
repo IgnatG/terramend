@@ -2,6 +2,7 @@ import type { RestEndpointMethodTypes } from "@octokit/rest";
 import { type } from "arktype";
 import { formatMcpToolRef } from "#app/external";
 import { deleteProgressComment } from "#app/mcp/comment";
+import { assertTargetInScope } from "#app/mcp/scope";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import type { CommentableLines } from "#app/toolState";
@@ -376,6 +377,12 @@ export function CreatePullRequestReviewTool(ctx: ToolContext) {
       " Comments anchored outside a diff hunk are dropped automatically (with a note appended to the review body) — the rest of the review still posts.",
     parameters: CreatePullRequestReview,
     execute: execute(async ({ pull_number, body, approved, commit_id, comments = [] }) => {
+      // SECURITY: a review (especially an APPROVE, which can satisfy a
+      // required-reviews branch-protection gate) must target the PR this run is
+      // scoped to or one it opened — never an arbitrary PR an injected agent
+      // names. mirrors the cross-PR guard on push_branch (mcp/git.ts).
+      assertTargetInScope(ctx, pull_number, "submit a review on");
+
       if (body) body = fixDoubleEscapedString(body);
 
       // set issue context (PRs are issues)

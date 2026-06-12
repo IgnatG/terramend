@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import { type } from "arktype";
 import type { LocalToolContext } from "#app/mcp/localContext";
+import { resolveWithinCwd } from "#app/mcp/pathSafety";
 import { execute, tool, toolOk } from "#app/mcp/shared";
 import {
   type CostBreakdown,
@@ -222,6 +223,12 @@ export function TerraformValidateTool(ctx: LocalToolContext) {
       const checks = [scanFmt(cwd), scanValidate(cwd), scanTflint(cwd)];
       const remaining = sortConcerns(dedupe(checks.flatMap((c) => c.concerns)));
       const ran = checks.filter((c) => c.ran).map((c) => c.source);
+      // count of roots where terraform ran but `validate -json` couldn't be
+      // parsed — a real failure, not a clean tree. We genuinely don't know if
+      // those roots are valid, so `passed` must fail closed below rather than
+      // silently treating an un-validated root as passing.
+      const unvalidatedRoots =
+        checks.find((c) => c.source === "terraform-validate")?.unvalidated ?? 0;
       // §4.15 — surface the pinned provider majors so the fix targets the right
       // argument schema (deterministic, read straight from required_providers).
       const providers = collectProviderRequirements(cwd);
@@ -237,9 +244,15 @@ export function TerraformValidateTool(ctx: LocalToolContext) {
         // `passed` stays gated on fmt + validate + tflint only — those are
         // authoritative. The schema cross-check is a high-signal ADVISORY (a
         // conservative HCL parse), surfaced separately so a parser edge case can
-        // never wrongly block a valid fix.
-        passed: remaining.length === 0,
+        // never wrongly block a valid fix. Fails closed when a root ran but
+        // couldn't be validated: an un-validated root is "unknown", not "clean".
+        passed: remaining.length === 0 && unvalidatedRoots === 0,
         checks_ran: ran,
+        // true when ≥1 Terraform root could not be validated (terraform ran but
+        // its `-json` output was unparseable). When set, `passed` is false even
+        // with no remaining_issues — re-run after fixing the root's init/state,
+        // or inspect it by hand; do NOT treat the clean issue list as a pass.
+        validate_incomplete: unvalidatedRoots > 0,
         remaining_issues: remaining,
         providers,
         // §4.15-next — arguments written in the workspace that are NOT in the
@@ -441,11 +454,11 @@ export function TerraformEmitSarifTool(ctx: LocalToolContext) {
         .filter(isTerraformConcern)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
       const report = buildSarifReport(concerns);
-      const target = output_path
-        ? isAbsolute(output_path)
-          ? output_path
-          : join(cwd, output_path)
-        : join(cwd, "terramend.sarif");
+      // SECURITY: confine the agent-supplied output_path to the workspace so it
+      // can't be used to clobber arbitrary files on the runner (the action
+      // process runs outside the shell sandbox). Computed BEFORE the try so an
+      // escape attempt surfaces as a clear error, not a "write failed" skip.
+      const target = resolveWithinCwd(cwd, output_path ?? "terramend.sarif");
       try {
         writeFileSync(target, `${JSON.stringify(report, null, 2)}\n`, "utf8");
       } catch (e) {
@@ -765,8 +778,12 @@ export function ReadFindingsTool(ctx: LocalToolContext) {
     parameters: ReadFindingsParams,
     execute: execute(async ({ path, severity_threshold, group_by }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
-      const findingsPath =
-        path || process.env.TERRAMEND_FINDINGS_PATH || join(cwd, "findings.json");
+      // SECURITY: confine the agent-supplied `path` to the workspace so it can't
+      // be used as an arbitrary file-read primitive. The env-var fallback is
+      // operator-controlled (not agent-controlled), so it stays unconfined.
+      const findingsPath = path
+        ? resolveWithinCwd(cwd, path)
+        : process.env.TERRAMEND_FINDINGS_PATH || join(cwd, "findings.json");
       let raw: string;
       try {
         raw = readFileSync(findingsPath, "utf8");

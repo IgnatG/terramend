@@ -324,12 +324,22 @@ function capOutput(output: string): string {
   return `... [${elided} chars truncated; full output saved to ${fullPath}] ...\n${output.slice(-MAX_OUTPUT_CHARS)}`;
 }
 
-/** detect git as a command invocation (not as part of another word like .gitignore) */
+// detect `git` as a command invocation in any position a shell would start a new
+// command: at the start, after a separator (`;`, `&`, `|`, newline), or inside a
+// subshell / command substitution (`(`, backtick, `$(`). Optional leading
+// `sudo`. Matches `git` only when followed by whitespace or end-of-string, so it
+// never fires on `.gitignore`, `digit`, `legit`, etc.
+//
+// NOTE: this is a UX redirect to the dedicated git tools, NOT a security
+// boundary — in restricted mode the shell runs in a stripped, token-free sandbox
+// with `.git` mounted read-only, so a `git` the agent slips past this still has
+// no credentials and can't tamper with repo config. Hardened past the original
+// `[;&|]`-only form so the redirect isn't trivially defeated by a newline or a
+// `$(git …)`.
+const GIT_INVOCATION = /(?:^|\$\(|[\n;&|`(])\s*(?:sudo\s+)?git(?:\s|$)/;
+
 function isGitCommand(command: string): boolean {
-  const trimmed = command.trim();
-  if (trimmed === "git" || trimmed.startsWith("git ")) return true;
-  if (trimmed.startsWith("sudo git")) return true;
-  return /[;&|]\s*(?:sudo\s+)?git(?:\s|$)/.test(trimmed);
+  return GIT_INVOCATION.test(command.trim());
 }
 
 export function ShellTool(ctx: ToolContext) {

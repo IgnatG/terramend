@@ -150,13 +150,24 @@ function makeToolCtx(overrides?: {
   toolState?: Partial<ToolState>;
   triggerer?: string;
   baseBranch?: string;
+  push?: "disabled" | "restricted" | "enabled";
+  eventIssueNumber?: number;
 }): { ctx: ToolContext; octokit: ReturnType<typeof makeOctokit>; toolState: ToolState } {
   const octokit = makeOctokit();
-  const toolState = { ...overrides?.toolState } as ToolState;
+  const toolState = { createdTargets: new Set<number>(), ...overrides?.toolState } as ToolState;
+  const event =
+    overrides?.eventIssueNumber === undefined
+      ? { trigger: "unknown" }
+      : { trigger: "pull_request_opened", is_pr: true, issue_number: overrides.eventIssueNumber };
   const ctx = {
     octokit,
     repo: { owner: "octo", name: "repo", data: { default_branch: "main" } },
-    payload: { triggerer: overrides?.triggerer, baseBranch: overrides?.baseBranch },
+    payload: {
+      triggerer: overrides?.triggerer,
+      baseBranch: overrides?.baseBranch,
+      push: overrides?.push,
+      event,
+    },
     toolState,
   } as unknown as ToolContext;
   return { ctx, octokit, toolState };
@@ -316,5 +327,61 @@ describe("CreatePullRequestTool", () => {
     expect(result.content[0].text).toContain("max_prs reached");
     expect(octokit.rest.pulls.create).not.toHaveBeenCalled();
     expect(recordRemediationPrOpened).not.toHaveBeenCalled();
+  });
+
+  it("is blocked under push: disabled (read-only access)", async () => {
+    const { ctx, octokit } = makeToolCtx({ push: "disabled" });
+    const result = await runTool(CreatePullRequestTool(ctx), { title: "t", body: "b" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/read-only access/);
+    expect(assertUnderPrCap).not.toHaveBeenCalled();
+    expect(octokit.rest.pulls.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("REST write-tool scope binding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    shellMock.mockReturnValue("feature-branch");
+  });
+
+  it("update_pull_request_body refuses a PR outside the run's scope", async () => {
+    const { ctx, octokit } = makeToolCtx({ eventIssueNumber: 5 });
+    const result = await runTool(UpdatePullRequestBodyTool(ctx), {
+      pull_number: 6,
+      body: "b",
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/scoped to #5; refusing to update the body of #6/);
+    expect(octokit.rest.pulls.update).not.toHaveBeenCalled();
+  });
+
+  it("update_pull_request_body allows the run's scoped PR", async () => {
+    const { ctx, octokit } = makeToolCtx({ eventIssueNumber: 12 });
+    const result = await runTool(UpdatePullRequestBodyTool(ctx), {
+      pull_number: 12,
+      body: "b",
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(octokit.rest.pulls.update).toHaveBeenCalled();
+  });
+
+  it("update_pull_request_body allows a PR the run just created", async () => {
+    const { ctx, octokit } = makeToolCtx({ eventIssueNumber: 5 });
+    // the run opens PR #12 (create records it as owned)…
+    await runTool(CreatePullRequestTool(ctx), { title: "t", body: "b" });
+    // …so editing #12's body is now in scope even though the trigger was #5.
+    const result = await runTool(UpdatePullRequestBodyTool(ctx), {
+      pull_number: 12,
+      body: "updated",
+    });
+
+    expect(result.isError).toBeUndefined();
+    expect(octokit.rest.pulls.update).toHaveBeenCalledWith(
+      expect.objectContaining({ pull_number: 12 }),
+    );
   });
 });

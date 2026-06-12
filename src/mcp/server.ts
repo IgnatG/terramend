@@ -69,6 +69,7 @@ import type { OctokitWithPlugins } from "#app/utils/github";
 import type { ResolvedPayload } from "#app/utils/payload";
 import type { AccountPlan } from "#app/utils/runContext";
 import type { RunContextData } from "#app/utils/runContextData";
+import packageJson from "#package.json" with { type: "json" };
 
 export interface ToolContext {
   agentId: AgentId;
@@ -221,7 +222,10 @@ async function tryStartMcpServer(
   tools: Tool<any, any>[],
   port: number,
 ): Promise<McpStartResult | null> {
-  const server = new FastMCP({ name: terramendMcpName, version: "0.0.1" });
+  const server = new FastMCP({
+    name: terramendMcpName,
+    version: packageJson.version as `${number}.${number}.${number}`,
+  });
   addTools(ctx, server, tools);
 
   try {

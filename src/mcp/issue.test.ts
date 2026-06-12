@@ -31,6 +31,8 @@ function makeCtx(createData?: Record<string, unknown>) {
   const ctx = {
     octokit: { rest: { issues: { create } } },
     repo: { owner: "octo", name: "repo" },
+    payload: { push: "restricted", event: { trigger: "unknown" } },
+    toolState: { createdTargets: new Set<number>() },
   } as unknown as ToolContext;
   return { ctx, create };
 }
@@ -97,5 +99,15 @@ describe("IssueTool (create_issue)", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("validation failed");
+  });
+
+  it("is blocked under push: disabled (read-only access)", async () => {
+    const { ctx, create } = makeCtx();
+    (ctx.payload as { push: string }).push = "disabled";
+    const result = await runTool(IssueTool(ctx), { title: "t", body: "b" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/read-only access/);
+    expect(create).not.toHaveBeenCalled();
   });
 });

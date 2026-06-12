@@ -395,6 +395,27 @@ describe("TerraformValidateTool", () => {
     });
   });
 
+  it("fails closed when a root ran but `validate -json` was unparseable", async () => {
+    // terraform ran but emitted non-JSON (corrupted .terraform / crash): we
+    // genuinely don't know if the root is valid, so `passed` must be false and
+    // `validate_incomplete` flagged — never a green pass on an un-validated root.
+    const cwd = makeDir({ "main.tf": 'resource "x" "y" {}\n' });
+    dispatch = scannersDispatch({
+      fmt: { status: 0 },
+      validate: { status: 0, stdout: "%% not json %%" },
+      tflint: CLEAN_JSON,
+    });
+    const ctx = makeCtx(cwd);
+
+    const result = await runTool(TerraformValidateTool(ctx));
+
+    expect(result.passed).toBe(false);
+    expect(result.validate_incomplete).toBe(true);
+    expect(result.remaining_issues).toEqual([]);
+    // validate didn't cleanly run, so it's absent from checks_ran.
+    expect(result.checks_ran).not.toContain("terraform-validate");
+  });
+
   it("cross-checks written arguments against the installed provider schema (§4.15-next)", async () => {
     const cwd = makeDir({
       "main.tf": 'resource "aws_s3_bucket" "b" {\n  bucket = "x"\n  bukcet_typo = "y"\n}\n',
@@ -649,7 +670,7 @@ describe("TerraformEmitSarifTool", () => {
     expect(ctx.toolState.emittedSarifPath).toBe(join(cwd, "custom.sarif"));
   });
 
-  it("resolves a relative output_path against the workspace and an absolute one as-is", async () => {
+  it("resolves a relative output_path against the workspace and an in-workspace absolute one as-is", async () => {
     const cwd = makeDir({ "main.tf": "x\n" });
     dispatch = fmtOnly();
 
@@ -658,9 +679,26 @@ describe("TerraformEmitSarifTool", () => {
     });
     expect(rel.sarif_path).toBe(join(cwd, "report.sarif"));
 
-    const absTarget = join(makeDir(), "abs.sarif");
-    const abs = await runTool(TerraformEmitSarifTool(makeCtx(cwd)), { output_path: absTarget });
-    expect(abs.sarif_path).toBe(absTarget);
+    // an absolute path that stays INSIDE the workspace is honored as-is.
+    const absInside = join(cwd, "abs.sarif");
+    const abs = await runTool(TerraformEmitSarifTool(makeCtx(cwd)), { output_path: absInside });
+    expect(abs.sarif_path).toBe(absInside);
+  });
+
+  it("rejects an output_path that escapes the workspace (no arbitrary file write)", async () => {
+    const cwd = makeDir({ "main.tf": "x\n" });
+    dispatch = fmtOnly();
+
+    // an absolute path in a different directory…
+    const outside = join(makeDir(), "abs.sarif");
+    await expect(
+      runTool(TerraformEmitSarifTool(makeCtx(cwd)), { output_path: outside }),
+    ).rejects.toThrow(/escapes the workspace/);
+
+    // …and relative `..` traversal.
+    await expect(
+      runTool(TerraformEmitSarifTool(makeCtx(cwd)), { output_path: "../escape.sarif" }),
+    ).rejects.toThrow(/escapes the workspace/);
   });
 
   it("emits an empty-result report when the threshold filters everything", async () => {
@@ -964,13 +1002,12 @@ describe("ReadFindingsTool", () => {
     expect(ctx.toolState.baselineConcernIds).toHaveLength(2);
   });
 
-  it("honours an explicit path, by-rule grouping, and the configured threshold", async () => {
-    const dir = makeDir({ "custom.json": reviewerReport });
-    const cwd = makeDir();
+  it("honours an explicit in-workspace path, by-rule grouping, and the configured threshold", async () => {
+    const cwd = makeDir({ "custom.json": reviewerReport });
     const ctx = makeCtx(cwd, { payload: { severityThreshold: "high" } });
 
     const result = await runTool(ReadFindingsTool(ctx), {
-      path: join(dir, "custom.json"),
+      path: "custom.json",
       group_by: "rule",
     });
 
@@ -979,7 +1016,15 @@ describe("ReadFindingsTool", () => {
     expect(at(result.groups, 0)).toMatchObject({ grouping: "rule", file: "main.tf" });
   });
 
-  it("falls back to $TERRAMEND_FINDINGS_PATH when no path arg is given", async () => {
+  it("rejects a path arg that escapes the workspace (no arbitrary file read)", async () => {
+    const outside = makeDir({ "secret.json": reviewerReport });
+    const cwd = makeDir();
+    await expect(
+      runTool(ReadFindingsTool(makeCtx(cwd)), { path: join(outside, "secret.json") }),
+    ).rejects.toThrow(/escapes the workspace/);
+  });
+
+  it("falls back to $TERRAMEND_FINDINGS_PATH when no path arg is given (operator-set, unconfined)", async () => {
     const dir = makeDir({ "elsewhere.json": reviewerReport });
     process.env.TERRAMEND_FINDINGS_PATH = join(dir, "elsewhere.json");
     const result = await runTool(ReadFindingsTool(makeCtx(makeDir())));

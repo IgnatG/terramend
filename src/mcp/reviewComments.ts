@@ -2,6 +2,7 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Octokit } from "@octokit/rest";
 import { type } from "arktype";
+import { assertTargetInScope } from "#app/mcp/scope";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import { resolveBodyAssets } from "#app/utils/body";
@@ -473,7 +474,16 @@ export function buildThreadBlocks(
   return threadBlocks;
 }
 
-async function getReviewThreads(input: GetReviewDataInput) {
+/**
+ * `truncated` is true when GitHub returned a full page of threads (first: 100)
+ * or any thread returned a full page of comments (first: 50), meaning some
+ * review feedback is NOT in `threads`. Surfaced to the agent so it knows the
+ * thread set it's addressing may be incomplete rather than silently dropping
+ * the overflow (the cap is only logged for the operator).
+ */
+async function getReviewThreads(
+  input: GetReviewDataInput,
+): Promise<{ threads: ReviewThread[]; truncated: boolean }> {
   const response = await input.octokit.graphql<ReviewThreadsQueryResponse>(REVIEW_THREADS_QUERY, {
     owner: input.owner,
     name: input.name,
@@ -482,13 +492,16 @@ async function getReviewThreads(input: GetReviewDataInput) {
 
   const allThreads = response.repository?.pullRequest?.reviewThreads?.nodes ?? [];
 
+  let truncated = false;
   if (allThreads.length >= 100) {
+    truncated = true;
     log.warning(
       `PR ${input.owner}/${input.name}#${input.pullNumber}: reviewThreads returned 100 results (limit reached, some threads may be missing)`,
     );
   }
   for (const thread of allThreads) {
     if (thread?.comments?.nodes && thread.comments.nodes.length >= 50) {
+      truncated = true;
       log.warning(
         `PR ${input.owner}/${input.name}#${input.pullNumber}: review thread at ${thread.path}:${thread.line} has 50 comments (limit reached, some comments may be missing)`,
       );
@@ -501,11 +514,14 @@ async function getReviewThreads(input: GetReviewDataInput) {
   });
 
   if (!input.approvedBy) {
-    return threadsForReview;
+    return { threads: threadsForReview, truncated };
   }
 
   const username = input.approvedBy;
-  return threadsForReview.filter((thread) => threadHasThumbsUpFrom(thread, username));
+  return {
+    threads: threadsForReview.filter((thread) => threadHasThumbsUpFrom(thread, username)),
+    truncated,
+  };
 }
 
 interface GetReviewDataInput {
@@ -585,10 +601,11 @@ export async function getReviewData(input: GetReviewDataInput): Promise<
       threadBlocks: Array<{ path: string; lineRange: string; content: string[] }>;
       reviewer: string;
       formatted: { toc: string; content: string };
+      truncated: boolean;
     }
   | undefined
 > {
-  const [review, threads] = await Promise.all([
+  const [review, threadsResult] = await Promise.all([
     input.octokit.rest.pulls.getReview({
       owner: input.owner,
       repo: input.name,
@@ -598,6 +615,7 @@ export async function getReviewData(input: GetReviewDataInput): Promise<
     }),
     getReviewThreads(input),
   ]);
+  const { threads, truncated } = threadsResult;
 
   // skip listFiles when there are no threads — prFiles is only used for
   // building thread blocks, and an empty array short-circuits below.
@@ -635,13 +653,15 @@ export async function getReviewData(input: GetReviewDataInput): Promise<
     }
   }
 
-  return formatReviewData({
+  const formatted = formatReviewData({
     review: review.data,
     threads,
     prFiles,
     pullNumber: input.pullNumber,
     reviewId: input.reviewId,
   });
+  if (!formatted) return undefined;
+  return { ...formatted, truncated };
 }
 
 export function GetReviewCommentsTool(ctx: ToolContext) {
@@ -685,7 +705,7 @@ export function GetReviewCommentsTool(ctx: ToolContext) {
         };
       }
 
-      const { threadBlocks, reviewer, formatted } = result;
+      const { threadBlocks, reviewer, formatted, truncated } = result;
 
       const tempDir = process.env.TERRAMEND_TEMP_DIR;
       if (!tempDir) {
@@ -696,11 +716,17 @@ export function GetReviewCommentsTool(ctx: ToolContext) {
       writeFileSync(commentsPath, formatted.content);
       log.debug(`wrote ${threadBlocks.length} threads to ${commentsPath}`);
 
+      const truncationNote = truncated
+        ? ` WARNING: this PR has more review threads/comments than a single fetch returns, so the set above is INCOMPLETE — ` +
+          `some threads or comments are not included. Address what's here, but do not treat the list as exhaustive.`
+        : "";
+
       return {
         review_id: params.review_id,
         pull_number: params.pull_number,
         reviewer,
         threadCount: threadBlocks.length,
+        truncated,
         commentsPath,
         toc: formatted.toc,
         instructions:
@@ -709,7 +735,8 @@ export function GetReviewCommentsTool(ctx: ToolContext) {
           `the TOC shows each thread's file:line and the line number where it appears in the file. ` +
           `to read a specific thread, use: grep -A 50 "^## <file:line>" ${commentsPath} ` +
           `(replace <file:line> with the path from the TOC, e.g. "^## action/utils/foo.ts:42"). ` +
-          `address each thread in order, working through one file at a time.`,
+          `address each thread in order, working through one file at a time.` +
+          truncationNote,
       };
     }),
   });
@@ -772,6 +799,45 @@ mutation($threadId: ID!) {
 }
 `;
 
+// resolve a thread node id to the PR it belongs to, so resolve_review_thread can
+// be scope-bound (a thread id is opaque, unlike a bare PR number).
+const REVIEW_THREAD_PR_QUERY = `
+query($id: ID!) {
+  node(id: $id) {
+    ... on PullRequestReviewThread {
+      pullRequest { number }
+    }
+  }
+}
+`;
+
+/**
+ * SECURITY: bind resolve_review_thread to the run's scoped PR (or one it
+ * created). The thread id is opaque, so look up its PR first. Skips the check
+ * for standalone runs (no triggering issue/PR) and, deliberately, when the
+ * lookup can't determine a PR number — resolving a thread is low-risk and
+ * reversible, so a transient API/permission hiccup must not block a legitimate
+ * resolve. A definite out-of-scope match still throws.
+ */
+async function assertThreadInScope(ctx: ToolContext, threadId: string): Promise<void> {
+  if (ctx.payload?.event?.issue_number === undefined) return;
+  let prNumber: number | undefined;
+  try {
+    const lookup = await ctx.octokit.graphql<{
+      node?: { pullRequest?: { number?: number } } | null;
+    }>(REVIEW_THREAD_PR_QUERY, { id: threadId });
+    prNumber = lookup.node?.pullRequest?.number;
+  } catch (e) {
+    log.debug(
+      `resolve_review_thread scope lookup failed (allowing): ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return;
+  }
+  if (typeof prNumber === "number") {
+    assertTargetInScope(ctx, prNumber, "resolve a review thread on");
+  }
+}
+
 export const ResolveReviewThread = type({
   thread_id: type.string.describe("The GraphQL node ID of the review thread to resolve"),
 });
@@ -785,6 +851,7 @@ export function ResolveReviewThreadTool(ctx: ToolContext) {
       "Do not resolve threads that are already resolved, threads where no action was taken, or threads where you disagree with the feedback.",
     parameters: ResolveReviewThread,
     execute: execute(async (params) => {
+      await assertThreadInScope(ctx, params.thread_id);
       try {
         const response = await ctx.octokit.graphql<{
           resolveReviewThread: {

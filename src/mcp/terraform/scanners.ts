@@ -103,7 +103,14 @@ function scanValidateRoot(root: ResolvedRoot): ScannerOutcome {
     );
     return { source: "terraform-validate", ran: true, concerns };
   } catch {
-    return skipped("terraform-validate", "could not parse `terraform validate -json` output");
+    // terraform ran but emitted output we couldn't parse — a real CLI-level
+    // failure (corrupted .terraform, a crash, an ancient terraform without
+    // `-json`), NOT a clean tree. Flag it as unvalidated so the tool fails
+    // closed rather than reporting this root as passing.
+    return {
+      ...skipped("terraform-validate", "could not parse `terraform validate -json` output"),
+      unvalidated: 1,
+    };
   }
 }
 
@@ -118,8 +125,10 @@ export function scanValidate(cwd: string): ScannerOutcome {
   const concerns: Concern[] = [];
   let anyRan = false;
   let sawMissing = false;
+  let unvalidated = 0;
   for (const root of roots) {
     const outcome = scanValidateRoot(root);
+    unvalidated += outcome.unvalidated ?? 0;
     if (outcome.ran) {
       anyRan = true;
       concerns.push(...outcome.concerns);
@@ -130,9 +139,12 @@ export function scanValidate(cwd: string): ScannerOutcome {
   if (!anyRan) {
     return sawMissing
       ? skipped("terraform-validate", "terraform not installed")
-      : skipped("terraform-validate", "could not parse `terraform validate -json` output");
+      : {
+          ...skipped("terraform-validate", "could not parse `terraform validate -json` output"),
+          unvalidated,
+        };
   }
-  return { source: "terraform-validate", ran: true, concerns: dedupe(concerns) };
+  return { source: "terraform-validate", ran: true, concerns: dedupe(concerns), unvalidated };
 }
 
 /** parse `terraform validate -json`; keeps real errors, drops uninitialized-dir noise. */

@@ -1,3 +1,4 @@
+import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type RunResult, resolveBaseRef, run } from "#app/mcp/terraform/types";
 
@@ -135,11 +136,19 @@ export function infracostBaseline(cwd: string, key: string, tmpdir: string): Cos
   if (!baseRef) return null;
   const prefixResult = run("git", ["rev-parse", "--show-prefix"], cwd);
   const prefix = prefixResult.status === 0 ? prefixResult.stdout.trim() : "";
-  const worktree = join(tmpdir, `infracost-base-${process.pid}`);
-  // clear any stale worktree from an earlier call in this process before re-adding.
-  run("git", ["worktree", "remove", "--force", worktree], cwd);
+  // unique, unpredictable worktree path. the old `infracost-base-<pid>` name was
+  // predictable (a local actor could pre-create/symlink it) and collided when
+  // two baselines ran in the same process. mkdtemp gives a fresh PARENT dir;
+  // the worktree itself goes in a not-yet-existing child (git worktree add
+  // refuses a path that already exists). the finally removes both the git
+  // worktree registration and the parent dir.
+  const baseDir = mkdtempSync(join(tmpdir, "infracost-base-"));
+  const worktree = join(baseDir, "wt");
   const add = run("git", ["worktree", "add", "--detach", worktree, baseRef], cwd);
-  if (add.status !== 0) return null;
+  if (add.status !== 0) {
+    rmSync(baseDir, { recursive: true, force: true });
+    return null;
+  }
   try {
     const scanCwd = prefix ? join(worktree, prefix) : worktree;
     const r = runInfracostBreakdown(scanCwd, key);
@@ -149,5 +158,6 @@ export function infracostBaseline(cwd: string, key: string, tmpdir: string): Cos
     return null;
   } finally {
     run("git", ["worktree", "remove", "--force", worktree], cwd);
+    rmSync(baseDir, { recursive: true, force: true });
   }
 }

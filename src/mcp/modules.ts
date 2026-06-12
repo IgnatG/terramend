@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
 import type { LocalToolContext } from "#app/mcp/localContext";
+import { resolveWithinCwd } from "#app/mcp/pathSafety";
 import { execute, tool, toolOk } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
 
@@ -666,6 +667,9 @@ export function TerraformModuleInterfaceTool(ctx: LocalToolContext) {
     parameters: TerraformModuleInterfaceParams,
     execute: execute(async ({ module_dir }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
+      // SECURITY: confine the agent-supplied module dir to the workspace so it
+      // can't read `*.tf` files from outside the repo (e.g. '../../etc').
+      resolveWithinCwd(cwd, module_dir);
       const iface = collectModuleInterface(cwd, module_dir);
       log.info(
         `» terraform_module_interface(${module_dir}): ${iface.variables.length} var(s), ${iface.outputs.length} output(s)`,

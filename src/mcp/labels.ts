@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { assertTargetInScope } from "#app/mcp/scope";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
@@ -15,6 +16,7 @@ export function AddLabelsTool(ctx: ToolContext) {
       "Add labels to a GitHub issue or pull request. Only use labels that already exist in the repository.",
     parameters: AddLabelsParams,
     execute: execute(async ({ issue_number, labels }) => {
+      assertTargetInScope(ctx, issue_number, "add labels to");
       const result = await ctx.octokit.rest.issues.addLabels({
         owner: ctx.repo.owner,
         repo: ctx.repo.name,

@@ -76,6 +76,13 @@ export interface ToolState {
   initialHead?: { kind: "branch"; name: string } | { kind: "detached"; sha: string };
   // issue or PR number (same number space in GitHub)
   issueNumber?: number;
+  // PR/issue numbers this run CREATED (create_pull_request / create_issue).
+  // read by the REST-write scope guard (mcp/scope.ts) so the agent may edit the
+  // body of / comment on a PR or issue it opened this run, even though that
+  // number differs from the run's triggering issue_number. a merely checked-out
+  // PR is intentionally NOT recorded here — checkout_pr is agent-controlled, so
+  // letting it widen write scope would defeat the guard.
+  createdTargets?: Set<number>;
   // PR HEAD sha at checkout time — used to detect new commits pushed during a review
   checkoutSha?: string;
   // commentable lines per file at checkoutSha — captured during checkout_pr so
@@ -239,6 +246,7 @@ export function initToolState(params: InitToolStateParams): ToolState {
     hadProgressComment: !!resolved,
     prepushFailureCount: 0,
     backgroundProcesses: new Map(),
+    createdTargets: new Set(),
     usageEntries: [],
   };
 }

@@ -1,4 +1,5 @@
 import { type } from "arktype";
+import { recordCreatedTarget } from "#app/mcp/scope";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
@@ -24,6 +25,16 @@ export function IssueTool(ctx: ToolContext) {
     description: "Create a new GitHub issue",
     parameters: Issue,
     execute: execute(async (params) => {
+      // permission gate: creating an issue is a repo write. `push: disabled`
+      // means read-only access, so block it (matches create_pull_request /
+      // push_branch) — an injected or read-only-intended agent must not be able
+      // to file issues.
+      if (ctx.payload.push === "disabled") {
+        throw new Error(
+          "Creating an issue is disabled. This repository is configured for read-only access (push: disabled).",
+        );
+      }
+
       const result = await ctx.octokit.rest.issues.create({
         owner: ctx.repo.owner,
         repo: ctx.repo.name,
@@ -34,6 +45,9 @@ export function IssueTool(ctx: ToolContext) {
       });
 
       log.info(`» created issue #${result.data.number} (id ${result.data.id})`);
+
+      // record so a later comment on / label of THIS issue passes the scope guard.
+      recordCreatedTarget(ctx, result.data.number);
 
       const nodeId = result.data.node_id;
       if (typeof nodeId === "string" && nodeId.length > 0) {
