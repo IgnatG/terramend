@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { type } from "arktype";
-import type { ToolContext } from "#app/mcp/server";
+import type { LocalToolContext } from "#app/mcp/localContext";
 import { execute, tool, toolOk } from "#app/mcp/shared";
 import {
   type CostBreakdown,
@@ -12,6 +12,7 @@ import {
   parseInfracostResources,
   runInfracostBreakdown,
 } from "#app/mcp/terraform/cost";
+import { checkVersionCurrency } from "#app/mcp/terraform/currency";
 import {
   annotateGroups,
   classifyRefusal,
@@ -31,6 +32,7 @@ import {
   classifyDestructive,
   comparePlanStability,
   computeBlastRadius,
+  isPureMovePlan,
   type PlanSummary,
   parseTerraformPlanJson,
   type RootPlan,
@@ -71,7 +73,7 @@ export const TerraformScanParams = type({
   ),
 });
 
-export function TerraformScanTool(ctx: ToolContext) {
+export function TerraformScanTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_scan",
     description:
@@ -201,7 +203,7 @@ export const TerraformValidateParams = type({
     ),
 });
 
-export function TerraformValidateTool(ctx: ToolContext) {
+export function TerraformValidateTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_validate",
     description:
@@ -262,7 +264,7 @@ export const TerraformVerifyRemediationParams = type({
     ),
 });
 
-export function TerraformVerifyRemediationTool(ctx: ToolContext) {
+export function TerraformVerifyRemediationTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_verify_remediation",
     description:
@@ -334,7 +336,7 @@ export function TerraformVerifyRemediationTool(ctx: ToolContext) {
 
 export const InfracostDiffParams = type({});
 
-export function InfracostDiffTool(ctx: ToolContext) {
+export function InfracostDiffTool(ctx: LocalToolContext) {
   return tool({
     name: "infracost_diff",
     description:
@@ -418,7 +420,7 @@ export const TerraformEmitSarifParams = type({
   ),
 });
 
-export function TerraformEmitSarifTool(ctx: ToolContext) {
+export function TerraformEmitSarifTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_emit_sarif",
     description:
@@ -598,7 +600,7 @@ export function collectCloudCredentials(): Record<string, string> {
 
 export const TerraformPlanParams = type({});
 
-export function TerraformPlanTool(ctx: ToolContext) {
+export function TerraformPlanTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_plan",
     description:
@@ -612,7 +614,10 @@ export function TerraformPlanTool(ctx: ToolContext) {
       "(`roots_planned`) and aggregates — counts summed, destructive/blast unioned — so you don't loop " +
       "yourself. Returns `plan_text` (the full human-readable plan(s), for a collapsed <details> block) and " +
       "`needs_human` (true when a high blast radius, a stateful destroy/replace, or a non-deterministic plan " +
-      "means a human must review).",
+      "means a human must review). For an M2 modularization refactor, `refactor_safe: true` is the gate: " +
+      "the plan is purely `moved` state operations (every resource address preserved via `moved {}` blocks, " +
+      "zero add/change/destroy) — if a modularization PR's plan is NOT refactor_safe, fix the moved blocks " +
+      "rather than accepting resource churn.",
     parameters: TerraformPlanParams,
     execute: execute(async () => {
       const cwd = ctx.payload.cwd ?? process.cwd();
@@ -712,6 +717,10 @@ export function TerraformPlanTool(ctx: ToolContext) {
         // §1.3 — false when any root's second plan disagreed (perpetual-diff smell).
         idempotent: agg.idempotent,
         idempotency_warning: idempotencyWarning,
+        // §M2 — state-only moves and the modularization no-op gate.
+        moved_count: agg.moved.length,
+        ...(agg.moved.length ? { moved: agg.moved.slice(0, 50) } : {}),
+        refactor_safe: isPureMovePlan(agg),
         // §2.6 → §3.9 — deterministic escalation to human review.
         needs_human: escalationReasons.length > 0,
         ...(escalationReasons.length ? { needs_human_reasons: escalationReasons } : {}),
@@ -742,7 +751,7 @@ export const ReadFindingsParams = type({
   ),
 });
 
-export function ReadFindingsTool(ctx: ToolContext) {
+export function ReadFindingsTool(ctx: LocalToolContext) {
   return tool({
     name: "read_findings",
     description:
@@ -822,6 +831,60 @@ export function ReadFindingsTool(ctx: ToolContext) {
         groups: groups.map((g) => ({ ...g, doc_urls: docUrlsForGroup(g, all) })),
         batch_plan: batchPlan,
         concerns: all.map((c) => ({ ...c, doc_url: ruleDocUrl(c) })),
+      });
+    }),
+  });
+}
+
+export const TerraformVersionCurrencyParams = type({});
+
+export function TerraformVersionCurrencyTool(ctx: LocalToolContext) {
+  return tool({
+    name: "terraform_version_currency",
+    description:
+      "Check the workspace's pinned providers and registry modules against the Terraform Registry's " +
+      "published versions — the upgrade intelligence no scanner provides (tflint checks pins EXIST, not " +
+      "that they're current). Reports per provider/module the written constraint, the `latest` stable " +
+      "version, the newest version the constraint admits, and `outdated`/`majors_behind`; registry " +
+      "modules with no version pin are flagged `unpinned` (pin them to `latest`). Remediation contract " +
+      "(M3): one `chore(deps)` PR per upgrade group; minor/patch bumps may proceed autonomously; a MAJOR " +
+      "bump means the module/provider interface may have changed — apply it only with a `needs-human` " +
+      "label, and re-verify every bump with terraform_validate (plus terraform_plan when credentials " +
+      "exist; an upgrade that plans destructive changes is never auto). Network-dependent and degrades " +
+      "green: per-source lookup failures are reported per row, and an unreachable registry returns " +
+      "`ok: false` with code `registry_unreachable` (never an error).",
+    parameters: TerraformVersionCurrencyParams,
+    execute: execute(async () => {
+      const cwd = ctx.payload.cwd ?? process.cwd();
+      const report = await checkVersionCurrency(cwd);
+      if (report.lookups_attempted === 0) {
+        return toolOk({
+          providers: [],
+          modules: [],
+          outdated_count: 0,
+          unpinned_count: 0,
+          note: "no provider requirements or registry modules found in the workspace",
+        });
+      }
+      if (report.lookups_failed === report.lookups_attempted) {
+        return skipResult(
+          "registry_unreachable",
+          `all ${report.lookups_attempted} registry lookup(s) failed — registry.terraform.io unreachable from this runner; currency not checked`,
+        );
+      }
+      log.info(
+        `» terraform_version_currency: ${report.outdated_count} outdated, ${report.unpinned_count} unpinned ` +
+          `across ${report.providers.length} provider(s) + ${report.modules.length} registry module(s)` +
+          (report.lookups_failed ? ` (${report.lookups_failed} lookup(s) failed)` : ""),
+      );
+      return toolOk({
+        providers: report.providers,
+        modules: report.modules,
+        outdated_count: report.outdated_count,
+        unpinned_count: report.unpinned_count,
+        ...(report.lookups_failed > 0
+          ? { note: `${report.lookups_failed} lookup(s) failed — those rows report lookup != "ok"` }
+          : {}),
       });
     }),
   });

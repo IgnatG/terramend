@@ -20,7 +20,7 @@ import type { AgentRunContext } from "#app/agents/shared";
 import type { ToolState } from "#app/toolState";
 import { preflightClaudeSubscription } from "#app/utils/claudeSubscription";
 import { installFromNpmTarball } from "#app/utils/install";
-import { addSkill, installBundledSkills } from "#app/utils/skills";
+import { installBundledSkills } from "#app/utils/skills";
 import {
   SPAWN_ACTIVITY_TIMEOUT_CODE,
   type SpawnOptions,
@@ -54,7 +54,7 @@ vi.mock("#app/agents/postRun", () => ({
   finalizeAgentResult: vi.fn(async (params: { result: unknown }) => params.result),
 }));
 // skills install shells out to npx.
-vi.mock("#app/utils/skills", () => ({ addSkill: vi.fn(), installBundledSkills: vi.fn() }));
+vi.mock("#app/utils/skills", () => ({ installBundledSkills: vi.fn() }));
 
 const execFileSyncMock = vi.mocked(execFileSync);
 const spawnMock = vi.mocked(spawn);
@@ -62,7 +62,6 @@ const startGateServerMock = vi.mocked(startGateServer);
 const preflightMock = vi.mocked(preflightClaudeSubscription);
 const finalizeMock = vi.mocked(finalizeAgentResult);
 const installMock = vi.mocked(installFromNpmTarball);
-const addSkillMock = vi.mocked(addSkill);
 const installBundledSkillsMock = vi.mocked(installBundledSkills);
 
 function makeCtx(secretDenyPaths?: string[]): AgentRunContext {
@@ -785,7 +784,6 @@ describe("claude.run", () => {
     expect(result.success).toBe(true);
     expect(result.output).toBe("final answer");
     expect(installMock).toHaveBeenCalled();
-    expect(addSkillMock).toHaveBeenCalledTimes(1);
     expect(installBundledSkillsMock).toHaveBeenCalledWith({ home: ctx.tmpdir });
 
     const opts = lastSpawnOptions();

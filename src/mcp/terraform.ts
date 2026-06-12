@@ -7,12 +7,14 @@
  *   scanners  — fmt / validate / tflint / trivy / checkov + provider/arg schema
  *   decisions — grouping, autonomy, confidence, refusal, prevention, co-location
  *   cost      — infracost breakdown / delta / escalation
+ *   currency  — registry version currency (provider + module upgrade intel)
  *   findings  — reviewer findings + SARIF ingest/emit
  *   plan      — plan parsing + destroy/blast/stability/aggregation
  *   tools     — the MCP Tool factories + their *Params schemas
  */
 
 export * from "#app/mcp/terraform/cost";
+export * from "#app/mcp/terraform/currency";
 export * from "#app/mcp/terraform/decisions";
 export * from "#app/mcp/terraform/findings";
 export * from "#app/mcp/terraform/plan";

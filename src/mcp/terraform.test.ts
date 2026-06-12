@@ -22,6 +22,7 @@ import {
   computeRemediationVerdict,
   groupConcerns,
   groupConcernsByRule,
+  isPureMovePlan,
   isSarif,
   isTerraformConcern,
   moduleAddressOf,
@@ -614,6 +615,7 @@ describe("aggregatePlans (multi-root plan aggregation)", () => {
       changed: [],
       destructive: [],
       hasDestroyOrReplace: false,
+      moved: [],
       ...over,
     }) as ReturnType<typeof parseTerraformPlanJson>;
 
@@ -1143,8 +1145,28 @@ describe("parseTerraformPlanJson", () => {
       changed: [],
       destructive: [],
       hasDestroyOrReplace: false,
+      moved: [],
     });
     expect(parseTerraformPlanJson("")).toMatchObject({ add: 0, hasDestroyOrReplace: false });
+  });
+
+  it("tracks `move` actions separately — never in `changed` (§M2)", () => {
+    const out = lines(
+      {
+        type: "planned_change",
+        change: {
+          action: "move",
+          resource: { addr: "module.logging.aws_s3_bucket.this" },
+          previous_resource: { addr: "aws_s3_bucket.logs" },
+        },
+      },
+      { type: "change_summary", changes: { add: 0, change: 0, remove: 0 } },
+    );
+    const s = parseTerraformPlanJson(out);
+    expect(s.changed).toEqual([]);
+    expect(s.moved).toEqual([
+      { address: "module.logging.aws_s3_bucket.this", previousAddress: "aws_s3_bucket.logs" },
+    ]);
   });
 
   it("collects every real action into `changed`, ignoring no-op / read", () => {
@@ -1513,6 +1535,30 @@ describe("computeBlastRadius (§2.6)", () => {
   });
 });
 
+describe("isPureMovePlan (§M2 modularization gate)", () => {
+  const base = { add: 0, change: 0, destroy: 0, changed: [], moved: [] };
+
+  it("is true only for ≥1 move and zero mutations", () => {
+    expect(isPureMovePlan({ ...base, moved: [{ address: "module.x.aws_s3_bucket.this" }] })).toBe(
+      true,
+    );
+  });
+
+  it("is false without moves, or when anything mutates", () => {
+    expect(isPureMovePlan(base)).toBe(false);
+    expect(
+      isPureMovePlan({
+        ...base,
+        moved: [{ address: "module.x.aws_s3_bucket.this" }],
+        changed: [{ address: "aws_s3_bucket.other" }],
+      }),
+    ).toBe(false);
+    expect(
+      isPureMovePlan({ ...base, add: 1, moved: [{ address: "module.x.aws_s3_bucket.this" }] }),
+    ).toBe(false);
+  });
+});
+
 describe("comparePlanStability (§1.3)", () => {
   const plan = (over: Partial<ReturnType<typeof parseTerraformPlanJson>>) =>
     ({
@@ -1522,6 +1568,7 @@ describe("comparePlanStability (§1.3)", () => {
       changed: [],
       destructive: [],
       hasDestroyOrReplace: false,
+      moved: [],
       ...over,
     }) as ReturnType<typeof parseTerraformPlanJson>;
 
@@ -1790,6 +1837,7 @@ describe("aggregatePlans (empty input)", () => {
       destructive: [],
       hasDestroyOrReplace: false,
       idempotent: true,
+      moved: [],
     });
   });
 });

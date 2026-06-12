@@ -280,6 +280,56 @@ lives in the module call-graph:
   the module or fork it inline. Instead report it (open an issue / PR comment)
   naming the upstream module + version and the concern, so a human routes it.
 
+### Modularization as remediation (M2)
+
+`module_extraction_candidates` finds clusters of raw resources that should be a
+module call, each matched against the repo's house modules (real resource-type
+signature + `required_variables`) and the operator's `module_catalogue`. Turn a
+candidate into a refactor PR under this contract:
+
+- **One PR per cluster**, branch `remediate/modularize-<cluster file/prefix>` —
+  never mix two clusters or a behavioural fix into a modularization PR.
+- Replace the cluster's raw resources with ONE `module` block calling the
+  candidate (pin the version for registry sources; wire the module's REAL
+  variable names from `required_variables` / `terraform_module_interface`).
+- **Preserve state with `moved {}` blocks** — one per resource, mapping the old
+  address to its new `module.<name>.` address:
+
+  ```hcl
+  moved {
+    from = aws_s3_bucket.logs
+    to   = module.logging.aws_s3_bucket.this
+  }
+  ```
+
+- **The gate:** the PR may proceed only when `terraform_validate` passes AND
+  `terraform_plan` reports `refactor_safe: true` (a pure-move plan — zero
+  add/change/destroy). Anything else means a moved block is wrong or the module
+  diverges from the raw resources — fix that or report it; never accept
+  resource churn as "the refactor".
+- A required variable you can't derive from the existing attributes is a
+  **PR question for the reviewer**, never a guessed value.
+
+### Version currency (provider + module upgrades, M3)
+
+`terraform_version_currency` reports which pinned providers and registry modules
+trail the registry's latest stable version, and which registry modules are
+unpinned. Turn its rows into upgrade PRs under this contract:
+
+- **One `chore(deps)` PR per upgrade group** — never mix a version bump with a
+  behavioural fix; a bump PR must read as "only the constraint changed".
+- **Minor/patch bumps** (`outdated` with `majors_behind: 0`) may proceed
+  autonomously: update the `version` constraint to admit `newest_satisfying` →
+  `latest`, then prove it with `terraform_validate` (and `terraform_plan` when
+  credentials exist).
+- **Major bumps** (`majors_behind > 0`) mean the provider/module interface may
+  have changed — apply only with the `needs-human` label, and consult
+  `terraform_module_interface` / `terraform_provider_schema` for what moved.
+- **Unpinned registry modules**: pin to the reported `latest` (`version = "~> X.Y"`),
+  one PR for all unpinned modules in a file group — pinning is low-risk and sweeps well.
+- An upgrade whose `terraform_plan` shows **destructive changes is never auto** —
+  escalate with the plan excerpt in the PR body.
+
 ## Tests for modules (§28)
 
 Terramend does **not** create or edit `examples/` fixtures — leave any the repo

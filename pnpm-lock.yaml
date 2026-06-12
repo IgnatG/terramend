@@ -65,9 +65,6 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.8
         version: 4.1.8(vitest@4.1.8)
-      agent-browser:
-        specifier: 0.27.1
-        version: 0.27.1
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
@@ -107,9 +104,6 @@ importers:
       semver:
         specifier: 7.8.3
         version: 7.8.3
-      skills:
-        specifier: 1.5.10
-        version: 1.5.10
       table:
         specifier: ^6.9.0
         version: 6.9.0
@@ -1044,11 +1038,6 @@ packages:
   agent-base@6.0.2:
     resolution: {integrity: sha512-RZNwNclF7+MS/8bDg70amg32dyeZGZxiDuQmZxKLAlQjr3jGyLx+4Kkk58UO7D2QdgFIQCovuSuZESne6RG6XQ==}
     engines: {node: '>= 6.0.0'}
-
-  agent-browser@0.27.1:
-    resolution: {integrity: sha512-lLzpWDV7nlVsA5km7yMCH1wppvnLLNx160hLwLdDUkCst9x38UhhxoiTmmJ2qreOnCa/Hp4/Gm6Adkahhtb6Hg==}
-    engines: {node: '>=24.0.0', pnpm: '>=11.0.0'}
-    hasBin: true
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -2045,11 +2034,6 @@ packages:
 
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
-
-  skills@1.5.10:
-    resolution: {integrity: sha512-5d9lKHeF4qcF/7LRd8h1arnPGJtRu6GxVoWyt9hh0u1RUe+UrjzXIc6PITE+HMzgqR8sZ/vJtGDi8lrOZTGS7w==}
-    engines: {node: '>=18'}
-    hasBin: true
 
   slice-ansi@4.0.0:
     resolution: {integrity: sha512-qMCMfhY040cVHT43K9BFygqYbUPFZKHOg7K73mtTWJRb8pyP3fzf4Ixd5SzdEJQ6MRUg/WBnOLxghZtKKurENQ==}
@@ -3280,8 +3264,6 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  agent-browser@0.27.1: {}
-
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
       ajv: 8.20.0
@@ -4272,10 +4254,6 @@ snapshots:
   signal-exit@4.1.0: {}
 
   sisteransi@1.0.5: {}
-
-  skills@1.5.10:
-    dependencies:
-      yaml: 2.9.0
 
   slice-ansi@4.0.0:
     dependencies:

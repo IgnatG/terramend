@@ -8,7 +8,6 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { type } from "arktype";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
-import { ensureBrowserDaemon } from "#app/utils/browser";
 import { log } from "#app/utils/log";
 import { resolveEnv } from "#app/utils/secrets";
 
@@ -364,21 +363,6 @@ Do NOT use this tool for git commands — use the dedicated git tools instead.`,
       const timeout = Math.min(params.timeout ?? 30000, 120000);
       const cwd = params.working_directory ?? process.cwd();
       const env = resolveEnv(ctx.payload.shell === "enabled" ? "inherit" : "restricted");
-
-      if (params.command.includes("agent-browser")) {
-        const daemonError = ensureBrowserDaemon(ctx.toolState);
-        if (daemonError) {
-          return {
-            output: `browser daemon unavailable: ${daemonError}`,
-            exit_code: 1,
-            timed_out: false,
-          };
-        }
-        const binDir = ctx.toolState.browserDaemon?.binDir;
-        if (binDir) {
-          env.PATH = `${binDir}:${env.PATH ?? ""}`;
-        }
-      }
 
       if (params.background) {
         const tempDir = getTempDir();

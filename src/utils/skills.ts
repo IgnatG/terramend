@@ -1,12 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { log } from "#app/utils/cli";
-import { getDevDependencyVersion } from "#app/utils/version";
-
-const skillsVersion = getDevDependencyVersion("skills");
 
 /**
  * skills bundled with the action runtime. the SKILL.md files live in
@@ -69,65 +64,4 @@ export function installBundledSkills(params: { home: string }): void {
     }
   }
   log.success(`installed bundled skills: ${BUNDLED_SKILL_NAMES.join(", ")}`);
-}
-
-/**
- * install a skill globally via the `skills` CLI.
- *
- * runs `npx skills add <ref> --skill <name> -g` with `cwd` set to os tmpdir
- * so npm doesn't walk up and find a project-level `.npmrc` with pnpm-specific
- * settings (e.g. `public-hoist-pattern`) that break npx binary resolution.
- * the `-g` flag writes to `$HOME/.agents/skills/` which is controlled by
- * `params.env.HOME` (the fake HOME), so cwd has no effect on install location.
- */
-export function addSkill(params: {
-  ref: string;
-  skill: string;
-  env: Record<string, string>;
-  agent: string;
-}): void {
-  const result = spawnSync(
-    "npx",
-    [
-      "-y",
-      `skills@${skillsVersion}`,
-      "add",
-      params.ref,
-      "--skill",
-      params.skill,
-      "-g",
-      "-a",
-      params.agent,
-      "-y",
-    ],
-    {
-      cwd: tmpdir(),
-      env: { ...process.env, ...params.env },
-      stdio: "pipe",
-      timeout: 30_000,
-    },
-  );
-  if (result.status === 0) {
-    log.success(`installed ${params.skill} skill (${params.agent})`);
-    return;
-  }
-  // skills CLI uses a Clack-style TUI that prints errors to stdout (alongside
-  // spinner output), not stderr. report exit code + both streams + spawn
-  // error so failures aren't silent. tail-truncate streams to keep CI logs
-  // bounded.
-  const stdout = (result.stdout?.toString() || "").trim();
-  const stderr = (result.stderr?.toString() || "").trim();
-  const parts = [
-    `exit=${result.status ?? "null"} signal=${result.signal ?? "null"}`,
-    result.error ? `spawn error: ${result.error.message}` : null,
-    stderr ? `stderr:\n${tailLines(stderr, 20)}` : null,
-    stdout ? `stdout:\n${tailLines(stdout, 20)}` : null,
-  ].filter(Boolean);
-  log.warning(`${params.skill} skill install failed — ${parts.join(" | ")}`);
-}
-
-function tailLines(text: string, n: number): string {
-  const lines = text.split("\n");
-  if (lines.length <= n) return text;
-  return `...(truncated, last ${n} of ${lines.length} lines)\n${lines.slice(-n).join("\n")}`;
 }

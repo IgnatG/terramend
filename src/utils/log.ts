@@ -39,6 +39,31 @@ function prefixPlain(name: string): string {
   return `${ctx.prefix} ${name}`;
 }
 
+// --- log sink ----------------------------------------------------------------
+
+type LogSink = "actions" | "stderr";
+
+let sink: LogSink = "actions";
+
+/**
+ * Route ALL log output to stderr instead of `@actions/core` (which writes to
+ * stdout). Required before starting a stdio MCP server: stdout is the JSON-RPC
+ * channel there, and a single stray diagnostic line corrupts the framing.
+ * The GitHub Action path never calls this — its sink stays `@actions/core`.
+ */
+export function setLogSink(next: LogSink): void {
+  sink = next;
+}
+
+/** info-level line via the active sink. */
+function emitInfo(line: string): void {
+  if (sink === "stderr") {
+    process.stderr.write(`${line}\n`);
+    return;
+  }
+  core.info(line);
+}
+
 const isRunnerDebugEnabled = () => core.isDebug();
 
 const isLocalDebugEnabled = () =>
@@ -69,6 +94,10 @@ function formatArgs(args: unknown[]): string {
  */
 function startGroup(name: string): void {
   const prefixed = prefixPlain(name);
+  if (sink === "stderr") {
+    emitInfo(`▼ ${prefixed}`);
+    return;
+  }
   if (isGitHubActions) {
     core.startGroup(prefixed);
   } else {
@@ -80,6 +109,7 @@ function startGroup(name: string): void {
  * End a collapsed group
  */
 function endGroup(): void {
+  if (sink === "stderr") return;
   if (isGitHubActions) {
     core.endGroup();
   } else {
@@ -186,7 +216,7 @@ function box(
   },
 ): void {
   const boxContent = boxString(text, options);
-  core.info(prefixLines(boxContent));
+  emitInfo(prefixLines(boxContent));
 }
 
 /**
@@ -233,9 +263,9 @@ function printTable(
   const formatted = table(tableData);
 
   if (title) {
-    core.info(prefixLines(`\n${title}`));
+    emitInfo(prefixLines(`\n${title}`));
   }
-  core.info(prefixLines(`\n${formatted}\n`));
+  emitInfo(prefixLines(`\n${formatted}\n`));
 }
 
 /**
@@ -243,7 +273,7 @@ function printTable(
  */
 function separator(length: number = 50): void {
   const separatorText = "─".repeat(length);
-  core.info(prefixLines(separatorText));
+  emitInfo(prefixLines(separatorText));
 }
 
 /**
@@ -252,32 +282,40 @@ function separator(length: number = 50): void {
 export const log = {
   /** Print info message */
   info: (...args: unknown[]): void => {
-    core.info(prefixLines(`${ts()}${formatArgs(args)}`));
+    emitInfo(prefixLines(`${ts()}${formatArgs(args)}`));
   },
 
   /** Print a warning message. Use only for warnings that should be displayed in the job summary. */
   warning: (...args: unknown[]): void => {
+    if (sink === "stderr") {
+      emitInfo(prefixLines(`${ts()}warning: ${formatArgs(args)}`));
+      return;
+    }
     core.warning(prefixLines(`${ts()}${formatArgs(args)}`));
   },
 
   /** Print an error message. Use only for errors that should be displayed in the job summary. */
   error: (...args: unknown[]): void => {
+    if (sink === "stderr") {
+      emitInfo(prefixLines(`${ts()}error: ${formatArgs(args)}`));
+      return;
+    }
     core.error(prefixLines(`${ts()}${formatArgs(args)}`));
   },
 
   /** Print success message */
   success: (...args: unknown[]): void => {
-    core.info(prefixLines(`${ts()}» ${formatArgs(args)}`));
+    emitInfo(prefixLines(`${ts()}» ${formatArgs(args)}`));
   },
 
   /** Print debug message (only when debug mode is enabled) */
   debug: (...args: unknown[]): void => {
-    if (isRunnerDebugEnabled()) {
+    if (sink === "actions" && isRunnerDebugEnabled()) {
       core.debug(prefixLines(formatArgs(args)));
       return;
     }
     if (isLocalDebugEnabled()) {
-      core.info(prefixLines(`${ts()}[DEBUG] ${formatArgs(args)}`));
+      emitInfo(prefixLines(`${ts()}[DEBUG] ${formatArgs(args)}`));
     }
   },
 

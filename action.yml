@@ -1,5 +1,5 @@
 name: "Terramend Action"
-description: "Execute coding agents with a prompt"
+description: "Remediate Terraform to best practices: scan, fix, prove the fix (✗→✓ re-scan), and open one reviewable PR per concern"
 author: "Terramend"
 
 inputs:

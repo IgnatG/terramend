@@ -2,6 +2,7 @@ import { basename } from "node:path";
 import arg from "arg";
 import pc from "picocolors";
 import { runCli as runGhaCli } from "#app/commands/gha";
+import { runMcpCli } from "#app/commands/mcp";
 
 const VERSION = process.env.CLI_VERSION ?? "0.0.0";
 const bin = basename(process.argv[1] || "");
@@ -12,6 +13,7 @@ function printMainUsage(stream: typeof console.log): void {
   stream(`usage: ${PROG} <command>\n`);
   stream("commands:");
   stream("  gha         run the github action runtime flow (used by action.yml)");
+  stream("  mcp         start the local MCP server (stdio) with read-only terraform tools");
   stream("");
   stream("global options:");
   stream("  -h, --help      show help");
@@ -68,6 +70,15 @@ async function run(): Promise<void> {
 
   if (command === "gha") {
     await runGhaCli({
+      args: commandArgs,
+      prog: PROG,
+      showHelp: globalParsed["--help"] === true,
+    });
+    return;
+  }
+
+  if (command === "mcp") {
+    await runMcpCli({
       args: commandArgs,
       prog: PROG,
       showHelp: globalParsed["--help"] === true,

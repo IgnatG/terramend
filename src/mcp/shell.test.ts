@@ -11,15 +11,10 @@ const cp = vi.hoisted(() => ({
   spawnSync: vi.fn(),
 }));
 
-const browser = vi.hoisted(() => ({
-  ensureBrowserDaemon: vi.fn<(toolState: unknown) => string | undefined>(),
-}));
-
 vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return { ...actual, spawn: cp.spawn, spawnSync: cp.spawnSync };
 });
-vi.mock("#app/utils/browser", () => ({ ensureBrowserDaemon: browser.ensureBrowserDaemon }));
 
 /** minimal ChildProcess stand-in. emits nothing until the test says so. */
 class FakeProc extends EventEmitter {
@@ -55,12 +50,10 @@ function makeCtx(over: Partial<Record<string, unknown>> = {}): {
   ctx: ToolContext;
   toolState: {
     backgroundProcesses: Map<string, { pid: number; outputPath: string; pidPath: string }>;
-    browserDaemon?: { binDir: string } | undefined;
   };
 } {
   const toolState = {
     backgroundProcesses: new Map<string, { pid: number; outputPath: string; pidPath: string }>(),
-    browserDaemon: over.browserDaemon as { binDir: string } | undefined,
   };
   const ctx = {
     payload: { shell: over.shell ?? "restricted" },
@@ -416,38 +409,6 @@ describe("shell tool sandbox command construction", () => {
     await resultP;
     const args = (cp.spawn.mock.calls[0] ?? [])[1] as string[];
     expect(args[5] ?? "").toContain(".git");
-  });
-});
-
-describe("shell tool agent-browser integration", () => {
-  it("returns an error payload when the browser daemon is unavailable", async () => {
-    browser.ensureBrowserDaemon.mockReturnValue("install failed");
-    const shell = await loadShell();
-    const { ctx } = makeCtx();
-    const result = await runTool(shell.ShellTool(ctx), {
-      command: "agent-browser open https://example.com",
-      description: "d",
-    });
-    expect(result.isError).toBeUndefined();
-    expect(textOf(result)).toContain("browser daemon unavailable: install failed");
-    expect(textOf(result)).toContain("exit_code: 1");
-    expect(cp.spawn).not.toHaveBeenCalled();
-  });
-
-  it("prefixes PATH with the daemon bin dir when available", async () => {
-    browser.ensureBrowserDaemon.mockReturnValue(undefined);
-    const shell = await loadShell();
-    const { ctx } = makeCtx({ browserDaemon: { binDir: "/opt/agent-browser/bin" } });
-    const proc = new FakeProc();
-    cp.spawn.mockReturnValue(proc);
-    const resultP = runTool(shell.ShellTool(ctx), {
-      command: "agent-browser snapshot",
-      description: "d",
-    });
-    proc.emit("exit", 0);
-    await resultP;
-    const opts = (cp.spawn.mock.calls[0] ?? [])[2] as { env: Record<string, string> };
-    expect(opts.env.PATH?.startsWith("/opt/agent-browser/bin:")).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { type } from "arktype";
-import type { ToolContext } from "#app/mcp/server";
+import type { LocalToolContext } from "#app/mcp/localContext";
 import { execute, tool } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
@@ -124,7 +124,7 @@ export const TerraformProviderSchemaParams = type({
     ),
 });
 
-export function TerraformProviderSchemaTool(ctx: ToolContext) {
+export function TerraformProviderSchemaTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_provider_schema",
     description:

@@ -17,8 +17,6 @@ export type BackgroundProcess = {
   pidPath: string;
 };
 
-export type BrowserDaemon = { binDir: string; error?: never } | { binDir?: never; error: string };
-
 export type StoredPushDest = {
   remoteName: string;
   remoteBranch: string;
@@ -144,7 +142,6 @@ export interface ToolState {
   // a run.
   prepushFailureCount: number;
   backgroundProcesses: Map<string, BackgroundProcess>;
-  browserDaemon?: BrowserDaemon | undefined;
   review?: {
     id: number;
     nodeId: string;

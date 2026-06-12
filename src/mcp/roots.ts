@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
+import type { LocalToolContext } from "#app/mcp/localContext";
 import { walkTfFiles } from "#app/mcp/modules";
-import type { ToolContext } from "#app/mcp/server";
 import { execute, tool } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
 
@@ -171,7 +171,7 @@ export function detectEnvironmentTwins(paths: string[]): EnvironmentTwinGroup[] 
 
 export const TerraformRootsParams = type({});
 
-export function TerraformRootsTool(ctx: ToolContext) {
+export function TerraformRootsTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_roots",
     description:

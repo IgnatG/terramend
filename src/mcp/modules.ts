@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { type } from "arktype";
-import type { ToolContext } from "#app/mcp/server";
+import type { LocalToolContext } from "#app/mcp/localContext";
 import { execute, tool, toolOk } from "#app/mcp/shared";
 import { log } from "#app/utils/cli";
 
@@ -569,7 +569,7 @@ export function collectModuleInterface(cwd: string, moduleDir: string): ModuleIn
 
 export const ListModulesParams = type({});
 
-export function ListModulesTool(ctx: ToolContext) {
+export function ListModulesTool(ctx: LocalToolContext) {
   return tool({
     name: "list_modules",
     description:
@@ -611,7 +611,7 @@ export function ListModulesTool(ctx: ToolContext) {
 
 export const TerraformModuleGraphParams = type({});
 
-export function TerraformModuleGraphTool(ctx: ToolContext) {
+export function TerraformModuleGraphTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_module_graph",
     description:
@@ -655,7 +655,7 @@ export const TerraformModuleInterfaceParams = type({
   ),
 });
 
-export function TerraformModuleInterfaceTool(ctx: ToolContext) {
+export function TerraformModuleInterfaceTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_module_interface",
     description:

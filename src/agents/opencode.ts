@@ -95,10 +95,9 @@ import type { AgentDiagnostic } from "#app/utils/agentHangReport";
 import { formatJsonValue, log } from "#app/utils/cli";
 import { installCodexAuth } from "#app/utils/codexHome";
 import { findProviderErrorMatch } from "#app/utils/providerErrors";
-import { addSkill, installBundledSkills } from "#app/utils/skills";
+import { installBundledSkills } from "#app/utils/skills";
 import { trackChild, untrackChild } from "#app/utils/subprocess";
 import type { TodoTracker } from "#app/utils/todoTracking";
-import { getDevDependencyVersion } from "#app/utils/version";
 import { resolveVertexOpenCodeModel } from "#app/utils/vertex";
 
 const installCli = () => installOpencodeCli({ binPath: "bin/opencode.exe" });
@@ -1017,13 +1016,6 @@ export const opencode = agent({
       TERRAMEND_OPENCODE_GATE_PLUGIN_SOURCE,
     );
 
-    const agentBrowserVersion = getDevDependencyVersion("agent-browser");
-    addSkill({
-      ref: `vercel-labs/agent-browser@v${agentBrowserVersion}`,
-      skill: "agent-browser",
-      env: homeEnv,
-      agent: "opencode",
-    });
     installBundledSkills({ home: homeEnv.HOME });
 
     // materialize CODEX_AUTH_JSON into the runner's real $HOME/.local/share/

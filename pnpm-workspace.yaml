@@ -7,13 +7,11 @@
 #   esbuild                    — installs the esbuild binary; required by `pnpm build`
 #   @anthropic-ai/claude-code  — installs the Claude Code agent backend
 #   opencode-ai                — installs the opencode agent backend
-#   agent-browser              — downloads a browser for the browser-automation tools
 #   tldjs                      — refreshes its bundled public-suffix list
 allowBuilds:
   esbuild: true
   '@anthropic-ai/claude-code': true
   opencode-ai: true
-  agent-browser: true
   tldjs: true
 
 # pnpm 11 defaults minimumReleaseAge to 1440 min (24h): a published version must

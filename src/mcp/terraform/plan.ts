@@ -13,6 +13,10 @@ export interface PlanSummary {
   /** resources that would be deleted or replaced — the destructive set. */
   destructive: { address: string; action: string }[];
   hasDestroyOrReplace: boolean;
+  /** state-only moves (`moved {}` blocks / refactors): the new address and the
+   * address it came from. Moves don't mutate live infrastructure, so they are
+   * NOT in `changed` — they power the M2 modularization gate (`isPureMovePlan`). */
+  moved: { address: string; previousAddress: string | null }[];
 }
 
 /**
@@ -46,13 +50,18 @@ export function parseTerraformPlanJson(stdout: string): PlanSummary {
   let destroy = 0;
   const changed: { address: string; action: string }[] = [];
   const destructive: { address: string; action: string }[] = [];
+  const moved: { address: string; previousAddress: string | null }[] = [];
   for (const line of stdout.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
     let msg: {
       type?: string;
       changes?: { add?: number; change?: number; remove?: number };
-      change?: { action?: string; resource?: { addr?: string; resource?: string } };
+      change?: {
+        action?: string;
+        resource?: { addr?: string; resource?: string };
+        previous_resource?: { addr?: string; resource?: string };
+      };
     };
     try {
       msg = JSON.parse(trimmed);
@@ -65,6 +74,15 @@ export function parseTerraformPlanJson(stdout: string): PlanSummary {
       destroy = Number(msg.changes.remove) || 0;
     } else if (msg.type === "planned_change" && msg.change) {
       const action = String(msg.change.action ?? "");
+      // moves are state-only (no infra mutation) but are tracked separately —
+      // they prove an M2 modularization refactor is a no-op (`isPureMovePlan`).
+      if (action === "move") {
+        const address = msg.change.resource?.addr || msg.change.resource?.resource || "(unknown)";
+        const previousAddress =
+          msg.change.previous_resource?.addr || msg.change.previous_resource?.resource || null;
+        moved.push({ address, previousAddress });
+        continue;
+      }
       if (!action || NON_MUTATING_PLAN_ACTIONS.has(action)) continue;
       const address = msg.change.resource?.addr || msg.change.resource?.resource || "(unknown)";
       changed.push({ address, action });
@@ -81,7 +99,29 @@ export function parseTerraformPlanJson(stdout: string): PlanSummary {
     changed,
     destructive,
     hasDestroyOrReplace: destructive.length > 0,
+    moved,
   };
+}
+
+/**
+ * §M2 modularization gate — true when the plan is PURELY state moves: at least
+ * one `moved` entry and zero create/update/delete/replace. That proves a
+ * resources→module refactor preserved every resource address (via `moved {}`
+ * blocks) and is a no-op on live infrastructure — the condition under which a
+ * modularization PR may proceed without human escalation.
+ */
+export function isPureMovePlan(plan: {
+  add: number;
+  change: number;
+  destroy: number;
+  changed: { address: string }[];
+  moved: { address: string }[];
+}): boolean {
+  return (
+    plan.moved.length > 0 &&
+    plan.changed.length === 0 &&
+    plan.add + plan.change + plan.destroy === 0
+  );
 }
 
 // --- stateful destroy/replace classification (safety gate §2.5) ------------
@@ -268,6 +308,7 @@ export interface AggregatedPlan {
   destructive: { address: string; action: string }[];
   hasDestroyOrReplace: boolean;
   idempotent: boolean;
+  moved: { address: string; previousAddress: string | null }[];
 }
 
 /**
@@ -284,12 +325,14 @@ export function aggregatePlans(roots: RootPlan[]): AggregatedPlan {
   let idempotent = true;
   const changed: { address: string; action: string }[] = [];
   const destructive: { address: string; action: string }[] = [];
+  const moved: { address: string; previousAddress: string | null }[] = [];
   for (const r of roots) {
     add += r.summary.add;
     change += r.summary.change;
     destroy += r.summary.destroy;
     changed.push(...r.summary.changed);
     destructive.push(...r.summary.destructive);
+    moved.push(...r.summary.moved);
     if (!r.stable) idempotent = false;
   }
   return {
@@ -300,5 +343,6 @@ export function aggregatePlans(roots: RootPlan[]): AggregatedPlan {
     destructive,
     hasDestroyOrReplace: destructive.length > 0,
     idempotent,
+    moved,
   };
 }

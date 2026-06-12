@@ -76,8 +76,8 @@ vi.mock("#app/utils/codexHome", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#app/utils/codexHome")>();
   return { ...actual, installCodexAuth: vi.fn(() => null) };
 });
-// skills install shells out to npx.
-vi.mock("#app/utils/skills", () => ({ addSkill: vi.fn(), installBundledSkills: vi.fn() }));
+// skills install writes into the fake HOME.
+vi.mock("#app/utils/skills", () => ({ installBundledSkills: vi.fn() }));
 // child tracking installs process-wide signal handlers.
 vi.mock("#app/utils/subprocess", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#app/utils/subprocess")>();

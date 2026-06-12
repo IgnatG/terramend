@@ -30,6 +30,7 @@ import { GetIssueCommentsTool } from "#app/mcp/issueComments";
 import { GetIssueEventsTool } from "#app/mcp/issueEvents";
 import { IssueInfoTool } from "#app/mcp/issueInfo";
 import { AddLabelsTool } from "#app/mcp/labels";
+import { ModuleExtractionCandidatesTool } from "#app/mcp/moduleExtraction";
 import {
   ListModulesTool,
   TerraformModuleGraphTool,
@@ -58,12 +59,12 @@ import {
   TerraformScanTool,
   TerraformValidateTool,
   TerraformVerifyRemediationTool,
+  TerraformVersionCurrencyTool,
 } from "#app/mcp/terraform";
 import { ScaffoldTerratestTool } from "#app/mcp/terratest";
 import { UploadFileTool } from "#app/mcp/upload";
 import type { Mode } from "#app/modes";
 import type { ToolState } from "#app/toolState";
-import { closeBrowserDaemon } from "#app/utils/browser";
 import type { OctokitWithPlugins } from "#app/utils/github";
 import type { ResolvedPayload } from "#app/utils/payload";
 import type { AccountPlan } from "#app/utils/runContext";
@@ -169,9 +170,11 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     InfracostDiffTool(ctx),
     ReadFindingsTool(ctx),
     TerraformPlanTool(ctx),
+    TerraformVersionCurrencyTool(ctx),
     ListModulesTool(ctx),
     TerraformModuleGraphTool(ctx),
     TerraformModuleInterfaceTool(ctx),
+    ModuleExtractionCandidatesTool(ctx),
     TerraformProviderSchemaTool(ctx),
     TerraformRootsTool(ctx),
     ScaffoldTerratestTool(ctx),
@@ -331,7 +334,6 @@ export async function startMcpHttpServer(
     [Symbol.asyncDispose]: async () => {
       if (disposed) return;
       disposed = true;
-      closeBrowserDaemon(ctx.toolState);
       await killBackgroundProcesses(ctx.toolState);
       await startResult.server.stop();
     },

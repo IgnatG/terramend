@@ -55,7 +55,7 @@ import { preflightClaudeSubscription } from "#app/utils/claudeSubscription";
 import { formatJsonValue, log } from "#app/utils/cli";
 import { installFromNpmTarball } from "#app/utils/install";
 import { findProviderErrorMatch } from "#app/utils/providerErrors";
-import { addSkill, installBundledSkills } from "#app/utils/skills";
+import { installBundledSkills } from "#app/utils/skills";
 import {
   DEFAULT_MAX_RETAINED_BYTES,
   SPAWN_ACTIVITY_TIMEOUT_CODE,
@@ -1076,14 +1076,6 @@ export const claude = agent({
     };
 
     mkdirSync(join(homeEnv.XDG_CONFIG_HOME, "claude"), { recursive: true });
-
-    const agentBrowserVersion = getDevDependencyVersion("agent-browser");
-    addSkill({
-      ref: `vercel-labs/agent-browser@v${agentBrowserVersion}`,
-      skill: "agent-browser",
-      env: homeEnv,
-      agent: "claude-code",
-    });
 
     installBundledSkills({ home: homeEnv.HOME });
 
