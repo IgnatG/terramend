@@ -18,6 +18,7 @@ import {
   toRepoRelative,
 } from "#app/mcp/terraform/types";
 import { log } from "#app/utils/cli";
+import { type ResolvedToolSelection, scannerToolId } from "#app/utils/toolSelection";
 
 // dirs already `terraform init`-ed this process, so repeated scans don't re-init.
 const initedDirs = new Set<string>();
@@ -30,9 +31,16 @@ const initedDirs = new Set<string>();
  * `-input=false` keeps it non-interactive. Network-dependent and best-effort: if
  * it fails (offline, private module, etc.) validate still runs, just shallow.
  */
-function ensureTerraformInit(cwd: string): void {
+function ensureTerraformInit(cwd: string, extraEnv?: Record<string, string>): void {
   if (initedDirs.has(cwd)) return;
-  const r = run("terraform", ["init", "-backend=false", "-input=false", "-no-color"], cwd);
+  // `extraEnv` carries the optional module-fetch credential (§1.5) so init can
+  // resolve a private cross-repo `git::` module; absent for the common case.
+  const r = run(
+    "terraform",
+    ["init", "-backend=false", "-input=false", "-no-color"],
+    cwd,
+    extraEnv,
+  );
   // mark done even on non-zero: a failed init won't succeed on retry within the
   // same run, and we don't want to re-run it for every scanner call.
   initedDirs.add(cwd);
@@ -93,8 +101,8 @@ const VALIDATE_NOISE = [
 ];
 
 /** run `terraform validate` in one root and return concerns re-based onto cwd. */
-function scanValidateRoot(root: ResolvedRoot): ScannerOutcome {
-  ensureTerraformInit(root.absDir);
+function scanValidateRoot(root: ResolvedRoot, extraEnv?: Record<string, string>): ScannerOutcome {
+  ensureTerraformInit(root.absDir, extraEnv);
   const r = run("terraform", ["validate", "-json"], root.absDir);
   if (r.missing) return skipped("terraform-validate", "terraform not installed");
   try {
@@ -120,14 +128,14 @@ function scanValidateRoot(root: ResolvedRoot): ScannerOutcome {
  * whole tree), so a multi-root repo only catches subdir-root validate errors
  * when we visit each root.
  */
-export function scanValidate(cwd: string): ScannerOutcome {
+export function scanValidate(cwd: string, extraEnv?: Record<string, string>): ScannerOutcome {
   const roots = resolveRoots(cwd);
   const concerns: Concern[] = [];
   let anyRan = false;
   let sawMissing = false;
   let unvalidated = 0;
   for (const root of roots) {
-    const outcome = scanValidateRoot(root);
+    const outcome = scanValidateRoot(root, extraEnv);
     unvalidated += outcome.unvalidated ?? 0;
     if (outcome.ran) {
       anyRan = true;
@@ -747,10 +755,37 @@ export function changedTerraformFiles(cwd: string): Set<string> | null {
   return new Set(files);
 }
 
+export interface RunScannersOptions {
+  /** §1.5 — the resolved tool selection. A scanner whose tool is gated/disabled
+   * is reported as a `skipped` outcome (with the licence/disable reason) instead
+   * of running, so `terraform_scan` and the ✗→✓ verifier see the SAME toolchain. */
+  selection?: ResolvedToolSelection | undefined;
+  /** §1.5 — module-fetch credential env, threaded into `terraform validate`'s
+   * init so a private cross-repo `git::` module resolves during a scan. */
+  terraformEnv?: Record<string, string> | undefined;
+}
+
 /** run every scanner once over `cwd`. shared by `terraform_scan` and the
- * deterministic remediation verifier so both see the identical toolchain. */
-export function runScanners(cwd: string): ScannerOutcome[] {
-  return [scanFmt(cwd), scanValidate(cwd), scanTflint(cwd), scanTrivy(cwd), scanCheckov(cwd)];
+ * deterministic remediation verifier so both see the identical toolchain. A
+ * scanner the selection has turned off is emitted as `skipped` (never run), so
+ * the gate applies identically to the scan and its verification re-scan. */
+export function runScanners(cwd: string, opts: RunScannersOptions = {}): ScannerOutcome[] {
+  const { selection, terraformEnv } = opts;
+  const gate = (source: Concern["source"], runner: () => ScannerOutcome): ScannerOutcome => {
+    if (!selection) return runner();
+    const id = scannerToolId(source);
+    if (id && !selection.enabled(id)) {
+      return skipped(source, selection.offReason(id) ?? "disabled by tools_enabled");
+    }
+    return runner();
+  };
+  return [
+    gate("terraform-fmt", () => scanFmt(cwd)),
+    gate("terraform-validate", () => scanValidate(cwd, terraformEnv)),
+    gate("tflint", () => scanTflint(cwd)),
+    gate("trivy", () => scanTrivy(cwd)),
+    gate("checkov", () => scanCheckov(cwd)),
+  ];
 }
 
 export interface RemediationVerdict {

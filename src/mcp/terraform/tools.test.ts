@@ -36,6 +36,7 @@ import {
   TerraformVerifyRemediationTool,
 } from "#app/mcp/terraform/tools";
 import { concernId } from "#app/mcp/terraform/types";
+import { parseToolSelection } from "#app/utils/toolSelection";
 
 // --- fake subprocess plumbing ----------------------------------------------
 
@@ -70,7 +71,12 @@ function makeCtx(
   over: { payload?: Record<string, unknown>; toolState?: Record<string, unknown> } = {},
 ): ToolContext {
   return {
-    payload: { cwd, ...(over.payload ?? {}) },
+    // §1.5 — default these tests to the full toolchain (`tools_enabled: all`) so
+    // they exercise every scanner; the licence gate's default (non-permissive
+    // tools off) is covered explicitly in the gate tests + toolSelection.test.ts.
+    // `over.payload` can override (e.g. pass toolsEnabled: undefined to assert the
+    // bare default).
+    payload: { cwd, toolsEnabled: parseToolSelection("all"), ...(over.payload ?? {}) },
     toolState: { ...(over.toolState ?? {}) },
     tmpdir: makeDir(),
   } as unknown as ToolContext;
@@ -238,6 +244,59 @@ describe("TerraformScanTool", () => {
     expect(Object.keys(result.prevention as Record<string, unknown>)).toEqual(
       expect.arrayContaining(["trivy:AVD-AWS-0001", "tflint:terraform_unused_declarations"]),
     );
+  });
+
+  it("§1.5 licence-gates tflint off by default and reports it as a gated skip", async () => {
+    const cwd = makeDir({ "main.tf": tf });
+    dispatch = scannersDispatch();
+    // a bare run (no tools_enabled) → the default licence gate applies.
+    const ctx = makeCtx(cwd, { payload: { toolsEnabled: undefined } });
+
+    const result = await runTool(TerraformScanTool(ctx));
+
+    // tflint (MPL-2.0) is not run; the permissive scanners still are.
+    expect(result.scanners_ran).not.toContain("tflint");
+    expect(result.scanners_ran).toEqual(
+      expect.arrayContaining(["terraform-fmt", "terraform-validate", "trivy"]),
+    );
+    // it's surfaced as a licence-gated skip + in the tool_selection summary.
+    const tflintSkip = (result.scanners_skipped as Array<{ source: string; reason?: string }>).find(
+      (s) => s.source === "tflint",
+    );
+    expect(tflintSkip?.reason).toMatch(/licence-gated/i);
+    expect(result.tool_selection).toMatchObject({
+      licence_gated: expect.arrayContaining(["tflint"]),
+    });
+    // the tflint concern is absent from the baseline, so verify stays consistent.
+    expect(ctx.toolState.baselineConcernIds).toHaveLength(3);
+  });
+
+  it("§1.5 runs tflint when it is the licence-aware opt-in in tools_enabled", async () => {
+    const cwd = makeDir({ "main.tf": tf });
+    dispatch = scannersDispatch();
+    const ctx = makeCtx(cwd, { payload: { toolsEnabled: parseToolSelection("tflint") } });
+
+    const result = await runTool(TerraformScanTool(ctx));
+
+    expect(result.scanners_ran).toContain("tflint");
+    // tflint is no longer gated (it was opted in); terraform_mcp still is.
+    const gated = (result.tool_selection as { licence_gated: string[] }).licence_gated;
+    expect(gated).not.toContain("tflint");
+  });
+
+  it("§1.5 disables a permissive scanner when tools_enabled vetoes it", async () => {
+    const cwd = makeDir({ "main.tf": tf });
+    dispatch = scannersDispatch();
+    const ctx = makeCtx(cwd, { payload: { toolsEnabled: parseToolSelection("all, -trivy") } });
+
+    const result = await runTool(TerraformScanTool(ctx));
+
+    expect(result.scanners_ran).not.toContain("trivy");
+    const trivySkip = (result.scanners_skipped as Array<{ source: string; reason?: string }>).find(
+      (s) => s.source === "trivy",
+    );
+    expect(trivySkip?.reason).toMatch(/disabled via tools_enabled/);
+    expect(result.tool_selection).toMatchObject({ disabled: expect.arrayContaining(["trivy"]) });
   });
 
   it("filters by the explicit severity_threshold but keeps the baseline unfiltered", async () => {

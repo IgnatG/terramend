@@ -148,6 +148,13 @@ carries the secure defaults for you.
   collection — `vpc`, `s3-bucket`, `rds`, `eks`, …), pinned, when generating new infra.
 - **Your own / house modules.** List them in `module_catalogue` (a local path like `./modules/net` or a
   private registry ref) and Terramend uses them with their exact variable names, pinned.
+- **Private cross-repo modules (another org repo).** A module referenced as
+  `git::https://github.com/<org>/<repo>.git//path?ref=…` from a *private* repo can't be fetched with the
+  job token (it's single-repo). Pass a scoped `module_fetch_token` (a PAT, GitHub App token, or
+  fine-grained token with read access to the module repo) and Terramend authorises `terraform init`/`plan`
+  to fetch it. The token is injected per-subprocess via `GIT_CONFIG_*` — never written to disk, never the
+  action's own git. HTTPS sources only (SSH/deploy-key isn't covered). Pass it from a secret, e.g.
+  `module_fetch_token: ${{ secrets.MODULE_FETCH_TOKEN }}`.
 - **Module-source-aware fixes.** Terramend reads your `module` call-graph: a concern inside a **local
   module** is fixed once at its source (and the change propagates to every caller); a concern that would
   require editing a **registry/git/remote** module is reported (it lives outside the repo) rather than
@@ -161,6 +168,16 @@ carries the secure defaults for you.
   major bumps always escalate to `needs-human`.
 - **Live registry knowledge (opt-in).** Set `terraform_mcp: "true"` to give the agent HashiCorp's
   terraform-mcp-server (current module versions, provider argument shapes) — see [mcp.md](mcp.md).
+- **Choosing the toolchain (`tools_enabled`).** One declarative allow/deny list controls which external
+  tools run: comma- or newline-separated tokens, each a tool name (`terraform`, `tflint`, `trivy`,
+  `checkov`, `infracost`, `gitleaks`, `conftest`, `terratest`, `terraform_mcp`), `-tool` to disable one, or
+  the bases `all` / `none`. **Permissively-licensed tools run by default; non-permissive ones are off until
+  you name them.** In particular **tflint (MPL-2.0, with an embedded BUSL Terraform fork) no longer runs by
+  default** — opt in with `tools_enabled: "tflint"` (naming it is the explicit, licence-aware
+  acknowledgement). Terraform itself is the required substrate and always runs. Examples:
+  `tools_enabled: "tflint"` (add tflint to the permissive defaults), `tools_enabled: "all, -trivy"`
+  (everything except Trivy), `tools_enabled: "none, +checkov"` (only Checkov + the substrate). The dedicated
+  `gitleaks` / `terratest` / `terraform_mcp` inputs still work and count as an opt-in.
 - **Tests (opt-in Terratest).** With the `terratest` input on, Terramend scaffolds a plan-only Go
   [Terratest](https://terratest.gruntwork.io/) smoke test **and** a native `*.tftest.hcl` test for a
   reusable module it generates — both plan the module directly (Terramend does **not** generate

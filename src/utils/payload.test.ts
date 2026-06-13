@@ -414,6 +414,8 @@ describe("resolvePayload — Terraform remediation inputs", () => {
       terratest: "on",
       base_branch: "refs/heads/release/1.2",
       allow_replace: "aws_db_instance.main, aws_s3_bucket.* ,",
+      tools_enabled: "all, -trivy",
+      module_fetch_token: "ghp_moduletoken",
     });
 
     const payload = resolvePayload("p", makeRepoSettings());
@@ -430,6 +432,11 @@ describe("resolvePayload — Terraform remediation inputs", () => {
     expect(payload.terratest).toBe(true);
     expect(payload.baseBranch).toBe("release/1.2");
     expect(payload.allowReplace).toEqual(["aws_db_instance.main", "aws_s3_bucket.*"]);
+    // §1.5 — the unified tool-selection list parses into a directive…
+    expect(payload.toolsEnabled?.base).toBe("all");
+    expect(payload.toolsEnabled?.explicit.get("trivy")).toBe(false);
+    // …and the scoped module-fetch token is carried verbatim.
+    expect(payload.moduleFetchToken).toBe("ghp_moduletoken");
   });
 
   it("degrades invalid remediation inputs to undefined / false", () => {

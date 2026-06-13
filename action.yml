@@ -68,6 +68,12 @@ inputs:
   terraform_mcp:
     description: "Terraform remediation/generation: set 'true' to give the agent live Terraform Registry knowledge (current module versions, provider argument shapes) via HashiCorp's terraform-mcp-server, run as a version-pinned Docker image with the read-only registry toolset only. Requires docker on the runner; degrades green with a log note when absent. Default: false."
     required: false
+  tools_enabled:
+    description: "Terraform remediation/generation: one declarative allow/deny list for the external tool toolchain, comma- or newline-separated. Each token names a tool (terraform, tflint, trivy, checkov, infracost, gitleaks, conftest, terratest, terraform_mcp); prefix '-' to disable one (e.g. '-trivy'). Use the base words 'all' (enable every tool) or 'none' (enable nothing but what you then add). Non-permissively-licensed tools (tflint, terraform_mcp) are OFF by default and only run when you name them here — naming one is the explicit, licence-aware opt-in (terraform itself is the required substrate and always runs). Composes with the dedicated booleans (gitleaks/terratest/terraform_mcp). Default: unset (permissive tools on, non-permissive tools off)."
+    required: false
+  module_fetch_token:
+    description: "Terraform remediation/generation: a scoped token (PAT / GitHub App / fine-grained) used ONLY to fetch private cross-repo Terraform modules referenced as 'git::https://github.com/<org>/<repo>.git//...' during 'terraform init'/'plan'. The job token is single-repo, so a module in another org repo (the HepCare shape) can't otherwise be fetched. Injected per-subprocess via GIT_CONFIG_* (never written to disk, never the action's own git). Pass a secret — do not hardcode. Default: unset (public/registry/local modules need no token)."
+    required: false
   review_instructions:
     description: "Review modes: org-specific review policy appended to the Review/IncrementalReview guidance (IncrementalReview inherits Review's). Inline text — use a YAML block scalar (|) for multi-line policy. Composes with (does not replace) repo-level mode instructions from Terramend settings. Default: none."
     required: false

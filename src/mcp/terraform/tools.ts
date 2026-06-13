@@ -60,10 +60,13 @@ import {
   run,
   SEVERITY_RANK,
   type Severity,
+  skipped,
   skipResult,
   sortConcerns,
 } from "#app/mcp/terraform/types";
 import { log } from "#app/utils/cli";
+import { resolveModuleFetchEnv } from "#app/utils/moduleFetch";
+import { resolveToolSelection } from "#app/utils/toolSelection";
 
 export const TerraformScanParams = type({
   "scan_scope?": type("'full' | 'diff'").describe(
@@ -101,7 +104,18 @@ export function TerraformScanTool(ctx: LocalToolContext) {
       const minRank = SEVERITY_RANK[threshold];
       const scope = scan_scope ?? ctx.payload.scanScope ?? "full";
 
-      const outcomes = runScanners(cwd);
+      // §1.5 — the unified tool selection (licence gate + allow/deny) and the
+      // optional module-fetch credential, both derived from the run payload so
+      // the scan and its ✗→✓ verification re-scan see the identical toolchain.
+      const selection = resolveToolSelection(ctx.payload);
+      const terraformEnv = resolveModuleFetchEnv(ctx.payload);
+      if (selection.unknownTokens.length > 0) {
+        log.warning(
+          `» tools_enabled: ignoring unrecognised tool(s) [${selection.unknownTokens.join(", ")}]`,
+        );
+      }
+
+      const outcomes = runScanners(cwd, { selection, terraformEnv });
 
       // diff scope: keep only concerns in Terraform files changed vs the base.
       let scopeNote: string | undefined;
@@ -188,6 +202,12 @@ export function TerraformScanTool(ctx: LocalToolContext) {
         grouping,
         scanners_ran: ran,
         scanners_skipped: skippedScanners,
+        // §1.5 — licence-aware tool posture: which non-permissive tools are off
+        // for want of an explicit opt-in, and which were explicitly disabled.
+        tool_selection: {
+          licence_gated: selection.gated,
+          disabled: selection.disabled,
+        },
         summary: { total: all.length, groups: groups.length, by_severity },
         groups: groups.map((g) => ({ ...g, doc_urls: docUrlsForGroup(g, all) })),
         batch_plan: batchPlan,
@@ -223,9 +243,20 @@ export function TerraformValidateTool(ctx: LocalToolContext) {
     parameters: TerraformValidateParams,
     execute: execute(async () => {
       const cwd = ctx.payload.cwd ?? process.cwd();
+      // §1.5 — honour the same licence gate + module-fetch credential as
+      // terraform_scan: tflint (MPL-2.0) runs only when opted in; validate's init
+      // gets the credential so a private cross-repo module resolves.
+      const selection = resolveToolSelection(ctx.payload);
+      const terraformEnv = resolveModuleFetchEnv(ctx.payload);
       // `terraform validate` runs per-root (multi-root aware); fmt + tflint are
       // recursive over the whole tree.
-      const checks = [scanFmt(cwd), scanValidate(cwd), scanTflint(cwd)];
+      const checks = [
+        scanFmt(cwd),
+        scanValidate(cwd, terraformEnv),
+        selection.enabled("tflint")
+          ? scanTflint(cwd)
+          : skipped("tflint", selection.offReason("tflint") ?? "disabled by tools_enabled"),
+      ];
       const remaining = sortConcerns(dedupe(checks.flatMap((c) => c.concerns)));
       const ran = checks.filter((c) => c.ran).map((c) => c.source);
       // count of roots where terraform ran but `validate -json` couldn't be
@@ -299,7 +330,13 @@ export function TerraformVerifyRemediationTool(ctx: LocalToolContext) {
     parameters: TerraformVerifyRemediationParams,
     execute: execute(async ({ concern_ids }) => {
       const cwd = ctx.payload.cwd ?? process.cwd();
-      const outcomes = runScanners(cwd);
+      // §1.5 — re-scan with the SAME selection + module-fetch credential the
+      // scan used, so a licence-gated tool is consistently off across baseline +
+      // verification and the ✗→✓ partition stays apples-to-apples.
+      const outcomes = runScanners(cwd, {
+        selection: resolveToolSelection(ctx.payload),
+        terraformEnv: resolveModuleFetchEnv(ctx.payload),
+      });
       const currentConcerns = dedupe(outcomes.flatMap((o) => o.concerns));
       const currentIds = currentConcerns.map((c) => c.id);
       // line-INDEPENDENT keys: verify on (source|rule|file), not the line-pinned
@@ -484,7 +521,12 @@ export function TerraformEmitSarifTool(ctx: LocalToolContext) {
       const configured = ctx.payload.severityThreshold as Severity | undefined;
       const threshold: Severity = severity_threshold ?? configured ?? "low";
       const minRank = SEVERITY_RANK[threshold];
-      const outcomes = runScanners(cwd);
+      // §1.5 — same selection + module-fetch credential as terraform_scan, so the
+      // SARIF report mirrors exactly what a scan reports (no extra gated tools).
+      const outcomes = runScanners(cwd, {
+        selection: resolveToolSelection(ctx.payload),
+        terraformEnv: resolveModuleFetchEnv(ctx.payload),
+      });
       const concerns = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
         .filter(isTerraformConcern)
         .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
@@ -675,7 +717,10 @@ export function TerraformPlanTool(ctx: LocalToolContext) {
           "no cloud credentials detected — terraform plan needs provider/backend access; skipped (add AWS/Azure/GCP creds or an OIDC role to enable it)",
         );
       }
-      const creds = collectCloudCredentials();
+      // §1.5 — fold the optional module-fetch credential into the plan env so
+      // `terraform init` can resolve a private cross-repo `git::` module. The
+      // GIT_CONFIG_* keys never collide with the cloud creds.
+      const creds = { ...collectCloudCredentials(), ...(resolveModuleFetchEnv(ctx.payload) ?? {}) };
 
       // multi-root: plan EACH root (hepcare: terraform/ + terraform/core/) and
       // aggregate. resolveRoots falls back to [cwd] for a single-root repo, so

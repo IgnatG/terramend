@@ -5,6 +5,7 @@ import type { ToolContext } from "#app/mcp/server";
 import { log } from "#app/utils/cli";
 import { resolveEnv } from "#app/utils/secrets";
 import { $ } from "#app/utils/shell";
+import { resolveToolSelection } from "#app/utils/toolSelection";
 
 /**
  * Terraform-write guardrails — hard, code-level limits that back the prompt
@@ -49,9 +50,10 @@ function isGuardedMode(ctx: ToolContext): boolean {
 export function resolveAllowedPaths(ctx: ToolContext): string[] {
   const configured = ctx.payload.allowedPaths;
   const base = configured && configured.length > 0 ? [...configured] : [...DEFAULT_ALLOWED_PATHS];
-  // §28 — when Terratest scaffolding is opted in, also permit the Go test +
-  // example-fixture paths the scaffold writes (they're outside the .tf default).
-  if (ctx.payload.terratest) base.push(...TERRATEST_ALLOWED_PATHS);
+  // §28 — when Terratest scaffolding is opted in (the `terratest` input OR the
+  // unified tools_enabled list, §1.5), also permit the Go test + example-fixture
+  // paths the scaffold writes (they're outside the .tf default).
+  if (resolveToolSelection(ctx.payload).enabled("terratest")) base.push(...TERRATEST_ALLOWED_PATHS);
   return base;
 }
 
@@ -374,8 +376,11 @@ export function assertNoSecretsInDiff(ctx: ToolContext): void {
   const diff = $("git", ["diff", base, "HEAD"], { log: false });
   const hits = scanDiffForSecrets(diff);
 
-  // optional deeper engine — merged on top of the built-in baseline.
-  if (ctx.payload.gitleaks) {
+  // optional deeper engine — merged on top of the built-in baseline. Opted in
+  // via the `gitleaks` input OR by naming "gitleaks" in the unified tools_enabled
+  // list (§1.5); an explicit `-gitleaks` there turns it back off.
+  const gitleaksEnabled = resolveToolSelection(ctx.payload).enabled("gitleaks");
+  if (gitleaksEnabled) {
     const gitleaksHits = scanWithGitleaks(ctx, base);
     if (gitleaksHits) hits.push(...gitleaksHits);
   }
@@ -388,7 +393,7 @@ export function assertNoSecretsInDiff(ctx: ToolContext): void {
     );
   }
   log.info(
-    `» secret-scan guardrail ok (no inlined secrets in the diff${ctx.payload.gitleaks ? ", built-in + gitleaks" : ""})`,
+    `» secret-scan guardrail ok (no inlined secrets in the diff${gitleaksEnabled ? ", built-in + gitleaks" : ""})`,
   );
 }
 

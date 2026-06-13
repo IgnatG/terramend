@@ -16,7 +16,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import type { ResolvedPayload } from "#app/utils/payload";
+import { resolveToolSelection, type ToolSelectionFlags } from "#app/utils/toolSelection";
 
 /** pinned release of hashicorp/terraform-mcp-server. Bump deliberately. */
 export const TERRAFORM_MCP_IMAGE = "hashicorp/terraform-mcp-server:0.5.2";
@@ -66,10 +66,11 @@ function dockerAvailable(): boolean {
  * server (`available`), log the degrade-green note (`docker_missing`), or do
  * nothing (`disabled`).
  */
-export function resolveTerraformMcp(
-  payload: Pick<ResolvedPayload, "terraformMcp">,
-): TerraformMcpResolution {
-  if (!payload.terraformMcp) return { kind: "disabled" };
+export function resolveTerraformMcp(payload: ToolSelectionFlags): TerraformMcpResolution {
+  // terraform-mcp-server is licence-gated (HashiCorp, §1.5): on via the
+  // `terraform_mcp` input OR by naming "terraform_mcp" in tools_enabled; an
+  // explicit `-terraform_mcp` there turns it off.
+  if (!resolveToolSelection(payload).enabled("terraform_mcp")) return { kind: "disabled" };
   if (!dockerAvailable()) {
     return {
       kind: "docker_missing",

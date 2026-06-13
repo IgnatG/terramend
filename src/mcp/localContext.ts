@@ -22,6 +22,13 @@ export interface LocalToolContext {
     | "autonomyThreshold"
     | "costIncreaseBlockUsd"
     | "moduleCatalogue"
+    // §1.5 — the unified tool selection + module-fetch credential are honoured on
+    // the local stdio MCP server too (read-only scans + private-module init).
+    | "toolsEnabled"
+    | "gitleaks"
+    | "terratest"
+    | "terraformMcp"
+    | "moduleFetchToken"
   >;
   toolState: ToolState;
   tmpdir: string;

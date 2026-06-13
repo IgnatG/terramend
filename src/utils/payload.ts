@@ -6,6 +6,7 @@ import { BUILTIN_MODE_NAMES } from "#app/modes";
 import { log } from "#app/utils/cli";
 import { parseRemediationCommand } from "#app/utils/remediationCommand";
 import type { RepoSettings } from "#app/utils/runContext";
+import { parseToolSelection } from "#app/utils/toolSelection";
 import { validateCompatibility } from "#app/utils/versioning";
 import packageJson from "#package.json" with { type: "json" };
 
@@ -71,6 +72,8 @@ export const Inputs = type({
   "module_catalogue?": type.string.or("undefined"),
   "terratest?": type.string.or("undefined"),
   "terraform_mcp?": type.string.or("undefined"),
+  "tools_enabled?": type.string.or("undefined"),
+  "module_fetch_token?": type.string.or("undefined"),
   "review_instructions?": type.string.or("undefined"),
   "fp_filtering_instructions?": type.string.or("undefined"),
 });
@@ -133,6 +136,8 @@ function resolveNonPromptInputs() {
     module_catalogue: core.getInput("module_catalogue") || undefined,
     terratest: core.getInput("terratest") || undefined,
     terraform_mcp: core.getInput("terraform_mcp") || undefined,
+    tools_enabled: core.getInput("tools_enabled") || undefined,
+    module_fetch_token: core.getInput("module_fetch_token") || undefined,
     review_instructions: core.getInput("review_instructions") || undefined,
     fp_filtering_instructions: core.getInput("fp_filtering_instructions") || undefined,
   });
@@ -326,6 +331,14 @@ export function resolvePayload(
     // and provider argument shapes). Requires docker on the runner; degrades
     // green with a note when absent. See utils/terraformMcp.ts.
     terraformMcp: parseBooleanInput(inputs.terraform_mcp),
+    // §1.5 — the unified tool-selection allow/deny list. Parsed once here into a
+    // ToolDirective; resolveToolSelection(payload) combines it with the dedicated
+    // booleans + the licence gate so every consumer agrees on which tools run.
+    toolsEnabled: parseToolSelection(inputs.tools_enabled),
+    // §1.5 — scoped credential to FETCH private cross-repo `git::` modules at
+    // terraform init/plan (the HepCare shape). Injected per-subprocess via
+    // GIT_CONFIG_* by resolveModuleFetchEnv; never the action's own git.
+    moduleFetchToken: inputs.module_fetch_token,
     // §3.12 — a `@terramend fix …` command parsed from the triggering comment
     // body (the prompt), scoping the run to a specific concern/severity/file.
     // null when the prompt isn't a recognised command.

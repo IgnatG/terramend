@@ -44,6 +44,7 @@ import {
 } from "#app/mcp/terraform";
 import { initToolState } from "#app/toolState";
 import { log } from "#app/utils/cli";
+import { parseToolSelection } from "#app/utils/toolSelection";
 
 export interface LocalMcpOptions {
   /** absolute workspace directory the tools operate on. */
@@ -52,6 +53,10 @@ export interface LocalMcpOptions {
   scanScope?: "full" | "diff" | undefined;
   /** newline/comma-separated approved module list (same as the action input). */
   moduleCatalogue?: string | undefined;
+  /** §1.5 — the unified tool-selection list (same syntax as the action input). */
+  toolsEnabled?: string | undefined;
+  /** §1.5 — scoped token to fetch private cross-repo `git::` modules at init. */
+  moduleFetchToken?: string | undefined;
 }
 
 /** build the cwd-scoped context the read-only tools run against. */
@@ -64,6 +69,11 @@ export function buildLocalContext(options: LocalMcpOptions): LocalToolContext {
       autonomyThreshold: undefined,
       costIncreaseBlockUsd: undefined,
       moduleCatalogue: options.moduleCatalogue,
+      toolsEnabled: parseToolSelection(options.toolsEnabled),
+      gitleaks: false,
+      terratest: false,
+      terraformMcp: false,
+      moduleFetchToken: options.moduleFetchToken,
     },
     toolState: initToolState({ progressComment: undefined }),
     tmpdir: mkdtempSync(join(tmpdir(), "terramend-mcp-")),
