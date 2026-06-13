@@ -69,7 +69,8 @@ jobs:
           cost_increase_block_usd: "" # escalate to needs-human when monthly spend rises by ≥ $N (needs infracost)
 
           # ── modules & generation ─────────────────────────────────────────────
-          module_catalogue: | # approved modules to PREFER over raw resources ([name=]<source>[ <version>])
+          module_catalogue:
+            | # approved modules to PREFER over raw resources ([name=]<source>[ <version>])
             terraform-aws-modules/vpc/aws ~> 5.0
             git::https://github.com/acme/tf-modules.git//aws/s3?ref=s3-v0.1.2
             ./modules/services/webserver-cluster
@@ -99,6 +100,6 @@ jobs:
       # terraform_emit_sarif — ask for it in the prompt). Needs security-events: write.
       # - name: Upload SARIF
       #   if: always() && hashFiles('terramend.sarif') != ''
-      #   uses: github/codeql-action/upload-sarif@v3
+      #   uses: github/codeql-action/upload-sarif@v4
       #   with:
       #     sarif_file: terramend.sarif

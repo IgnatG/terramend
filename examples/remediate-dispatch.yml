@@ -167,6 +167,6 @@ jobs:
       # produces a scan. `if: always()` so it uploads even when no PR was opened.
       - name: Upload SARIF to code scanning
         if: always() && hashFiles('terramend.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: terramend.sarif

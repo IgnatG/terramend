@@ -129,7 +129,7 @@ call `terraform_emit_sarif` (writes `terramend.sarif`), then upload it:
 - uses: terramend/terramend@v0
   with:
     mode: remediate
-- uses: github/codeql-action/upload-sarif@v3
+- uses: github/codeql-action/upload-sarif@v4
   if: always()
   with:
     sarif_file: terramend.sarif
