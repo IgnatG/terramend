@@ -13,6 +13,44 @@ the README quickstart.
 Terramend writes secure-by-default HCL (pinned versions, parameterised, validated, self-scan-clean),
 preferring your `module_catalogue`, and opens one reviewable PR.
 
+## Repo config (`.terramend.yml`)
+
+Commit a `.terramend.yml` (or `.terramend.yaml`) at the repo root to keep the **policy** next to the code
+instead of in the workflow file. It's a thin layer **under** the action inputs — an explicit workflow input
+always wins; the file only fills the gaps — so a team can set sensible repo-wide defaults while a specific
+workflow still overrides them.
+
+```yaml
+# .terramend.yml — repo-level Terramend policy (versioned with the code)
+tools_enabled:           # same grammar as the input: names, -tool, all/none
+  - trivy
+  - checkov
+  - tflint               # naming a non-permissive tool here IS the licence opt-in
+protected_paths:         # globs the fixer must never touch
+  - prod/**
+  - "**/state/**"
+allowed_paths: "**/*.tf,**/*.tfvars"
+scan_scope: full         # full | diff
+severity_threshold: low  # critical | high | medium | low | info
+autonomy_threshold: high
+module_catalogue:
+  - terraform-aws-modules/vpc/aws ~> 5.0
+  - ./modules/networking
+```
+
+Each key maps 1:1 to the matching action input and is validated by the **same** parser, so a value behaves
+identically whether it comes from the file or the workflow. Values may be a string or a YAML list.
+
+- **Only these keys are read.** Secrets (`module_fetch_token`) and per-run/workflow knobs (`mode`, `max_prs`,
+  `base_branch`, `allow_replace`) are deliberately **not** read from the file — a committed file is the wrong
+  place for a credential, and the run's shape belongs to the workflow.
+- **Trust boundary.** The file is controlled by whoever can push to the repo (the same surface as the
+  Terraform being remediated). It can only relax *within* the licence gate (naming a non-permissive tool is
+  the repo owner's licence acknowledgement, exactly as on the input) and can never disable the required
+  `terraform` substrate. To **enforce** a policy a contributor can't override, set the action input — it wins.
+- **Degrade-green.** A missing file is a silent no-op; malformed YAML, an unknown key, or a wrong-shaped
+  value is logged as a warning and ignored — it never fails the run.
+
 ## What a Terramend PR looks like
 
 Every fix lands as a small, self-explanatory pull request. The body is built **only** from tool

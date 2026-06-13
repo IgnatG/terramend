@@ -57,6 +57,7 @@
     "docker": "node docker.ts",
     "docs:inputs": "node scripts/generate-input-docs.ts",
     "docs:models": "node scripts/generate-model-docs.ts",
+    "eval:propose": "node test/eval/propose.ts",
     "eval:review": "node test/eval/review.ts",
     "eval:scan": "node test/eval/run.ts",
     "format": "biome format --write .",

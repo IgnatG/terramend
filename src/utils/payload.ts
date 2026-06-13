@@ -6,6 +6,7 @@ import { BUILTIN_MODE_NAMES } from "#app/modes";
 import { log } from "#app/utils/cli";
 import { parseRemediationCommand } from "#app/utils/remediationCommand";
 import type { RepoSettings } from "#app/utils/runContext";
+import { loadTerramendConfig } from "#app/utils/terramendConfig";
 import { parseToolSelection } from "#app/utils/toolSelection";
 import { validateCompatibility } from "#app/utils/versioning";
 import packageJson from "#package.json" with { type: "json" };
@@ -194,12 +195,14 @@ function parseCostIncreaseBlock(raw: string | undefined): number | undefined {
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
-/** parse a comma-separated glob list (allowed_paths / protected_paths);
- * undefined when unset or empty after trimming. */
+/** parse a comma- or newline-separated glob list (allowed_paths /
+ * protected_paths); undefined when unset or empty after trimming. Newlines are
+ * accepted so a YAML block scalar in the workflow — and a list in
+ * `.terramend.yml` (joined with newlines) — parse the same as a comma list. */
 function parseGlobList(raw: string | undefined): string[] | undefined {
   if (!raw) return undefined;
   const globs = raw
-    .split(",")
+    .split(/[\n,]/)
     .map((g) => g.trim())
     .filter(Boolean);
   return globs.length > 0 ? globs : undefined;
@@ -274,7 +277,14 @@ export function resolvePayload(
     resolvedShell = "restricted";
   }
 
-  // build payload - precedence: inputs > repoSettings > fallbacks
+  const cwd = resolveCwd(inputs.cwd);
+  // §1.5 follow-up — repo-committed `.terramend.yml` policy, layered UNDER the
+  // action inputs: a workflow input always wins; the file fills the gaps. Read
+  // from the checked-out repo root; a missing file is a silent no-op. See
+  // utils/terramendConfig.ts for the trust boundary + supported keys.
+  const fileConfig = loadTerramendConfig(cwd);
+
+  // build payload - precedence: inputs > .terramend.yml > repoSettings > fallbacks
   // note: modes are NOT in payload - they come from repoSettings in main()
   return {
     "~terramend": true as const,
@@ -293,7 +303,7 @@ export function resolvePayload(
     previousRunsNote: jsonPayload?.previousRunsNote,
     event,
     timeout: inputs.timeout ?? jsonPayload?.timeout,
-    cwd: resolveCwd(inputs.cwd),
+    cwd,
     progressComment: jsonPayload?.progressComment,
     generateSummary: jsonPayload?.generateSummary,
 
@@ -304,14 +314,19 @@ export function resolvePayload(
     // Terraform remediation config — consumed by mcp/terraform.ts + the
     // Remediate mode. Defaults are applied at the consumer, not here, so
     // "unset" stays distinguishable from an explicit value.
-    scanScope: parseScanScope(inputs.scan_scope),
-    severityThreshold: parseSeverityThreshold(inputs.severity_threshold),
+    // Terraform policy fields accept a `.terramend.yml` fallback (input wins).
+    scanScope: parseScanScope(inputs.scan_scope ?? fileConfig.scan_scope),
+    severityThreshold: parseSeverityThreshold(
+      inputs.severity_threshold ?? fileConfig.severity_threshold,
+    ),
     maxPrs: parseMaxPrs(inputs.max_prs),
-    allowedPaths: parseGlobList(inputs.allowed_paths),
+    allowedPaths: parseGlobList(inputs.allowed_paths ?? fileConfig.allowed_paths),
     // §2.7 — globs the fixer must never auto-modify (inverse of allowed_paths).
-    protectedPaths: parseGlobList(inputs.protected_paths),
+    protectedPaths: parseGlobList(inputs.protected_paths ?? fileConfig.protected_paths),
     // §3.9 — minimum severity at which a security concern escalates to a human.
-    autonomyThreshold: parseSeverityThreshold(inputs.autonomy_threshold),
+    autonomyThreshold: parseSeverityThreshold(
+      inputs.autonomy_threshold ?? fileConfig.autonomy_threshold,
+    ),
     // §2.8 — opt in to the external gitleaks engine on top of the built-in
     // secret scanner (best-effort; degrades to built-in only when absent).
     gitleaks: parseBooleanInput(inputs.gitleaks),
@@ -321,7 +336,7 @@ export function resolvePayload(
     // §4.14 + module catalogue — operator-approved modules a fix/generation
     // should prefer; raw string, structured by `parseModuleCatalogue` in the
     // `list_modules` tool.
-    moduleCatalogue: inputs.module_catalogue,
+    moduleCatalogue: inputs.module_catalogue ?? fileConfig.module_catalogue,
     // §28 — opt in to scaffolding a Go Terratest smoke test + a native
     // `*.tftest.hcl` (both plan the module directly) when generating a reusable
     // module; also widens the push allow-list so the test files can be written.
@@ -334,7 +349,7 @@ export function resolvePayload(
     // §1.5 — the unified tool-selection allow/deny list. Parsed once here into a
     // ToolDirective; resolveToolSelection(payload) combines it with the dedicated
     // booleans + the licence gate so every consumer agrees on which tools run.
-    toolsEnabled: parseToolSelection(inputs.tools_enabled),
+    toolsEnabled: parseToolSelection(inputs.tools_enabled ?? fileConfig.tools_enabled),
     // §1.5 — scoped credential to FETCH private cross-repo `git::` modules at
     // terraform init/plan (the HepCare shape). Injected per-subprocess via
     // GIT_CONFIG_* by resolveModuleFetchEnv; never the action's own git.

@@ -1,4 +1,6 @@
-import { isAbsolute, resolve } from "node:path";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import * as core from "@actions/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_MODE_NAMES } from "#app/modes";
@@ -396,6 +398,62 @@ describe("resolvePayload — cwd resolution", () => {
     vi.stubEnv("GITHUB_WORKSPACE", workspace);
     setInputs({});
     expect(resolvePayload("p", makeRepoSettings()).cwd).toBe(workspace);
+  });
+});
+
+describe("resolvePayload — .terramend.yml layering (input wins, file fills gaps)", () => {
+  const dirs: string[] = [];
+  /** write a `.terramend.yml` to a temp dir and point GITHUB_WORKSPACE at it. */
+  const withConfig = (yml: string): void => {
+    const dir = mkdtempSync(join(tmpdir(), "terramend-payload-"));
+    dirs.push(dir);
+    writeFileSync(join(dir, ".terramend.yml"), yml);
+    vi.stubEnv("GITHUB_WORKSPACE", dir);
+  };
+  afterEach(() => {
+    for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
+  });
+
+  it("uses the file value when the matching input is unset", () => {
+    withConfig(
+      [
+        "tools_enabled:",
+        "  - trivy",
+        "  - tflint",
+        "protected_paths:",
+        "  - prod/**",
+        "scan_scope: diff",
+      ].join("\n"),
+    );
+    setInputs({}); // no inputs — the file should fill them
+    const p = resolvePayload("p", makeRepoSettings());
+
+    expect(p.scanScope).toBe("diff");
+    expect(p.protectedPaths).toEqual(["prod/**"]);
+    // tflint named in the file is the licence-aware opt-in (same as on the input).
+    expect(p.toolsEnabled?.explicit.get("tflint")).toBe(true);
+    expect(p.toolsEnabled?.explicit.get("trivy")).toBe(true);
+  });
+
+  it("lets an explicit action input win over the file", () => {
+    withConfig("scan_scope: diff\nprotected_paths:\n  - prod/**");
+    setInputs({ scan_scope: "full", protected_paths: "iam/**" });
+    const p = resolvePayload("p", makeRepoSettings());
+
+    expect(p.scanScope).toBe("full"); // input beats the file's "diff"
+    expect(p.protectedPaths).toEqual(["iam/**"]); // input beats the file's prod/**
+  });
+
+  it("is a clean no-op when the repo has no .terramend.yml", () => {
+    const dir = mkdtempSync(join(tmpdir(), "terramend-payload-"));
+    dirs.push(dir);
+    vi.stubEnv("GITHUB_WORKSPACE", dir);
+    setInputs({});
+    const p = resolvePayload("p", makeRepoSettings());
+
+    expect(p.scanScope).toBeUndefined();
+    expect(p.protectedPaths).toBeUndefined();
+    expect(p.toolsEnabled).toBeUndefined();
   });
 });
 
