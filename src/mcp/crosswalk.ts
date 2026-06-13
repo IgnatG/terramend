@@ -1,6 +1,10 @@
 import { type } from "arktype";
 import type { ToolContext } from "#app/mcp/server";
 import { execute, tool, toolOk } from "#app/mcp/shared";
+import {
+  type ConcernVerificationStatus,
+  concernVerificationStatus,
+} from "#app/mcp/terraform/verification";
 import { log } from "#app/utils/cli";
 
 /**
@@ -248,6 +252,10 @@ export interface CrosswalkEntry {
   rule_id: string;
   themes: string[];
   controls: ControlRef[];
+  /** the five-status verdict for this control statement: `fail` (code-verified
+   * violation) or `not-code-verifiable` (a human-decision control the engine can
+   * flag but not prove). Lets an assessor read the crosswalk honestly. */
+  status: ConcernVerificationStatus;
 }
 
 export interface CrosswalkReport {
@@ -277,7 +285,13 @@ export function buildCrosswalkReport(concerns: ConcernForCrosswalk[]): Crosswalk
       unmapped.push(c.id);
       continue;
     }
-    entries.push({ concern_id: c.id, rule_id: c.rule_id, themes, controls });
+    entries.push({
+      concern_id: c.id,
+      rule_id: c.rule_id,
+      themes,
+      controls,
+      status: concernVerificationStatus(c).status,
+    });
     for (const ctl of controls) {
       const map = byFramework.get(ctl.framework) ?? new Map<string, string>();
       if (!map.has(ctl.control)) map.set(ctl.control, ctl.title);

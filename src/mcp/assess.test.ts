@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { assessPosture, buildAssessment, renderAssessmentMarkdown } from "#app/mcp/assess";
 import { buildCrosswalkReport } from "#app/mcp/crosswalk";
-import type { Concern, Severity } from "#app/mcp/terraform/types";
+import type { Concern, ScannerOutcome, Severity } from "#app/mcp/terraform/types";
+import { buildVerificationSummary } from "#app/mcp/terraform/verification";
+
+/** build a scorecard with the verification summary the tool would attach. An
+ * optional `outcomes` lets a test exercise the coverage (verified/inconclusive)
+ * view; default [] focuses on the per-concern statuses. */
+function assess(
+  concerns: Concern[],
+  crosswalk = buildCrosswalkReport(
+    concerns.map((c) => ({ id: c.id, rule_id: c.rule_id, evidence: c.evidence })),
+  ),
+  outcomes: ScannerOutcome[] = [],
+) {
+  return buildAssessment(concerns, crosswalk, buildVerificationSummary(concerns, outcomes));
+}
 
 let n = 0;
 function concern(severity: Severity, partial: Partial<Concern> = {}): Concern {
@@ -49,7 +63,7 @@ describe("buildAssessment", () => {
     const crosswalk = buildCrosswalkReport(
       concerns.map((c) => ({ id: c.id, rule_id: c.rule_id, evidence: c.evidence })),
     );
-    const s = buildAssessment(concerns, crosswalk);
+    const s = assess(concerns, crosswalk);
 
     expect(s.posture).toBe("action-required");
     expect(s.total).toBe(3);
@@ -67,11 +81,30 @@ describe("buildAssessment", () => {
   });
 
   it("is clean with an empty crosswalk when there are no concerns", () => {
-    const s = buildAssessment([], buildCrosswalkReport([]));
+    const s = assess([]);
     expect(s.posture).toBe("clean");
     expect(s.total).toBe(0);
     expect(s.top_risks).toEqual([]);
     expect(s.compliance.frameworks).toEqual([]);
+  });
+
+  it("attaches the five-status verification summary (fail vs not-code-verifiable + coverage)", () => {
+    const concerns = [
+      concern("critical", { rule_id: "trivy:AVD-AWS-0088", evidence: "S3 unencrypted at rest" }),
+      // an IAM least-privilege concern is a human decision → not-code-verifiable.
+      concern("high", { rule_id: "checkov:CKV_AWS_1", evidence: "IAM policy uses a wildcard *" }),
+    ];
+    const outcomes: ScannerOutcome[] = [
+      { source: "trivy", ran: true, concerns: [] },
+      { source: "tflint", ran: false, skipped_reason: "licence-gated", concerns: [] },
+    ];
+    const s = assess(concerns, undefined, outcomes);
+    expect(s.verification.counts.fail).toBe(1);
+    expect(s.verification.counts.not_code_verifiable).toBe(1);
+    expect(s.verification.coverage.verified).toContain("trivy");
+    expect(s.verification.coverage.inconclusive).toEqual([
+      { source: "tflint", reason: "licence-gated" },
+    ]);
   });
 });
 
@@ -83,7 +116,7 @@ describe("renderAssessmentMarkdown", () => {
     const crosswalk = buildCrosswalkReport(
       concerns.map((c) => ({ id: c.id, rule_id: c.rule_id, evidence: c.evidence })),
     );
-    const md = renderAssessmentMarkdown(buildAssessment(concerns, crosswalk));
+    const md = renderAssessmentMarkdown(assess(concerns, crosswalk));
     expect(md).toContain("[!CAUTION]");
     expect(md).toContain("Action required");
     expect(md).toContain("`critical: 1`");
@@ -94,7 +127,7 @@ describe("renderAssessmentMarkdown", () => {
   });
 
   it("renders a clean banner with no top-risk section when there are no concerns", () => {
-    const md = renderAssessmentMarkdown(buildAssessment([], buildCrosswalkReport([])));
+    const md = renderAssessmentMarkdown(assess([]));
     expect(md).toContain("[!NOTE]");
     expect(md).toContain("Clean");
     expect(md).not.toContain("### Top risks");

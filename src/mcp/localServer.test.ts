@@ -22,6 +22,7 @@ describe("buildLocalTools", () => {
       "module_extraction_candidates",
       "read_findings",
       "terraform_assess",
+      "terraform_emit_evidence",
       "terraform_emit_sarif",
       "terraform_module_graph",
       "terraform_module_interface",

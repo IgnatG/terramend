@@ -11,13 +11,17 @@
  *   findings  — reviewer findings + SARIF ingest/emit
  *   plan      — plan parsing + destroy/blast/stability/aggregation
  *   tools     — the MCP Tool factories + their *Params schemas
+ *   verification — the five-status taxonomy (fail / not-code-verifiable / …)
+ *   evidence  — the backend-free compliance evidence bundle + emitter
  */
 
 export * from "#app/mcp/terraform/cost";
 export * from "#app/mcp/terraform/currency";
 export * from "#app/mcp/terraform/decisions";
+export * from "#app/mcp/terraform/evidence";
 export * from "#app/mcp/terraform/findings";
 export * from "#app/mcp/terraform/plan";
 export * from "#app/mcp/terraform/scanners";
 export * from "#app/mcp/terraform/tools";
 export * from "#app/mcp/terraform/types";
+export * from "#app/mcp/terraform/verification";

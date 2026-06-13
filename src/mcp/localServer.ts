@@ -35,6 +35,7 @@ import { TerraformRootsTool } from "#app/mcp/roots";
 import {
   InfracostDiffTool,
   ReadFindingsTool,
+  TerraformEmitEvidenceTool,
   TerraformEmitSarifTool,
   TerraformPlanTool,
   TerraformScanTool,
@@ -96,6 +97,7 @@ export function buildLocalTools(ctx: LocalToolContext): Tool<any, any>[] {
     InfracostDiffTool(ctx),
     ReadFindingsTool(ctx),
     TerraformEmitSarifTool(ctx),
+    TerraformEmitEvidenceTool(ctx),
     ListModulesTool(ctx),
     TerraformModuleGraphTool(ctx),
     TerraformModuleInterfaceTool(ctx),

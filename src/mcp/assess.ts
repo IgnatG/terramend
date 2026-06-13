@@ -7,11 +7,18 @@ import {
   type Concern,
   dedupe,
   isTerraformConcern,
+  type ScannerOutcome,
   SEVERITY_RANK,
   type Severity,
   sortConcerns,
 } from "#app/mcp/terraform/types";
+import {
+  buildVerificationSummary,
+  type VerificationSummary,
+} from "#app/mcp/terraform/verification";
 import { log } from "#app/utils/cli";
+import { resolveModuleFetchEnv } from "#app/utils/moduleFetch";
+import { resolveToolSelection } from "#app/utils/toolSelection";
 
 /**
  * Assess pillar — the read-only product (roadmap pillar 3). Terramend's scanner
@@ -55,6 +62,10 @@ export interface AssessmentScorecard {
     version: string;
     reviewed: string;
   };
+  /** five-status verification taxonomy: per-concern fail / not-code-verifiable +
+   * the scanner coverage (verified vs inconclusive). Keeps a "clean" posture
+   * honest — e.g. "clean, but tflint inconclusive (not run)". */
+  verification: VerificationSummary;
 }
 
 /** posture from the severity distribution: any critical/high ⇒ action-required;
@@ -75,6 +86,7 @@ const TOP_RISK_CAP = 10;
 export function buildAssessment(
   concerns: Concern[],
   crosswalk: CrosswalkReport,
+  verification: VerificationSummary,
 ): AssessmentScorecard {
   const by_severity: Record<Severity, number> = {
     critical: 0,
@@ -114,6 +126,7 @@ export function buildAssessment(
       version: crosswalk.version,
       reviewed: crosswalk.reviewed,
     },
+    verification,
   };
 }
 
@@ -175,6 +188,31 @@ export function renderAssessmentMarkdown(s: AssessmentScorecard): string {
     lines.push("No concerns mapped to a compliance control in the starter rule-pack.");
   }
   lines.push("");
+
+  // five-status verification taxonomy — keep the posture honest about coverage.
+  const v = s.verification;
+  lines.push("### Verification coverage");
+  lines.push("");
+  lines.push(
+    `Code-verified by: ${v.coverage.verified.length ? v.coverage.verified.join(", ") : "none"}.`,
+  );
+  if (v.coverage.inconclusive.length > 0) {
+    lines.push("");
+    lines.push(
+      `> [!WARNING]\n> **Inconclusive** (a coverage gap, not a pass) — these checks did not run:`,
+    );
+    for (const t of v.coverage.inconclusive) lines.push(`> - \`${t.source}\` — ${t.reason}`);
+  }
+  if (v.counts.not_code_verifiable > 0) {
+    lines.push("");
+    lines.push(
+      `> ${v.counts.not_code_verifiable} concern(s) are **not code-verifiable** — they need a human/process decision (e.g. IAM least-privilege, a KMS key policy) the engine can flag but not prove.`,
+    );
+  }
+  lines.push("");
+  lines.push(`_${v.note}_`);
+
+  lines.push("");
   lines.push(
     "_Read-only assessment — no Terraform was modified and no PR was opened. " +
       "Run Terramend in `remediate` mode to fix and prove these concerns._",
@@ -203,39 +241,66 @@ export const TerraformAssessParams = type({
   ),
 });
 
+/** the full read-only assessment pipeline: scan (honouring the §1.5 licence gate
+ * + module-fetch credential) → crosswalk → verification taxonomy → scorecard.
+ * Shared by `terraform_assess` and the evidence-bundle emitter so both report the
+ * identical posture from the identical toolchain. Pure-ish (only the scanners do
+ * I/O); no writes. */
+export function runAssessmentPipeline(
+  ctx: LocalToolContext,
+  threshold: Severity,
+): {
+  cwd: string;
+  outcomes: ScannerOutcome[];
+  concerns: Concern[];
+  crosswalk: CrosswalkReport;
+  verification: VerificationSummary;
+  scorecard: AssessmentScorecard;
+} {
+  const cwd = ctx.payload.cwd ?? process.cwd();
+  const minRank = SEVERITY_RANK[threshold];
+  // §1.5 — same licence gate + module-fetch credential as terraform_scan, so a
+  // gated tool (e.g. tflint) shows up as INCONCLUSIVE coverage, not a silent pass.
+  const outcomes = runScanners(cwd, {
+    selection: resolveToolSelection(ctx.payload),
+    terraformEnv: resolveModuleFetchEnv(ctx.payload),
+  });
+  const concerns = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
+    .filter(isTerraformConcern)
+    .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
+  const crosswalk = buildCrosswalkReport(
+    concerns.map((c) => ({
+      id: c.id,
+      rule_id: c.rule_id,
+      evidence: c.evidence,
+      category: c.category,
+      severity: c.severity,
+      location: c.location,
+    })),
+  );
+  const verification = buildVerificationSummary(concerns, outcomes);
+  const scorecard = buildAssessment(concerns, crosswalk, verification);
+  return { cwd, outcomes, concerns, crosswalk, verification, scorecard };
+}
+
 export function TerraformAssessTool(ctx: LocalToolContext) {
   return tool({
     name: "terraform_assess",
     description:
       "Read-only Terraform best-practice ASSESSMENT (the Assess pillar — the scanner engine surfaced as a " +
       "product). Runs the deterministic scanners, then returns a deterministic `scorecard` (overall " +
-      "`posture` — clean / advisory / action-required, `by_severity` counts, `top_risks`, and an indicative " +
-      "compliance-crosswalk summary) plus a ready-to-post `markdown` report. It NEVER modifies Terraform or " +
-      "opens a PR — use it to report posture (e.g. in a job summary or a CI gate on `posture`). Pairs with " +
-      "`terraform_emit_sarif` (Security tab) and `infracost_diff` / `terraform_version_currency` for the cost " +
-      "and currency lenses. For the fix loop, use `terraform_scan` + the Remediate mode instead.",
+      "`posture` — clean / advisory / action-required, `by_severity` counts, `top_risks`, an indicative " +
+      "compliance-crosswalk summary, and a five-status `verification` coverage block) plus a ready-to-post " +
+      "`markdown` report. It NEVER modifies Terraform or opens a PR — use it to report posture (e.g. in a job " +
+      "summary or a CI gate on `posture`). Pairs with `terraform_emit_sarif` (Security tab), " +
+      "`terraform_emit_evidence` (auditor bundle), and `infracost_diff` / `terraform_version_currency` for the " +
+      "cost and currency lenses. For the fix loop, use `terraform_scan` + the Remediate mode instead.",
     parameters: TerraformAssessParams,
     execute: execute(async ({ severity_threshold }) => {
-      const cwd = ctx.payload.cwd ?? process.cwd();
       const configured = ctx.payload.severityThreshold as Severity | undefined;
       const threshold: Severity = severity_threshold ?? configured ?? "low";
-      const minRank = SEVERITY_RANK[threshold];
 
-      const outcomes = runScanners(cwd);
-      const concerns = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
-        .filter(isTerraformConcern)
-        .filter((c) => SEVERITY_RANK[c.severity] >= minRank);
-      const crosswalk = buildCrosswalkReport(
-        concerns.map((c) => ({
-          id: c.id,
-          rule_id: c.rule_id,
-          evidence: c.evidence,
-          category: c.category,
-          severity: c.severity,
-          location: c.location,
-        })),
-      );
-      const scorecard = buildAssessment(concerns, crosswalk);
+      const { cwd, outcomes, scorecard } = runAssessmentPipeline(ctx, threshold);
       const markdown = renderAssessmentMarkdown(scorecard);
 
       const ran = outcomes.filter((o) => o.ran).map((o) => o.source);

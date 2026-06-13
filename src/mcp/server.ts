@@ -59,6 +59,7 @@ import { ClosePullRequestTool, ListRemediationPrsTool } from "#app/mcp/staleFix"
 import {
   InfracostDiffTool,
   ReadFindingsTool,
+  TerraformEmitEvidenceTool,
   TerraformEmitSarifTool,
   TerraformPlanTool,
   TerraformScanTool,
@@ -196,6 +197,7 @@ function buildCommonTools(ctx: ToolContext, outputSchema?: JsonSchema): Tool<any
     TerraformRootsTool(ctx),
     ScaffoldTerratestTool(ctx),
     TerraformEmitSarifTool(ctx),
+    TerraformEmitEvidenceTool(ctx),
     PolicyCheckTool(ctx),
     ComplianceCrosswalkTool(ctx),
   ];
