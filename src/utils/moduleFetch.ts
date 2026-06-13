@@ -61,7 +61,9 @@ export function moduleFetchHosts(serverUrl = process.env.GITHUB_SERVER_URL): str
   if (serverUrl) {
     try {
       const host = new URL(serverUrl).hostname;
-      if (host) hosts.push(host);
+      // de-dupe case-insensitively: on github.com-hosted runs GITHUB_SERVER_URL
+      // is https://github.com, so the seeded host would otherwise repeat.
+      if (host && !hosts.some((h) => h.toLowerCase() === host.toLowerCase())) hosts.push(host);
     } catch {
       /* malformed GITHUB_SERVER_URL — fall back to github.com only */
     }

@@ -43,6 +43,13 @@ describe("moduleFetchHosts", () => {
     expect(moduleFetchHosts("https://ghe.acme.dev")).toEqual(["github.com", "ghe.acme.dev"]);
   });
 
+  it("does not duplicate github.com on a github.com-hosted run", () => {
+    // GITHUB_SERVER_URL is https://github.com on github.com — the seeded host
+    // must not repeat (and is matched case-insensitively).
+    expect(moduleFetchHosts("https://github.com")).toEqual(["github.com"]);
+    expect(moduleFetchHosts("https://GitHub.com")).toEqual(["github.com"]);
+  });
+
   it("ignores a malformed server url", () => {
     expect(moduleFetchHosts("not a url")).toEqual(["github.com"]);
   });
