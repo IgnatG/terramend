@@ -23,6 +23,7 @@ vi.mock("#app/mcp/shared", async (importOriginal) => {
   };
 });
 
+import { TerraformAssessTool } from "#app/mcp/assess";
 import { _clearProviderSchemaCache } from "#app/mcp/providerSchema";
 import type { ToolContext } from "#app/mcp/server";
 import { changedTerraformFiles } from "#app/mcp/terraform/scanners";
@@ -401,6 +402,41 @@ describe("TerraformScanTool", () => {
 
     const tflintCalls = spawnSyncMock.mock.calls.filter((call) => call[0] === "tflint");
     expect(tflintCalls.some((call) => (call[1] as string[])[0] === "--init")).toBe(true);
+  });
+});
+
+describe("TerraformAssessTool — §1.5 toolchain transparency (read-only surface)", () => {
+  const tf = 'resource "aws_s3_bucket" "b" {\n  bucket = "x"\n}\n';
+
+  it("surfaces the licence-gated tool in tool_selection on a bare (default-gate) run", async () => {
+    const cwd = makeDir({ "main.tf": tf });
+    dispatch = scannersDispatch();
+    // toolsEnabled: undefined → the default licence gate applies (tflint off).
+    const ctx = makeCtx(cwd, { payload: { toolsEnabled: undefined } });
+
+    const result = await runTool(TerraformAssessTool(ctx));
+
+    // the assessment still produced a scorecard from the permissive scanners…
+    expect(result).toMatchObject({ ok: true, scanned_dir: cwd });
+    expect(result.scanners_ran).not.toContain("tflint");
+    // …and is honest that tflint was licence-gated off, exactly like terraform_scan.
+    expect(result.tool_selection).toMatchObject({
+      licence_gated: expect.arrayContaining(["tflint"]),
+      disabled: [],
+      unknown_tokens: [],
+    });
+  });
+
+  it("surfaces a mistyped tools_enabled token instead of silently ignoring it", async () => {
+    const cwd = makeDir({ "main.tf": tf });
+    dispatch = scannersDispatch();
+    const ctx = makeCtx(cwd, { payload: { toolsEnabled: parseToolSelection("trivy, nope") } });
+
+    const result = await runTool(TerraformAssessTool(ctx));
+
+    expect((result.tool_selection as { unknown_tokens: string[] }).unknown_tokens).toEqual([
+      "nope",
+    ]);
   });
 });
 

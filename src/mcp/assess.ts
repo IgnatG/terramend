@@ -18,7 +18,7 @@ import {
 } from "#app/mcp/terraform/verification";
 import { log } from "#app/utils/cli";
 import { resolveModuleFetchEnv } from "#app/utils/moduleFetch";
-import { resolveToolSelection } from "#app/utils/toolSelection";
+import { type ResolvedToolSelection, resolveToolSelection } from "#app/utils/toolSelection";
 
 /**
  * Assess pillar — the read-only product (roadmap pillar 3). Terramend's scanner
@@ -251,6 +251,7 @@ export function runAssessmentPipeline(
   threshold: Severity,
 ): {
   cwd: string;
+  selection: ResolvedToolSelection;
   outcomes: ScannerOutcome[];
   concerns: Concern[];
   crosswalk: CrosswalkReport;
@@ -261,8 +262,12 @@ export function runAssessmentPipeline(
   const minRank = SEVERITY_RANK[threshold];
   // §1.5 — same licence gate + module-fetch credential as terraform_scan, so a
   // gated tool (e.g. tflint) shows up as INCONCLUSIVE coverage, not a silent pass.
+  // The resolved selection is returned so the read-only/auditor surfaces can be
+  // as transparent about the toolchain (gated / disabled / mistyped tokens) as
+  // terraform_scan is — silence on the assess side would read as "fully covered".
+  const selection = resolveToolSelection(ctx.payload);
   const outcomes = runScanners(cwd, {
-    selection: resolveToolSelection(ctx.payload),
+    selection,
     terraformEnv: resolveModuleFetchEnv(ctx.payload),
   });
   const concerns = sortConcerns(dedupe(outcomes.flatMap((o) => o.concerns)))
@@ -280,7 +285,7 @@ export function runAssessmentPipeline(
   );
   const verification = buildVerificationSummary(concerns, outcomes);
   const scorecard = buildAssessment(concerns, crosswalk, verification);
-  return { cwd, outcomes, concerns, crosswalk, verification, scorecard };
+  return { cwd, selection, outcomes, concerns, crosswalk, verification, scorecard };
 }
 
 export function TerraformAssessTool(ctx: LocalToolContext) {
@@ -300,10 +305,18 @@ export function TerraformAssessTool(ctx: LocalToolContext) {
       const configured = ctx.payload.severityThreshold as Severity | undefined;
       const threshold: Severity = severity_threshold ?? configured ?? "low";
 
-      const { cwd, outcomes, scorecard } = runAssessmentPipeline(ctx, threshold);
+      const { cwd, selection, outcomes, scorecard } = runAssessmentPipeline(ctx, threshold);
       const markdown = renderAssessmentMarkdown(scorecard);
 
       const ran = outcomes.filter((o) => o.ran).map((o) => o.source);
+      // §1.5 — a mistyped tools_enabled token is otherwise silently ignored; in a
+      // read-only assessment that's a footgun (the operator thinks they configured
+      // something they didn't). Surface it the same way terraform_scan does.
+      if (selection.unknownTokens.length > 0) {
+        log.warning(
+          `» tools_enabled: ignoring unrecognised tool(s) [${selection.unknownTokens.join(", ")}]`,
+        );
+      }
       log.info(
         `» terraform_assess: ${scorecard.posture} — ${scorecard.total} concern(s) ` +
           `(${scorecard.compliance.controls_touched} control(s) across ${scorecard.compliance.frameworks.length} framework(s)) ` +
@@ -312,6 +325,14 @@ export function TerraformAssessTool(ctx: LocalToolContext) {
       return toolOk({
         scanned_dir: cwd,
         scanners_ran: ran,
+        // parity with terraform_scan: which tools were licence-gated off, which
+        // the operator disabled, and which tokens were unrecognised — so the
+        // assessment is honest about its own coverage, not silently partial.
+        tool_selection: {
+          licence_gated: selection.gated,
+          disabled: selection.disabled,
+          unknown_tokens: selection.unknownTokens,
+        },
         scorecard,
         markdown,
       });
